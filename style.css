@@ -286,6 +286,7 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   margin-bottom: 12px;
 }
 .segment {
+  position: relative;
   flex: 1;
   border: none;
   background: none;
@@ -296,6 +297,17 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   color: var(--muted);
 }
 .segment.active { background: var(--card-bg); color: var(--text); font-weight: 600; }
+.segment.has-pending::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 10%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 1.5px var(--card-bg);
+}
 
 /* ---------- Markdown rendering ---------- */
 .markdown-body h1 { font-size: 1.3rem; }
@@ -549,10 +561,9 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 
 /* ---------- Credo (Aujourd'hui, tout en haut) ---------- */
 .credo-card {
-  position: relative;
   background: linear-gradient(135deg, var(--green-light) 0%, var(--green) 60%, var(--pitch-dark) 100%);
   border-radius: var(--radius);
-  padding: 20px 44px 20px 20px;
+  padding: 20px;
   margin-bottom: 14px;
   box-shadow: var(--shadow);
 }
@@ -566,21 +577,6 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   letter-spacing: 0.01em;
   text-transform: uppercase;
 }
-.credo-edit-button {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  background: rgba(255,255,255,0.14);
-  border: none;
-  color: white;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-.credo-edit-button:active { background: var(--gold); }
-
 /* ---------- "Ajuster ma semaine" CTA (Aujourd'hui) ---------- */
 .cta-banner {
   display: flex;
@@ -668,4 +664,173 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .icon-button.small:disabled { opacity: 0.35; }
 .icon-button.small.danger { color: var(--danger); }
 .icon-button.small.danger:active { background: var(--danger); color: white; }
-.planned-hint { font-size: 0.78rem; color: var(--muted); margin-bottom: 8px; }
+
+.field-row-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 8px 0 4px;
+}
+.exercise-log-card select.f-format {
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  padding: 9px 10px;
+}
+.exercise-log-card textarea.f-format-detail { margin-bottom: 0; }
+
+.session-type-badge {
+  display: inline-block;
+  background: var(--green-pale);
+  color: var(--green-light);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.type-picker { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.type-picker .action-button { margin-bottom: 0; }
+
+/* ---------- Aujourd'hui: credo (fixe, sourcé) + gros boutons ---------- */
+.credo-source {
+  margin: 8px 0 0;
+  font-size: 0.72rem;
+  color: rgba(255,255,255,0.75);
+  font-style: italic;
+}
+
+.big-action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.big-action-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 22px 10px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform 0.1s;
+}
+.big-action-card:active { transform: scale(0.97); }
+.big-action-card.log-session { background: linear-gradient(135deg, var(--green-light), var(--green)); color: white; }
+.big-action-card.write-note { background: linear-gradient(135deg, var(--gold), #B47F2C); color: white; }
+.big-action-icon { font-size: 2rem; }
+.big-action-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.92rem;
+  text-align: center;
+  line-height: 1.25;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- Semaine : proposition en attente ---------- */
+.pending-proposal-card {
+  border: 2px solid var(--gold);
+  background: var(--gold-pale);
+}
+.pending-proposal-card .markdown-body {
+  max-height: 320px;
+  overflow-y: auto;
+  margin: 10px 0;
+  padding-right: 4px;
+}
+.proposal-actions { display: flex; gap: 10px; margin-top: 8px; }
+.proposal-actions .primary-button { flex: 1; }
+
+/* ---------- Semaine : tableau des séances de la semaine ---------- */
+.week-sessions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.week-sessions-table th {
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  padding: 0 8px 8px;
+}
+.week-sessions-table td {
+  padding: 10px 8px;
+  border-top: 1px solid var(--border);
+}
+.week-table-row { cursor: pointer; }
+.week-table-row:active { background: var(--bg); }
+
+/* ---------- Forge ---------- */
+.forge-week-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 4px 0 14px;
+}
+.forge-week-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  text-transform: capitalize;
+  min-width: 200px;
+  text-align: center;
+}
+.forge-day-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  color: var(--text);
+}
+.forge-day-tile:active { background: var(--bg); transform: scale(0.99); }
+.forge-day-name {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.forge-day-session { font-size: 0.95rem; }
+
+/* ---------- Data : sparklines, tendances, charge ---------- */
+.sparkline { display: block; width: 100%; height: auto; margin: 6px 0; }
+.trend-line { font-size: 1.3rem; font-family: var(--font-display); font-weight: 600; margin: 4px 0 0; }
+.trend-line .small { font-size: 0.75rem; font-weight: 500; display: block; margin-top: 2px; }
+.trend-up { color: var(--green-light); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
+.trend-down { color: var(--danger); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
+
+.workload-badge {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin: 2px 0 6px;
+}
+.workload-badge.zone-sous_charge { background: var(--green-pale); color: var(--green-light); }
+.workload-badge.zone-zone_optimale { background: var(--green-pale); color: var(--green-light); }
+.workload-badge.zone-zone_prudente { background: var(--gold-pale); color: #8A5F1E; }
+.workload-badge.zone-risque_eleve { background: #FBE2E2; color: var(--danger); }
+
+.markdown-body.small { font-size: 0.85rem; }

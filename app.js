@@ -85,6 +85,18 @@ async function ghPutFile(path, content, message, sha = null, retry = true) {
   return res.json();
 }
 
+/** Deletes a file via the GitHub Contents API (needs the file's current
+ * sha) — used to clear a validated/rejected plan proposal in
+ * data/plans/pending/. */
+async function ghDeleteFile(path, message, sha) {
+  const res = await ghRequest(path, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message, sha }),
+  });
+  if (!res.ok) throw new Error(`GitHub ${res.status} en supprimant ${path}`);
+}
+
 /** Read-modify-write helper for a JSON file: `mutate(currentValueOrDefault)`
  * returns the new value to write. */
 async function ghPutJSON(path, defaultValue, message, mutate) {
@@ -196,6 +208,14 @@ function skeletonHTML() {
   return tpl ? tpl.innerHTML : "";
 }
 
+function escapeAttr(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+}
+
+function escapeHtmlText(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 // ============================================================================
 // Voice input — Web Speech API (on-device dictation, same idea as the iOS
 // Shortcut's dictation step). Tap once to start, tap again to stop; the
@@ -300,7 +320,7 @@ function setupMicButton(buttonEl, hintEl, textareaEl, captionEl) {
 // Weekly plan overview — parses the plan markdown's day headers ("## Lundi
 // 21/09 — Bas du corps (...)") and its "Points de vigilance de la semaine"
 // list into structured data, for a compact day-strip + key-highlights card
-// above the full raw plan text.
+// above the full raw plan text, and to build the week's forecast table.
 // ============================================================================
 const DAY_NAMES = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"];
 const DAY_ICONS = {
@@ -394,11 +414,12 @@ function renderWeekOverview(container, markdown, todayISOStr, mondayISO) {
 }
 
 /** Splits a block markdown into a condensed "objectifs principaux" part
- * (Bloc tab) and the verbose day-by-day breakdown (its own "Séances" tab)
- * — the "## Planning détaillé, semaine par semaine" section specifically,
- * since that's this project's own convention for where per-session detail
- * lives (see data/blocks/*.md). Falls back to putting everything in the
- * overview if that heading isn't found, rather than losing content. */
+ * (Bloc tab, and the block-objectives reference shown while planning) and
+ * the verbose day-by-day breakdown — the "## Planning détaillé, semaine
+ * par semaine" section specifically, since that's this project's own
+ * convention for where per-session detail lives (see data/blocks/*.md).
+ * Falls back to putting everything in the overview if that heading isn't
+ * found, rather than losing content. */
 function splitBlockMarkdown(md) {
   const lines = md.replace(/\r\n/g, "\n").split("\n");
   const topHeadingIdx = [];
@@ -465,6 +486,31 @@ function localISOWithOffset() {
   );
 }
 
+/** ISO date `n` days after `iso` (n can be negative) — used to turn a
+ * plan's Monday (its filename) plus a day-of-week into a concrete date,
+ * and to step Forge's week picker back and forth. */
+function addDaysISO(iso, n) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
+/** The Monday (ISO) of the week containing `iso`. */
+function mondayOfWeek(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const offset = (date.getUTCDay() + 6) % 7; // days since Monday (getUTCDay: 0=Sun..6=Sat)
+  date.setUTCDate(date.getUTCDate() - offset);
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function formatFrDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+}
+
 /** Most recent entry in a directory listing whose name (minus extension)
  * is <= today — mirrors latest_digest/current_plan's file-picking. */
 async function latestFileOnOrBefore(dirPath, ext, today) {
@@ -498,11 +544,10 @@ async function allTrainingWeekLabels() {
   const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
   if (appLogDir) {
     const appFiles = await ghListDir("data/training/app-log");
-    for (const f of appFiles.filter((e) => e.type === "file" && e.name.endsWith(".json"))) {
-      const file = await ghGetFile(f.path);
-      if (file) {
-        try { labels.push(JSON.parse(file.content).week_label); } catch (_) { /* ignore malformed file */ }
-      }
+    const files = await Promise.all(appFiles.filter((e) => e.type === "file" && e.name.endsWith(".json")).map((e) => ghGetFile(e.path)));
+    for (const file of files) {
+      if (!file) continue;
+      try { labels.push(JSON.parse(file.content).week_label); } catch (_) { /* ignore malformed file */ }
     }
   }
   return labels;
@@ -511,9 +556,8 @@ async function allTrainingWeekLabels() {
 /** {weekLabel, path, week, session} for the session dated `date`, found
  * across data/training/ (top-level) then data/training/app-log/, or null.
  * Also returns a best-guess weekLabel (most recent file's label) for
- * logging a brand-new session when nothing is dated `date` yet. Used both
- * for today's quick-log flow and for opening any past/future date from the
- * week day-strip or Historique. */
+ * logging a brand-new session when nothing is dated `date` yet. Used for
+ * today's quick-log flow, Forge, the week day-strip and Historique. */
 async function findSessionForDate(date) {
   const top = await ghListDir("data/training");
   const jsonFiles = top.filter((e) => e.type === "file" && e.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name));
@@ -535,49 +579,50 @@ async function findSessionForDate(date) {
 
 /** All sessions across data/training/ (Sheets-synced) and
  * data/training/app-log/ (app edits — win on a same-date collision),
- * newest first. Powers "Séances précédentes" in Historique. */
+ * newest first. Powers "Séances précédentes" in Historique and the
+ * "dupliquer une séance récente" prefill picker. Fetches every week file
+ * in parallel (not one await at a time) — with a season's worth of
+ * history this was the main reason Historique used to feel slow/stuck. */
 async function listAllSessions() {
   const top = await ghListDir("data/training");
   const jsonFiles = top.filter((e) => e.type === "file" && e.name.endsWith(".json"));
   const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
   const appFiles = appLogDir ? (await ghListDir("data/training/app-log")).filter((e) => e.type === "file" && e.name.endsWith(".json")) : [];
 
+  const files = await Promise.all([...jsonFiles, ...appFiles].map((e) => ghGetFile(e.path)));
+
   const byDate = new Map();
-  for (const entry of [...jsonFiles, ...appFiles]) {
-    const file = await ghGetFile(entry.path);
+  for (const file of files) {
     if (!file) continue;
     let week;
     try { week = JSON.parse(file.content); } catch (_) { continue; }
-    for (const s of week.sessions || []) byDate.set(s.date, { date: s.date, name: s.name, weekLabel: week.week_label });
+    for (const s of week.sessions || []) byDate.set(s.date, { date: s.date, name: s.name, type: s.type, weekLabel: week.week_label });
   }
   return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
-}
-
-/** ISO date `n` days after `iso` (n can be negative) — used to turn a
- * plan's Monday (its filename) plus a day-of-week into a concrete date,
- * so the week day-strip can link straight into that day's session. */
-function addDaysISO(iso, n) {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + n);
-  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
-}
-
-function formatFrDate(iso) {
-  const [y, m, d] = iso.split("-").map(Number);
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 }
 
 // ============================================================================
 // App state / navigation
 // ============================================================================
-const state = { view: "today", weekSubTab: "planning", sessionDate: null };
+const state = { view: "today", weekSubTab: "planning", sessionDate: null, forgeMonday: null };
+
+// Bumped on every navigation; each async render function captures it and
+// checks `stale(token)` after an await before touching the DOM. Without
+// this, an async render that resolves after the user has already
+// navigated away writes into elements that either no longer exist
+// (`document.getElementById` returns null → "null is not an object"
+// crash, injected as stray red text into whatever view is now showing) or
+// are detached (silently invisible, e.g. a stuck-looking Historique).
+let renderToken = 0;
+function stale(token) {
+  return token !== renderToken;
+}
 
 const views = {
   today: { title: "Aujourd'hui", render: renderToday },
   week: { title: "Semaine", render: renderWeek },
-  progress: { title: "Progression", render: renderProgress },
+  forge: { title: "Forge", render: renderForge },
+  data: { title: "Data", render: renderData },
   chat: { title: "Coach", render: renderChat },
   session: { title: "Séance", render: renderSession },
   "write-note": { title: "Nouvelle note", render: renderWriteNote },
@@ -585,11 +630,13 @@ const views = {
 };
 
 /** `params.date` (ISO) targets the "session" view at an arbitrary date —
- * set from the Aujourd'hui quick action (today), a day-strip card, or a
- * Historique entry (past date). renderSession overwrites the topbar title
- * itself once it knows the date, so the generic title below is just the
- * instant placeholder while it loads. */
+ * set from the Aujourd'hui quick action (today), a day-strip/Forge/
+ * Historique tile. renderSession overwrites the topbar title itself once
+ * it knows the date, so the generic title below is just the instant
+ * placeholder while it loads. */
 function showView(name, params = {}) {
+  renderToken += 1;
+  const token = renderToken;
   state.view = name;
   if (params.date) state.sessionDate = params.date;
   document.getElementById("topbar-title").textContent = views[name].title;
@@ -601,7 +648,8 @@ function showView(name, params = {}) {
   const tplId = "tpl-" + name;
   const tpl = document.getElementById(tplId);
   if (tpl) content.appendChild(tpl.content.cloneNode(true));
-  views[name].render().catch((err) => {
+  views[name].render(token).catch((err) => {
+    if (stale(token)) return; // navigated on already — don't inject a stray error into whatever's showing now
     content.insertAdjacentHTML("afterbegin", `<p class="error-text">${err.message}</p>`);
   });
 }
@@ -617,28 +665,50 @@ document.getElementById("refresh-button").addEventListener("click", (e) => {
 });
 
 // ============================================================================
-// Credo — a short personal motto shown big at the top of Aujourd'hui. No
-// server round-trip: it's purely per-device (localStorage), tap the pencil
-// to change it, same trust model as the token itself.
+// Credo — a short motto shown big at the top of Aujourd'hui. Fixed, real,
+// sourced quotes (not user-editable — see conversation) picked for the
+// rugby/return-from-injury/discipline theme, rotating one per day so it
+// stays a little alive without any moving parts. Kept short deliberately:
+// popular "inspirational quotes" are frequently misattributed online, so
+// this list only has ones with a real, checkable source.
 // ============================================================================
-const DEFAULT_CREDO = "TROISIÈME LIGNE. CHAQUE SÉANCE COMPTE POUR REVENIR PLUS FORT.";
-const CREDO_KEY = "coach_credo";
+const CREDO_QUOTES = [
+  {
+    text: "Le sport a le pouvoir de changer le monde. Il a le pouvoir d'inspirer. Il a le pouvoir de rassembler les gens comme peu de choses le peuvent.",
+    author: "Nelson Mandela",
+    source: "discours aux Laureus World Sports Awards, 2000",
+  },
+  {
+    text: "Ce n'est pas d'être terrassé qui compte, c'est de se relever.",
+    author: "Vince Lombardi",
+  },
+  {
+    text: "Ce n'est pas parce que les choses sont difficiles que nous n'osons pas ; c'est parce que nous n'osons pas qu'elles sont difficiles.",
+    author: "Sénèque",
+    source: "Lettres à Lucilius",
+  },
+  {
+    text: "La discipline est le pont entre les objectifs et leur accomplissement.",
+    author: "Jim Rohn",
+  },
+];
 
-function getCredo() {
-  try { return localStorage.getItem(CREDO_KEY) || DEFAULT_CREDO; } catch (_) { return DEFAULT_CREDO; }
+function dayOfYear(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return Math.floor((Date.UTC(y, m - 1, d) - Date.UTC(y, 0, 1)) / 86400000);
+}
+
+function credoOfTheDay() {
+  return CREDO_QUOTES[dayOfYear(todayISO()) % CREDO_QUOTES.length];
 }
 
 function setupCredo() {
   const textEl = document.getElementById("credo-text");
+  const sourceEl = document.getElementById("credo-source");
   if (!textEl) return;
-  textEl.textContent = getCredo();
-  document.getElementById("credo-edit").addEventListener("click", () => {
-    const next = window.prompt("Ton credo (affiché en haut de l'app) :", getCredo());
-    if (next === null) return;
-    const trimmed = next.trim();
-    try { localStorage.setItem(CREDO_KEY, trimmed || DEFAULT_CREDO); } catch (_) { /* ignore */ }
-    textEl.textContent = trimmed || DEFAULT_CREDO;
-  });
+  const q = credoOfTheDay();
+  textEl.textContent = q.text;
+  if (sourceEl) sourceEl.textContent = `— ${q.author}${q.source ? ` (${q.source})` : ""}`;
 }
 
 /** Triggers a GitHub Actions workflow_dispatch — used by the "Nouveau
@@ -664,10 +734,28 @@ async function ghDispatchWorkflow(fileName, ref = "main") {
   }
 }
 
+/** Shared "🎯 Objectifs du bloc en cours" collapsible reference, used both
+ * in the session view (musculation planning) and in Forge — condensed
+ * block overview only (see splitBlockMarkdown), loaded once per toggle. */
+function bindBlockReferenceToggle(toggleEl, boxEl) {
+  if (!toggleEl || !boxEl) return;
+  toggleEl.addEventListener("click", async () => {
+    boxEl.hidden = !boxEl.hidden;
+    if (boxEl.hidden || boxEl.dataset.loaded) return;
+    boxEl.innerHTML = skeletonHTML();
+    const blockLabel = await currentBlockLabel();
+    const blockFile = blockLabel ? await ghGetFile(`data/blocks/${blockLabel}.md`) : null;
+    boxEl.innerHTML = blockFile
+      ? renderMarkdown(splitBlockMarkdown(blockFile.content).overview)
+      : "<p class='muted small'>Pas de bloc en cours.</p>";
+    boxEl.dataset.loaded = "1";
+  });
+}
+
 // ============================================================================
 // Views
 // ============================================================================
-async function renderToday() {
+async function renderToday(token) {
   setupCredo();
 
   document.getElementById("adjust-week-cta").addEventListener("click", () => showView("adjust-week"));
@@ -696,6 +784,7 @@ async function renderToday() {
 
   document.getElementById("today-digest-content").innerHTML = skeletonHTML();
   const digest = await latestFileOnOrBefore("data/digests", ".md", todayISO());
+  if (stale(token)) return;
   document.getElementById("today-digest-date").textContent = digest ? `Digest du ${digest.date}` : "Digest";
   document.getElementById("today-digest-content").innerHTML = digest
     ? renderDigestSections(digest.content)
@@ -707,20 +796,21 @@ async function listPlans() {
   return entries.map((e) => ({ date: e.name.slice(0, -3), path: e.path })).sort((a, b) => b.date.localeCompare(a.date));
 }
 
-async function renderWeek() {
+// ---- Semaine : Planning (+ proposition en attente), Bloc, Séances, Historique ----
+async function renderWeek(token) {
   const tabs = document.querySelectorAll("#week-tabs .segment");
   const planningPanel = document.getElementById("week-planning-panel");
   const blockPanel = document.getElementById("week-block-content");
-  const blockDetailPanel = document.getElementById("week-block-detail-content");
+  const sessionsPanel = document.getElementById("week-sessions-content");
   const historyPanel = document.getElementById("week-history-panel");
 
   const applyTab = () => {
     tabs.forEach((t) => t.classList.toggle("active", t.dataset.weekTab === state.weekSubTab));
     planningPanel.hidden = state.weekSubTab !== "planning";
     blockPanel.hidden = state.weekSubTab !== "block";
-    blockDetailPanel.hidden = state.weekSubTab !== "block-detail";
+    sessionsPanel.hidden = state.weekSubTab !== "sessions";
     historyPanel.hidden = state.weekSubTab !== "history";
-    if (state.weekSubTab === "history") loadPlanHistory();
+    if (state.weekSubTab === "history") loadPlanHistory(token);
   };
   tabs.forEach((t) => t.addEventListener("click", () => { state.weekSubTab = t.dataset.weekTab; applyTab(); }));
   applyTab();
@@ -729,45 +819,164 @@ async function renderWeek() {
 
   document.getElementById("week-overview").innerHTML = skeletonHTML();
   document.getElementById("week-planning-content").innerHTML = skeletonHTML();
+  document.getElementById("pending-proposal").innerHTML = "";
   const plan = await latestFileOnOrBefore("data/plans", ".md", todayISO());
+  if (stale(token)) return;
+
+  let planDays = [];
   if (plan) {
     renderWeekOverview(document.getElementById("week-overview"), plan.content, todayISO(), plan.date);
     document.getElementById("week-planning-content").innerHTML = renderMarkdown(plan.content);
+    planDays = parseWeekOverview(plan.content).days;
   } else {
     document.getElementById("week-overview").innerHTML = "";
     document.getElementById("week-planning-content").innerHTML = "<p class='muted'>Pas de planning disponible.</p>";
   }
+  loadPendingProposal(token).catch(() => {});
+  renderWeekSessionsTable(token, plan ? plan.date : null, planDays).catch(() => {});
 
   const blockContentEl = blockPanel.querySelector(".markdown-body");
-  const blockDetailEl = blockDetailPanel.querySelector(".markdown-body");
   blockContentEl.innerHTML = skeletonHTML();
-  blockDetailEl.innerHTML = skeletonHTML();
   const blockLabel = await currentBlockLabel();
+  if (stale(token)) return;
   if (blockLabel) {
     const blockFile = await ghGetFile(`data/blocks/${blockLabel}.md`);
-    if (blockFile) {
-      const { overview, detail } = splitBlockMarkdown(blockFile.content);
-      blockContentEl.innerHTML = renderMarkdown(overview);
-      blockDetailEl.innerHTML = detail ? renderMarkdown(detail) : "<p class='muted'>Pas de détail séance par séance pour ce bloc.</p>";
-    } else {
-      blockContentEl.innerHTML = "<p class='muted'>Pas de fichier de bloc.</p>";
-      blockDetailEl.innerHTML = "<p class='muted'>Pas de fichier de bloc.</p>";
-    }
+    if (stale(token)) return;
+    blockContentEl.innerHTML = blockFile
+      ? renderMarkdown(splitBlockMarkdown(blockFile.content).overview)
+      : "<p class='muted'>Pas de fichier de bloc.</p>";
   } else {
     blockContentEl.innerHTML = "<p class='muted'>Pas de bloc en cours.</p>";
-    blockDetailEl.innerHTML = "<p class='muted'>Pas de bloc en cours.</p>";
   }
 }
 
-async function loadPlanHistory() {
-  await Promise.all([loadPlanHistoryList(), loadSessionHistoryList()]);
+/** "Séances" tab — a compact forecast/actual table for the week currently
+ * shown in Planning (one row per day: what's planned, what's actually
+ * logged), replacing what used to be a raw dump of the block's own
+ * week-by-week draft — the block's draft can drift from the real plan/log
+ * once either is adjusted, and duplicated the day-strip above it. */
+async function renderWeekSessionsTable(token, mondayISO, planDays) {
+  const el = document.getElementById("week-sessions-content");
+  el.innerHTML = skeletonHTML();
+  if (!mondayISO) { el.innerHTML = "<p class='muted'>Pas de planning disponible pour cette semaine.</p>"; return; }
+
+  const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(mondayISO, i));
+  const founds = await Promise.all(dates.map((d) => findSessionForDate(d)));
+  if (stale(token)) return;
+
+  const today = todayISO();
+  const rows = dates
+    .map((date, i) => {
+      const planDay = planDays.find((d) => DAY_NAMES.indexOf(d.day) === i);
+      const plannedLabel = planDay ? planDay.title : "—";
+      const session = founds[i].session;
+      const hasExecuted = !!session && (
+        (session.type && session.type !== "musculation" && session.notes) ||
+        (session.exercises || []).some((ex) => ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load))
+      );
+      let status;
+      if (hasExecuted) status = "✅ Fait";
+      else if (date > today) status = session ? "📝 Planifié" : "⏳ À venir";
+      else if (session) status = "📝 Planifié";
+      else status = "— Non loggé";
+      return `
+        <tr class="week-table-row" data-date="${date}">
+          <td>${DAY_NAMES[i].slice(0, 3)} ${date.slice(8, 10)}/${date.slice(5, 7)}</td>
+          <td>${escapeHtmlText(plannedLabel)}</td>
+          <td>${status}</td>
+        </tr>`;
+    })
+    .join("");
+
+  el.innerHTML = `
+    <table class="week-sessions-table">
+      <thead><tr><th>Jour</th><th>Prévu</th><th>Statut</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  el.querySelectorAll(".week-table-row").forEach((tr) => {
+    tr.addEventListener("click", () => showView("session", { date: tr.dataset.date }));
+  });
 }
 
-async function loadPlanHistoryList() {
+/** A plan adjustment requested from the app (chat or "Ajuster ma semaine")
+ * is never applied directly by the coach — it's written to
+ * data/plans/pending/<lundi>.md and shown here for an explicit
+ * Valider/Refuser, per prompts/weekly-plan.md's app-triggered branch and
+ * docs/adr/0018/0019. Only the oldest pending file is shown at a time
+ * (there should never realistically be more than one). */
+async function loadPendingProposal(token) {
+  const box = document.getElementById("pending-proposal");
+  // Surfaced as a badge on the Planning tab too — a pending proposal must
+  // never go unnoticed just because Historique/Bloc happened to be the
+  // sub-tab left active from a previous visit to Semaine.
+  const planningTab = document.querySelector('#week-tabs .segment[data-week-tab="planning"]');
+  const entries = await ghListDir("data/plans/pending");
+  if (stale(token)) return;
+  const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".md")).sort((a, b) => a.name.localeCompare(b.name));
+  if (files.length === 0) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
+
+  const target = files[0];
+  const file = await ghGetFile(target.path);
+  if (stale(token)) return;
+  if (!file) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
+  if (planningTab) planningTab.classList.add("has-pending");
+
+  const monday = target.name.slice(0, -3);
+  box.innerHTML = `
+    <section class="card pending-proposal-card">
+      <h2>🗒️ Proposition du coach — à valider</h2>
+      <p class="muted small">Semaine du ${monday}</p>
+      <div class="markdown-body">${renderMarkdown(file.content)}</div>
+      <div class="proposal-actions">
+        <button type="button" id="proposal-reject" class="primary-button ghost small">❌ Refuser</button>
+        <button type="button" id="proposal-accept" class="primary-button small">✅ Valider</button>
+      </div>
+      <p id="proposal-status" class="muted small"></p>
+    </section>`;
+
+  document.getElementById("proposal-accept").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("proposal-status");
+    btn.disabled = true;
+    statusEl.textContent = "Application…";
+    try {
+      const targetPath = `data/plans/${target.name}`;
+      const targetCurrent = await ghGetFile(targetPath);
+      await ghPutFile(targetPath, file.content, `Planning semaine du ${monday} (validé depuis l'app)`, targetCurrent ? targetCurrent.sha : null);
+      await ghDeleteFile(target.path, `Proposition validée : ${target.name}`, file.sha);
+      statusEl.textContent = "Validé ✓";
+      renderWeek(renderToken);
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById("proposal-reject").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("proposal-status");
+    btn.disabled = true;
+    statusEl.textContent = "Suppression…";
+    try {
+      await ghDeleteFile(target.path, `Proposition refusée : ${target.name}`, file.sha);
+      box.innerHTML = "";
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
+    }
+  });
+}
+
+async function loadPlanHistory(token) {
+  await Promise.all([loadPlanHistoryList(token), loadSessionHistoryList(token)]);
+}
+
+async function loadPlanHistoryList(token) {
   const container = document.getElementById("history-plans-list");
   if (container.dataset.loaded) return;
   container.innerHTML = skeletonHTML();
   const plans = await listPlans();
+  if (stale(token)) return;
   if (plans.length === 0) { container.innerHTML = "<p class='muted small'>Pas encore de planning archivé.</p>"; return; }
   container.innerHTML = plans
     .map((p, i) => `
@@ -796,25 +1005,26 @@ async function loadPlanHistoryList() {
   });
 }
 
-async function loadSessionHistoryList(limit = 10) {
+async function loadSessionHistoryList(token, limit = 10) {
   const container = document.getElementById("history-sessions-list");
   if (container.dataset.loaded && +container.dataset.limit >= limit) return;
   container.innerHTML = skeletonHTML();
   const sessions = await listAllSessions();
+  if (stale(token)) return;
   const shown = sessions.slice(0, limit);
   if (shown.length === 0) { container.innerHTML = "<p class='muted small'>Pas encore de séance loguée.</p>"; return; }
   container.innerHTML = shown
     .map((s) => `
       <button class="history-item" data-date="${s.date}">
         <div class="history-date">${formatFrDate(s.date)}</div>
-        <div class="history-sub">${s.name || "Séance"}</div>
+        <div class="history-sub">${escapeHtmlText(s.name || "Séance")}</div>
       </button>`)
     .join("");
   if (sessions.length > shown.length) {
     container.insertAdjacentHTML("beforeend", `<button class="details-toggle" id="sessions-see-more">Voir plus (${sessions.length - shown.length})</button>`);
     document.getElementById("sessions-see-more").addEventListener("click", () => {
       container.dataset.loaded = "";
-      loadSessionHistoryList(limit + 15);
+      loadSessionHistoryList(renderToken, limit + 15);
     });
   }
   container.dataset.loaded = "1";
@@ -824,6 +1034,50 @@ async function loadSessionHistoryList(limit = 10) {
   });
 }
 
+// ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
+async function renderForge(token) {
+  if (!state.forgeMonday) state.forgeMonday = addDaysISO(mondayOfWeek(todayISO()), 7);
+
+  document.getElementById("forge-prev-week").addEventListener("click", () => {
+    state.forgeMonday = addDaysISO(state.forgeMonday, -7);
+    renderForgeContent(renderToken).catch(() => {});
+  });
+  document.getElementById("forge-next-week").addEventListener("click", () => {
+    state.forgeMonday = addDaysISO(state.forgeMonday, 7);
+    renderForgeContent(renderToken).catch(() => {});
+  });
+  bindBlockReferenceToggle(document.getElementById("forge-block-toggle"), document.getElementById("forge-block-content"));
+
+  await renderForgeContent(token);
+}
+
+async function renderForgeContent(token) {
+  const monday = state.forgeMonday;
+  document.getElementById("forge-week-label").textContent = `Semaine du ${formatFrDate(monday)}`;
+  document.getElementById("forge-days").innerHTML = skeletonHTML();
+
+  const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
+  const founds = await Promise.all(dates.map((d) => findSessionForDate(d)));
+  if (stale(token)) return;
+
+  document.getElementById("forge-days").innerHTML = dates
+    .map((date, i) => {
+      const session = founds[i].session;
+      const type = session ? session.type || "musculation" : null;
+      const label = session ? `${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : "🏋️"} ${session.name || "Séance"}` : "Aucune séance planifiée";
+      return `
+        <button type="button" class="forge-day-tile" data-date="${date}">
+          <div class="forge-day-name">${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
+          <div class="forge-day-session">${escapeHtmlText(label)}</div>
+        </button>`;
+    })
+    .join("");
+  document.getElementById("forge-days").querySelectorAll(".forge-day-tile").forEach((btn) => {
+    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
+  });
+}
+
+// ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
 const RING_RADIUS = 38;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
@@ -851,19 +1105,50 @@ function statTile(label, current, unit, fraction, help) {
     </div>`;
 }
 
-async function renderProgress() {
-  const el = document.getElementById("progress-content");
+/** Minimal inline-SVG line sparkline — no charting dependency. `points`:
+ * [{date, value}] ascending. Uses the app's own CSS custom properties so
+ * it matches the rest of the palette automatically, light or dark. */
+function sparklineSVG(points) {
+  const w = 280, h = 60, pad = 6;
+  if (points.length < 2) return "";
+  const values = points.map((p) => p.value);
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const stepX = (w - pad * 2) / (points.length - 1);
+  const coords = points.map((p, i) => [
+    pad + i * stepX,
+    pad + (h - pad * 2) * (1 - (p.value - min) / range),
+  ]);
+  const path = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const [lastX, lastY] = coords[coords.length - 1];
+  return `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="sparkline" preserveAspectRatio="none">
+      <path d="${path}" fill="none" stroke="var(--green-light)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${lastX}" cy="${lastY}" r="4" fill="var(--gold)"/>
+    </svg>`;
+}
+
+const WORKLOAD_ZONE_LABELS = {
+  sous_charge: "Sous-charge",
+  zone_optimale: "Zone optimale",
+  zone_prudente: "Zone prudente",
+  risque_eleve: "Risque élevé",
+};
+
+async function renderData(token) {
+  const el = document.getElementById("data-content");
   el.innerHTML = skeletonHTML();
   const file = await ghGetFile("data/app/summary.json");
+  if (stale(token)) return;
   if (!file) { el.innerHTML = "<p class='muted'>Pas encore de résumé exporté.</p>"; return; }
   const s = JSON.parse(file.content);
-  let tiles = "";
+  let html = "";
 
+  let tiles = "";
   if (s.bodyweight_progress) {
     const bp = s.bodyweight_progress;
     tiles += statTile("Poids de corps", bp.current_kg, " kg", bp.fraction, `Objectif ${bp.target_kg} kg`);
   }
-
   const liftLabels = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar Deadlift" };
   for (const [key, label] of Object.entries(liftLabels)) {
     const entry = s.strength_trajectory && s.strength_trajectory[key];
@@ -877,15 +1162,64 @@ async function renderProgress() {
       entry.target ? `Cible 4RM : ${entry.target.four_rm.toFixed(1)} kg` : "Pas de cible calculable"
     );
   }
+  if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
 
-  let html = tiles ? `<div class="stat-grid">${tiles}</div>` : "";
+  const bw = s.bodyweight_recent && s.bodyweight_recent.history;
+  if (bw && bw.length > 1) {
+    const first = bw[0].weight_kg, last = bw[bw.length - 1].weight_kg;
+    const delta = last - first;
+    const days = Math.max(1, (new Date(bw[bw.length - 1].date) - new Date(bw[0].date)) / 86400000);
+    const perWeek = (delta / days) * 7;
+    html += `
+      <section class="card">
+        <h2>⚖️ Poids de corps (${bw.length} derniers points)</h2>
+        ${sparklineSVG(bw.map((h) => ({ date: h.date, value: h.weight_kg })))}
+        <p class="trend-line">${last.toFixed(1)} kg
+          <span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg</span>
+          sur la période <span class="muted small">(~${perWeek >= 0 ? "+" : ""}${perWeek.toFixed(2)} kg/semaine)</span>
+        </p>
+      </section>`;
+  } else if (bw && bw.length === 1) {
+    html += `<section class="card"><h2>⚖️ Poids de corps</h2><p class="trend-line">${bw[0].weight_kg.toFixed(1)} kg</p></section>`;
+  }
+
+  if (s.sleep_recent) {
+    const sr = s.sleep_recent;
+    const hist = sr.history || [];
+    const delta = sr.avg_7d != null && sr.avg_prior_7d != null ? sr.avg_7d - sr.avg_prior_7d : null;
+    html += `
+      <section class="card">
+        <h2>😴 Sommeil</h2>
+        ${hist.length > 1 ? sparklineSVG(hist.map((h) => ({ date: h.date, value: h.hours }))) : ""}
+        <p class="trend-line">
+          ${sr.avg_7d != null ? `${sr.avg_7d.toFixed(1)} h/nuit <span class="muted small">(moy. 7j)</span>` : "Pas assez de données"}
+          ${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} h vs semaine précédente</span>` : ""}
+        </p>
+      </section>`;
+  }
+
+  if (s.workload) {
+    const w = s.workload;
+    html += `
+      <section class="card">
+        <h2>⚙️ Charge aiguë:chronique</h2>
+        <p class="workload-badge zone-${w.zone}">${WORKLOAD_ZONE_LABELS[w.zone] || w.zone}</p>
+        <p class="muted small">Ratio ${w.ratio.toFixed(2)} — charge des 7 derniers jours vs moyenne des 4 dernières semaines (RPE × durée de séance).</p>
+      </section>`;
+  } else {
+    html += `
+      <section class="card">
+        <h2>⚙️ Charge aiguë:chronique</h2>
+        <p class="muted small">Pas encore assez d'historique de charge — renseigne le RPE et la durée à chaque séance loguée (voir Loguer la séance) : il faut environ 4 semaines de suivi régulier avant un premier calcul fiable.</p>
+      </section>`;
+  }
 
   if (s.upcoming_matches && s.upcoming_matches.length) {
-    html += "<h2>🏆 Calendrier</h2><ul>";
+    html += "<section class='card'><h2>🏆 Calendrier</h2><ul>";
     for (const m of s.upcoming_matches) {
       html += `<li>${m.date} — ${m.opponent} (${m.home_away}) ${m.user_is_playing ? "" : "· tu ne joues pas encore"}</li>`;
     }
-    html += "</ul>";
+    html += "</ul></section>";
   }
 
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
@@ -895,8 +1229,10 @@ async function renderProgress() {
 let chatPollTimer = null;
 
 /** Appends a user turn to the shared chat log — used by the Coach tab and
- * by "Ajuster ma semaine" (prompts/app-chat.md already routes planning
- * requests to prompts/weekly-plan.md and posts the result back here). */
+ * by "Ajuster ma semaine" (prompts/app-chat.md routes planning requests to
+ * prompts/weekly-plan.md, which writes a proposal to data/plans/pending/
+ * for the app to show — see loadPendingProposal — rather than applying it
+ * directly, see docs/adr/0018). */
 async function postUserMessage(text) {
   return ghPutJSON(
     "data/app-chat/conversation.json",
@@ -906,8 +1242,8 @@ async function postUserMessage(text) {
   );
 }
 
-async function renderChat() {
-  await refreshChatLog();
+async function renderChat(token) {
+  await refreshChatLog(token);
   const form = document.getElementById("chat-form");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -941,8 +1277,9 @@ function appendChatBubble(text, role) {
   log.scrollTop = log.scrollHeight;
 }
 
-async function refreshChatLog() {
+async function refreshChatLog(token) {
   const file = await ghGetFile("data/app-chat/conversation.json");
+  if (token != null && stale(token)) return;
   const log = document.getElementById("chat-log");
   if (!log) return;
   const conv = file ? JSON.parse(file.content) : [];
@@ -963,17 +1300,40 @@ function startChatPolling() {
   chatPollTimer = setInterval(() => { if (state.view === "chat") refreshChatLog(); }, 15000);
 }
 
-// ---- Session detail: view/log/edit any date's session ----
-// Reachable from Aujourd'hui ("Loguer la séance", today), a day-strip card
-// in Semaine (any day of the current week), or a Historique entry (any
-// past date). Exercises can be reordered, added, removed and renamed, not
-// just filled in — see docs/adr/0018. `sessionWorking` holds the in-memory
-// copy being edited; nothing is written to GitHub until "Enregistrer".
+// ============================================================================
+// Session detail : voir/loguer/planifier n'importe quelle date
+// ============================================================================
+// Reachable from Aujourd'hui ("Loguer la séance", aujourd'hui), un jour du
+// day-strip Semaine, une case de Forge (n'importe quelle semaine), ou une
+// entrée d'Historique. `sessionWorking` est la copie en mémoire éditée —
+// rien n'est écrit sur GitHub avant "Enregistrer la séance". Trois types
+// de séance (session.type) : musculation (exercices structurés,
+// réordonnables, formats AMRAP/For Time/EMOM/superset/etc. — voir
+// EXERCISE_FORMATS), rugby et autre (course, rando...) qui se résument à
+// une simple description libre, volontairement peu contraignante — voir
+// docs/adr/0018.
 let sessionWorking = null;
+
+const SESSION_TYPES = {
+  musculation: { label: "Musculation", icon: "🏋️" },
+  rugby: { label: "Rugby / Match", icon: "🏉" },
+  autre: { label: "Autre (course, rando...)", icon: "🏃" },
+};
+
+const EXERCISE_FORMATS = {
+  standard: "Standard",
+  superset: "Superset (lié au précédent)",
+  amrap: "AMRAP",
+  for_time: "For Time",
+  emom: "EMOM",
+  circuit: "Circuit",
+  other: "Autre format",
+};
 
 function blankExercise() {
   return {
     name: "Nouvel exercice",
+    format: "standard",
     planned: { sets: null, reps: null, load: null },
     executed: { sets: null, reps: null, load: null },
     rir: null,
@@ -982,12 +1342,26 @@ function blankExercise() {
   };
 }
 
-async function renderSession() {
+function blankSession(date, type) {
+  return {
+    name: SESSION_TYPES[type].label,
+    date,
+    type,
+    exercises: type === "musculation" ? [blankExercise()] : [],
+    notes: "",
+    session_rpe: null,
+    session_duration_min: null,
+    distance_km: type === "autre" ? null : undefined,
+  };
+}
+
+async function renderSession(token) {
   const date = state.sessionDate || todayISO();
   document.getElementById("topbar-title").textContent = `Séance — ${formatFrDate(date)}`;
   document.getElementById("session-content").innerHTML = skeletonHTML();
 
   const found = await findSessionForDate(date);
+  if (stale(token)) return;
   sessionWorking = {
     weekLabel: found.weekLabel || "app",
     date,
@@ -1004,80 +1378,180 @@ function renderSessionContent() {
     el.innerHTML = `
       <section class="card">
         <p class="muted">Pas de séance enregistrée pour le ${formatFrDate(date)}.</p>
-        <label>Nom de la séance</label>
-        <input id="session-name-input" value="Séance">
-        <button id="session-create" class="primary-button">Créer la séance</button>
+        <p class="muted small">Quel type de séance ?</p>
+        <div class="type-picker">
+          ${Object.entries(SESSION_TYPES)
+            .map(([key, t]) => `<button type="button" class="action-button" data-type="${key}"><span class="action-icon">${t.icon}</span>${t.label}</button>`)
+            .join("")}
+        </div>
       </section>`;
-    document.getElementById("session-create").addEventListener("click", () => {
-      const name = document.getElementById("session-name-input").value.trim() || "Séance";
-      sessionWorking.session = { name, date, exercises: [blankExercise()], notes: "Créée depuis l'app." };
-      renderSessionContent();
+    el.querySelectorAll(".type-picker [data-type]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        sessionWorking.session = blankSession(date, btn.dataset.type);
+        renderSessionContent();
+      });
     });
     return;
   }
 
-  const exercises = session.exercises || [];
+  const type = session.type || "musculation";
   el.innerHTML = `
     <section class="card">
+      <div class="session-type-badge">${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${SESSION_TYPES[type] ? SESSION_TYPES[type].label : type}</div>
       <label>Nom de la séance</label>
-      <input id="session-name-input" value="${(session.name || "Séance").replace(/"/g, "&quot;")}">
+      <input id="session-name-input" value="${escapeAttr(session.name || "Séance")}">
     </section>
-    <div id="exercise-list">${exercises.map((ex, idx) => exerciseCardHTML(ex, idx, exercises.length)).join("")}</div>
-    <button type="button" id="add-exercise" class="primary-button ghost small" style="margin-bottom:14px">+ Ajouter un exercice</button>
+    ${type === "musculation" ? musculationBodyHTML(session) : ""}
+    <section class="card">
+      <label>${notesLabelFor(type)}</label>
+      <textarea id="session-notes" rows="${type === "musculation" ? 3 : 5}" placeholder="${escapeAttr(notesPlaceholderFor(type))}">${escapeHtmlText(session.notes || "")}</textarea>
+      ${type === "autre" ? `<label>Distance (km, facultatif)</label><input type="text" id="session-distance" value="${escapeAttr(session.distance_km ?? "")}">` : ""}
+    </section>
+    ${workloadSectionHTML(session)}
     <button id="save-session" class="primary-button">Enregistrer la séance</button>
     <p id="session-status" class="muted small"></p>`;
 
   bindSessionContentEvents();
 }
 
+function notesLabelFor(type) {
+  if (type === "rugby") return "Comment ça s'est passé ? (facultatif)";
+  if (type === "autre") return "Description (facultatif)";
+  return "📝 Note de séance (facultatif — ex. \"volume réduit, épaule un peu sensible\")";
+}
+function notesPlaceholderFor(type) {
+  if (type === "rugby") return "Ressenti, intensité, contact, fatigue...";
+  if (type === "autre") return "Où, combien de temps, ressenti...";
+  return "";
+}
+
+function musculationBodyHTML(session) {
+  const exercises = session.exercises || [];
+  return `
+    <section class="card">
+      <button type="button" id="toggle-block-ref" class="details-toggle">🎯 Objectifs du bloc en cours</button>
+      <div id="block-ref-content" class="markdown-body small" hidden></div>
+    </section>
+    <section class="card">
+      <button type="button" id="prefill-button" class="primary-button ghost small">🔁 Dupliquer une séance récente</button>
+      <div id="prefill-picker" hidden></div>
+    </section>
+    <div id="exercise-list">${exercises.map((ex, idx) => exerciseCardHTML(ex, idx, exercises.length)).join("")}</div>
+    <button type="button" id="add-exercise" class="primary-button ghost small" style="margin-bottom:14px">+ Ajouter un exercice</button>`;
+}
+
 function exerciseCardHTML(ex, idx, total) {
+  const format = ex.format || "standard";
+  const isFreeform = !["standard", "superset"].includes(format);
   const planned = ex.planned || {};
-  const plannedHint = planned.sets || planned.reps || planned.load
-    ? `<div class="planned-hint">Prévu : ${planned.sets ?? "?"}×${planned.reps ?? "?"} ${planned.load ?? ""}</div>`
-    : "";
+  const executed = ex.executed || {};
   return `
     <div class="exercise-log-card" data-idx="${idx}">
       <div class="exercise-log-head">
-        <input type="text" class="f-name" value="${(ex.name || "").replace(/"/g, "&quot;")}">
+        <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}">
         <div class="reorder-buttons">
           <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
           <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
           <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
         </div>
       </div>
-      ${plannedHint}
-      <div class="exercise-log-grid">
-        <div><label>Séries</label><input type="text" class="f-sets" value="${ex.executed?.sets ?? ""}"></div>
-        <div><label>Reps (ex. 4-4-4-3)</label><input type="text" class="f-reps" value="${ex.executed?.reps ?? ""}"></div>
-        <div><label>Charge (kg)</label><input type="text" class="f-load" value="${ex.executed?.load ?? ""}"></div>
-        <div><label>RIR (ex. 2-2-1)</label><input type="text" class="f-rir" value="${ex.rir ?? ""}"></div>
-      </div>
+      <select class="f-format">
+        ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${format === key ? " selected" : ""}>${label}</option>`).join("")}
+      </select>
+      ${isFreeform
+        ? `<textarea class="f-format-detail" rows="2" placeholder="Détail du format (ex. 15min : 10 burpees, 15 swings, 20 squats)">${escapeHtmlText(ex.notes || "")}</textarea>`
+        : `
+        <div class="field-row-label">Prévu</div>
+        <div class="exercise-log-grid">
+          <div><label>Séries</label><input type="text" class="f-planned-sets" value="${escapeAttr(planned.sets ?? "")}"></div>
+          <div><label>Reps/temps</label><input type="text" class="f-planned-reps" value="${escapeAttr(planned.reps ?? "")}"></div>
+          <div><label>Charge</label><input type="text" class="f-planned-load" value="${escapeAttr(planned.load ?? "")}"></div>
+        </div>
+        <div class="field-row-label">Fait</div>
+        <div class="exercise-log-grid">
+          <div><label>Séries</label><input type="text" class="f-sets" value="${escapeAttr(executed.sets ?? "")}"></div>
+          <div><label>Reps/temps</label><input type="text" class="f-reps" value="${escapeAttr(executed.reps ?? "")}"></div>
+          <div><label>Charge</label><input type="text" class="f-load" value="${escapeAttr(executed.load ?? "")}"></div>
+          <div><label>RIR</label><input type="text" class="f-rir" value="${escapeAttr(ex.rir ?? "")}"></div>
+        </div>`
+      }
     </div>`;
 }
 
-/** Reads whatever's currently typed in the exercise cards back into
- * `sessionWorking.session` — called before any structural change (reorder/
- * add/remove) so in-progress edits survive the re-render, and before the
- * final save. */
+function workloadSectionHTML(session) {
+  return `
+    <section class="card">
+      <h2>⚙️ Charge de la séance (optionnel)</h2>
+      <p class="muted small">Alimente le calcul de charge aiguë:chronique (RPE × durée, méthode de Foster) — voir l'onglet Data.</p>
+      <div class="exercise-log-grid">
+        <div><label>RPE (0-10)</label><input type="number" min="0" max="10" step="1" id="session-rpe" value="${session.session_rpe ?? ""}"></div>
+        <div><label>Durée (min)</label><input type="number" min="0" step="5" id="session-duration" value="${session.session_duration_min ?? ""}"></div>
+      </div>
+      <p class="muted small">0 = repos total, 5 = soutenu, 10 = effort maximal.</p>
+    </section>`;
+}
+
+/** Reads whatever's currently typed back into `sessionWorking.session` —
+ * called before any structural change (reorder/add/remove/format switch)
+ * so in-progress edits survive the re-render, and before the final save. */
 function syncFormIntoSession() {
+  const session = sessionWorking.session;
+
   const nameInput = document.getElementById("session-name-input");
-  if (nameInput) sessionWorking.session.name = nameInput.value.trim() || "Séance";
+  if (nameInput) session.name = nameInput.value.trim() || "Séance";
+
+  const notesInput = document.getElementById("session-notes");
+  if (notesInput) session.notes = notesInput.value.trim() || null;
+
+  const distanceInput = document.getElementById("session-distance");
+  if (distanceInput) session.distance_km = distanceInput.value !== "" ? Number(distanceInput.value) : null;
+
+  const rpeInput = document.getElementById("session-rpe");
+  if (rpeInput) session.session_rpe = rpeInput.value !== "" ? Number(rpeInput.value) : null;
+  const durationInput = document.getElementById("session-duration");
+  if (durationInput) session.session_duration_min = durationInput.value !== "" ? Number(durationInput.value) : null;
+
   document.querySelectorAll("#exercise-list .exercise-log-card").forEach((card) => {
     const idx = +card.dataset.idx;
-    const ex = sessionWorking.session.exercises[idx];
+    const ex = session.exercises[idx];
     if (!ex) return;
     ex.name = card.querySelector(".f-name").value.trim() || ex.name;
-    ex.executed = {
-      sets: card.querySelector(".f-sets").value || null,
-      reps: card.querySelector(".f-reps").value || null,
-      load: card.querySelector(".f-load").value || null,
-    };
-    ex.rir = card.querySelector(".f-rir").value || null;
+    ex.format = card.querySelector(".f-format").value;
+    ex.superset_with_previous = ex.format === "superset";
+
+    const detailEl = card.querySelector(".f-format-detail");
+    if (detailEl) {
+      ex.notes = detailEl.value.trim() || null;
+    } else {
+      const plannedSets = card.querySelector(".f-planned-sets");
+      if (plannedSets) {
+        ex.planned = {
+          sets: plannedSets.value || null,
+          reps: card.querySelector(".f-planned-reps").value || null,
+          load: card.querySelector(".f-planned-load").value || null,
+        };
+      }
+      const sets = card.querySelector(".f-sets");
+      if (sets) {
+        ex.executed = {
+          sets: sets.value || null,
+          reps: card.querySelector(".f-reps").value || null,
+          load: card.querySelector(".f-load").value || null,
+        };
+        ex.rir = card.querySelector(".f-rir").value || null;
+      }
+    }
   });
 }
 
 function bindSessionContentEvents() {
-  document.getElementById("add-exercise").addEventListener("click", () => {
+  document.querySelectorAll(".f-format").forEach((sel) => sel.addEventListener("change", () => {
+    syncFormIntoSession();
+    renderSessionContent();
+  }));
+
+  const addBtn = document.getElementById("add-exercise");
+  if (addBtn) addBtn.addEventListener("click", () => {
     syncFormIntoSession();
     sessionWorking.session.exercises.push(blankExercise());
     renderSessionContent();
@@ -1104,6 +1578,30 @@ function bindSessionContentEvents() {
     renderSessionContent();
   }));
 
+  bindBlockReferenceToggle(document.getElementById("toggle-block-ref"), document.getElementById("block-ref-content"));
+
+  const prefillBtn = document.getElementById("prefill-button");
+  if (prefillBtn) prefillBtn.addEventListener("click", async () => {
+    const box = document.getElementById("prefill-picker");
+    box.hidden = !box.hidden;
+    if (box.hidden || box.dataset.loaded) return;
+    box.innerHTML = skeletonHTML();
+    const sessions = (await listAllSessions()).filter((s) => s.date < sessionWorking.date).slice(0, 8);
+    box.innerHTML = sessions.length
+      ? sessions.map((s) => `<button type="button" class="history-item" data-date="${s.date}"><div class="history-date">${formatFrDate(s.date)}</div><div class="history-sub">${escapeHtmlText(s.name || "Séance")}</div></button>`).join("")
+      : "<p class='muted small'>Pas de séance récente à dupliquer.</p>";
+    box.dataset.loaded = "1";
+    box.querySelectorAll(".history-item").forEach((btn) => btn.addEventListener("click", async () => {
+      const found = await findSessionForDate(btn.dataset.date);
+      if (!found.session || !found.session.exercises || !found.session.exercises.length) return;
+      const cloned = JSON.parse(JSON.stringify(found.session.exercises));
+      cloned.forEach((ex) => { ex.executed = { sets: null, reps: null, load: null }; ex.rir = null; });
+      sessionWorking.session.exercises = cloned;
+      box.hidden = true;
+      renderSessionContent();
+    }));
+  });
+
   document.getElementById("save-session").addEventListener("click", async (e) => {
     syncFormIntoSession();
     const btn = e.currentTarget;
@@ -1126,7 +1624,13 @@ function bindSessionContentEvents() {
  * represent a reordered or resized exercise list coherently). Schema
  * matches coach.sheets_parse.parse_week exactly so every existing reader
  * (trajectory, progression, compliance, blocks) picks it up unchanged —
- * see docs/adr/0017 and docs/adr/0018. */
+ * see docs/adr/0017 and docs/adr/0018.
+ *
+ * Also write-through merges session_rpe/session_duration_min into
+ * data/health/<date>.json when present — that's the file coach.workload
+ * actually reads (Foster's session-RPE method, see docs/adr/0011) — the
+ * copy kept on the session itself is just for the app's own display, this
+ * file is the real source of truth for the ACWR calculation. */
 async function saveSession(weekLabel, date, session) {
   const path = `data/training/app-log/${date}.json`;
   await ghPutJSON(path, null, `App : séance du ${date}`, (current) => {
@@ -1137,10 +1641,19 @@ async function saveSession(weekLabel, date, session) {
     else base.sessions[idx] = nextSession;
     return base;
   });
+
+  if (session.session_rpe != null || session.session_duration_min != null) {
+    await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date}`, (current) => {
+      const base = current || { date };
+      if (session.session_rpe != null) base.session_rpe = session.session_rpe;
+      if (session.session_duration_min != null) base.session_duration_min = session.session_duration_min;
+      return base;
+    });
+  }
 }
 
 // ---- Notes ----
-async function renderWriteNote() {
+async function renderWriteNote(token) {
   setupMicButton(
     document.getElementById("note-mic"),
     document.getElementById("note-voice-hint"),
@@ -1158,12 +1671,12 @@ async function renderWriteNote() {
       await ghPutFile(`data/notes/${iso}.md`, `${iso}\n\n${text}`, `Note depuis l'app (${iso})`);
       textEl.value = "";
       statusEl.textContent = "Enregistrée ✓";
-      loadRecentNotes();
+      loadRecentNotes(renderToken);
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
     }
   });
-  loadRecentNotes();
+  await loadRecentNotes(token);
 }
 
 // ---- Ajuster ma semaine ----
@@ -1204,7 +1717,7 @@ async function renderAdjustWeek() {
       textEl.value = "";
       statusEl.innerHTML = "";
       const ok = document.createElement("span");
-      ok.textContent = "Envoyé ✓ — la réponse arrive dans quelques minutes. ";
+      ok.textContent = "Envoyé ✓ — le coach prépare une proposition (quelques minutes), à valider ensuite dans Semaine → Planning. ";
       const link = document.createElement("button");
       link.textContent = "Voir dans Coach →";
       link.className = "suggestion-chip";
@@ -1219,26 +1732,28 @@ async function renderAdjustWeek() {
   });
 }
 
-async function loadRecentNotes(limit = 5) {
+async function loadRecentNotes(token, limit = 5) {
   const container = document.getElementById("recent-notes");
   container.innerHTML = skeletonHTML();
   const entries = (await ghListDir("data/notes")).filter((e) => e.type === "file" && e.name.endsWith(".md"));
+  if (token != null && stale(token)) return;
   entries.sort((a, b) => b.name.localeCompare(a.name));
   const recent = entries.slice(0, limit);
   if (recent.length === 0) { container.innerHTML = "<p class='muted small'>Pas encore de note.</p>"; return; }
   const files = await Promise.all(recent.map((e) => ghGetFile(e.path)));
+  if (token != null && stale(token)) return;
   container.innerHTML = files
     .map((f, i) => {
       if (!f) return "";
       const lines = f.content.split("\n");
       const date = recent[i].name.slice(0, 10);
       const body = lines.slice(1).join(" ").trim();
-      return `<div class="note-item"><div class="note-date">${date}</div>${body.slice(0, 200)}</div>`;
+      return `<div class="note-item"><div class="note-date">${date}</div>${escapeHtmlText(body.slice(0, 200))}</div>`;
     })
     .join("");
   if (entries.length > recent.length) {
     container.insertAdjacentHTML("beforeend", `<button class="details-toggle" id="notes-see-more">Voir plus (${entries.length - recent.length})</button>`);
-    document.getElementById("notes-see-more").addEventListener("click", () => loadRecentNotes(limit + 15));
+    document.getElementById("notes-see-more").addEventListener("click", () => loadRecentNotes(renderToken, limit + 15));
   }
 }
 

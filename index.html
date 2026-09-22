@@ -46,8 +46,11 @@
     <button class="nav-item" data-view="week">
       <span class="nav-icon">📅</span><span>Semaine</span>
     </button>
-    <button class="nav-item" data-view="progress">
-      <span class="nav-icon">📊</span><span>Progression</span>
+    <button class="nav-item" data-view="forge">
+      <span class="nav-icon">🔨</span><span>Forge</span>
+    </button>
+    <button class="nav-item" data-view="data">
+      <span class="nav-icon">📊</span><span>Data</span>
     </button>
     <button class="nav-item" data-view="chat">
       <span class="nav-icon">💬</span><span>Coach</span>
@@ -64,20 +67,26 @@
 
 <template id="tpl-today">
   <section class="credo-card">
-    <button type="button" id="credo-edit" class="credo-edit-button" title="Modifier mon credo" aria-label="Modifier mon credo">✏️</button>
     <p id="credo-text" class="credo-text"></p>
+    <p id="credo-source" class="credo-source"></p>
   </section>
 
   <button type="button" id="adjust-week-cta" class="cta-banner">
     <span class="cta-icon">🗣️</span>
-    <span class="cta-text"><strong>Ajuster ma semaine</strong><br>Parle à ton coach, il reconstruit le planning</span>
+    <span class="cta-text"><strong>Ajuster ma semaine</strong><br>Parle à ton coach, il propose un ajustement à valider</span>
     <span class="cta-arrow">→</span>
   </button>
 
-  <section class="card" id="today-quick-actions">
-    <button class="action-button" data-action="session"><span class="action-icon">📝</span>Loguer la séance</button>
-    <button class="action-button" data-action="write-note"><span class="action-icon">🎙️</span>Écrire une note</button>
-  </section>
+  <div class="big-action-grid" id="today-quick-actions">
+    <button type="button" class="big-action-card log-session" data-action="session">
+      <span class="big-action-icon">📝</span>
+      <span class="big-action-label">Loguer la<br>séance</span>
+    </button>
+    <button type="button" class="big-action-card write-note" data-action="write-note">
+      <span class="big-action-icon">🎙️</span>
+      <span class="big-action-label">Note<br>vocale</span>
+    </button>
+  </div>
 
   <div class="digest-header">
     <h2 id="today-digest-date">Digest</h2>
@@ -91,11 +100,12 @@
   <div class="segmented" id="week-tabs">
     <button class="segment active" data-week-tab="planning">Planning</button>
     <button class="segment" data-week-tab="block">Bloc</button>
-    <button class="segment" data-week-tab="block-detail">Séances</button>
+    <button class="segment" data-week-tab="sessions">Séances</button>
     <button class="segment" data-week-tab="history">Historique</button>
   </div>
 
   <div id="week-planning-panel">
+    <div id="pending-proposal"></div>
     <div id="week-overview"></div>
     <section class="card">
       <button class="primary-button ghost small" id="adjust-week-button" style="margin-bottom:12px">✏️ Ajuster ma semaine</button>
@@ -107,9 +117,7 @@
     <div class="markdown-body"></div>
   </section>
 
-  <section class="card" id="week-block-detail-content" hidden>
-    <div class="markdown-body"></div>
-  </section>
+  <section class="card" id="week-sessions-content" hidden></section>
 
   <div id="week-history-panel" hidden>
     <section class="card">
@@ -127,8 +135,23 @@
   </div>
 </template>
 
-<template id="tpl-progress">
-  <section class="card"><div id="progress-content"></div></section>
+<template id="tpl-forge">
+  <section class="card">
+    <button type="button" id="forge-block-toggle" class="details-toggle">🎯 Objectifs du bloc en cours</button>
+    <div id="forge-block-content" class="markdown-body small" hidden></div>
+  </section>
+
+  <div class="forge-week-nav">
+    <button type="button" id="forge-prev-week" class="icon-button small" aria-label="Semaine précédente">◀</button>
+    <span id="forge-week-label" class="forge-week-label"></span>
+    <button type="button" id="forge-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
+  </div>
+
+  <div id="forge-days"></div>
+</template>
+
+<template id="tpl-data">
+  <div id="data-content"></div>
 </template>
 
 <template id="tpl-chat">
