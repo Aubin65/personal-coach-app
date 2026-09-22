@@ -205,7 +205,7 @@ function skeletonHTML() {
 // inconsistently in an installed (standalone) PWA on iOS, so text input
 // always remains the reliable fallback.
 // ============================================================================
-function setupMicButton(buttonEl, hintEl, textareaEl) {
+function setupMicButton(buttonEl, hintEl, textareaEl, captionEl) {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) { buttonEl.hidden = true; return; }
 
@@ -214,10 +214,25 @@ function setupMicButton(buttonEl, hintEl, textareaEl) {
   recognition.continuous = true;
   recognition.interimResults = true;
 
-  let recording = false;
+  const ERROR_MESSAGES = {
+    "not-allowed": "Micro refusé — autorise l'accès au micro dans les réglages de Safari.",
+    "service-not-allowed": "Micro refusé — autorise l'accès au micro dans les réglages de Safari.",
+    "audio-capture": "Pas de micro détecté.",
+    network: "Problème réseau pendant la dictée.",
+  };
+  const FATAL_ERRORS = new Set(["not-allowed", "service-not-allowed", "audio-capture"]);
+
+  let recording = false; // the person wants to be recording (drives auto-restart)
+  let stoppedByUser = false;
   let baseText = "";
   let finalText = "";
 
+  // Only *final* (confirmed) chunks land in the textarea — the still-being-
+  // recognized interim text is shown separately in captionEl, closer to
+  // how iOS dictation itself shows a live line before committing words.
+  // Tapping the mic again to stop, then reviewing/editing the textarea
+  // before hitting the screen's own Save/Envoyer button, is the validation
+  // step before anything is actually sent.
   recognition.onresult = (event) => {
     let interim = "";
     for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -225,26 +240,57 @@ function setupMicButton(buttonEl, hintEl, textareaEl) {
       if (event.results[i].isFinal) finalText += chunk + " ";
       else interim += chunk;
     }
-    textareaEl.value = (baseText + finalText + interim).trim();
+    textareaEl.value = (baseText + finalText).trim();
+    if (captionEl) captionEl.textContent = interim || "…";
   };
-  recognition.onerror = () => stop();
-  recognition.onend = () => { if (recording) stop(); };
 
-  function start() {
+  recognition.onerror = (event) => {
+    if (event.error === "no-speech") return; // just a pause, not an error worth surfacing
+    hintEl.textContent = ERROR_MESSAGES[event.error] || `Erreur dictée (${event.error}).`;
+    if (FATAL_ERRORS.has(event.error)) { stoppedByUser = true; recording = false; }
+  };
+
+  recognition.onend = () => {
+    // iOS Safari ends recognition on its own after a short pause even with
+    // continuous=true — restart transparently so the person doesn't have
+    // to keep re-tapping the mic mid-dictation.
+    if (recording && !stoppedByUser) {
+      try { recognition.start(); } catch (_) { /* restart already pending */ }
+    } else {
+      finishStopUI();
+    }
+  };
+
+  async function start() {
+    // Some browsers (notably inside an installed iOS PWA) never prompt for
+    // mic permission from recognition.start() alone — asking explicitly
+    // first surfaces a clear "not-allowed" instead of a silent no-op.
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((t) => t.stop()); }
+      catch (_) { hintEl.textContent = ERROR_MESSAGES["not-allowed"]; hintEl.hidden = false; return; }
+    }
     baseText = textareaEl.value ? textareaEl.value + " " : "";
     finalText = "";
     recording = true;
+    stoppedByUser = false;
     buttonEl.classList.add("recording");
     buttonEl.textContent = "⏹️";
+    hintEl.textContent = "🔴 Enregistrement… appuie à nouveau pour arrêter";
     hintEl.hidden = false;
+    if (captionEl) { captionEl.textContent = "…"; captionEl.hidden = false; }
     try { recognition.start(); } catch (_) { /* already started */ }
   }
   function stop() {
     recording = false;
+    stoppedByUser = true;
+    try { recognition.stop(); } catch (_) { /* already stopped */ }
+    finishStopUI();
+  }
+  function finishStopUI() {
     buttonEl.classList.remove("recording");
     buttonEl.textContent = "🎙️";
     hintEl.hidden = true;
-    try { recognition.stop(); } catch (_) { /* already stopped */ }
+    if (captionEl) captionEl.hidden = true;
   }
 
   buttonEl.addEventListener("click", () => (recording ? stop() : start()));
@@ -307,7 +353,12 @@ function normalizeDM(str) {
   return `${a}/${b}`;
 }
 
-function renderWeekOverview(container, markdown, todayISOStr) {
+/** `mondayISO` is the plan's own filename (data/plans/<lundi-AAAA-MM-jj>.md)
+ * — the reliable source for each day's real ISO date, since the day
+ * headers in the markdown only carry "DD/MM" with no year. Day cards are
+ * clickable: they open that date's session directly (log/adjust/review),
+ * rather than only ever reaching today's from the Aujourd'hui tab. */
+function renderWeekOverview(container, markdown, todayISOStr, mondayISO) {
   const { days, highlights } = parseWeekOverview(markdown);
   const [, tm, td] = todayISOStr.split("-");
   const todayDM = normalizeDM(`${parseInt(td, 10)}/${parseInt(tm, 10)}`);
@@ -317,13 +368,15 @@ function renderWeekOverview(container, markdown, todayISOStr) {
     html += '<div class="day-strip">';
     for (const d of days) {
       const isToday = normalizeDM(d.date) === todayDM;
+      const dayIdx = DAY_NAMES.indexOf(d.day);
+      const iso = mondayISO && dayIdx !== -1 ? addDaysISO(mondayISO, dayIdx) : null;
       html += `
-        <div class="day-card${isToday ? " is-today" : ""}">
+        <button type="button" class="day-card${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <div class="day-name">${d.day.slice(0, 3)}</div>
           <div class="day-date">${d.date}</div>
           <div class="day-icon">${dayIconFor(d.title)}</div>
           <div class="day-title">${d.title.slice(0, 28)}</div>
-        </div>`;
+        </button>`;
     }
     html += "</div>";
   }
@@ -335,6 +388,58 @@ function renderWeekOverview(container, markdown, todayISOStr) {
   }
 
   container.innerHTML = html;
+  container.querySelectorAll(".day-card[data-date]").forEach((btn) => {
+    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
+  });
+}
+
+/** Splits a block markdown into a condensed "objectifs principaux" part
+ * (Bloc tab) and the verbose day-by-day breakdown (its own "Séances" tab)
+ * — the "## Planning détaillé, semaine par semaine" section specifically,
+ * since that's this project's own convention for where per-session detail
+ * lives (see data/blocks/*.md). Falls back to putting everything in the
+ * overview if that heading isn't found, rather than losing content. */
+function splitBlockMarkdown(md) {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const topHeadingIdx = [];
+  lines.forEach((l, idx) => { if (/^##\s+/.test(l)) topHeadingIdx.push(idx); });
+  const detailStart = lines.findIndex((l) => /^##\s+Planning détaillé/i.test(l));
+  if (detailStart === -1) return { overview: md, detail: "" };
+  const nextIdx = topHeadingIdx.find((idx) => idx > detailStart);
+  const detailEnd = nextIdx !== undefined ? nextIdx : lines.length;
+  const detail = lines.slice(detailStart, detailEnd).join("\n");
+  const overview = lines.slice(0, detailStart).concat(lines.slice(detailEnd)).join("\n");
+  return { overview, detail };
+}
+
+/** Renders a digest's "## " sections as separate cards with an icon per
+ * heading, instead of one long undifferentiated markdown blob — purely a
+ * readability pass, the underlying markdown/content is unchanged. */
+const DIGEST_ICONS = [
+  [/forme du jour/i, "💪"],
+  [/trajectoire/i, "📈"],
+  [/conseils/i, "🎯"],
+];
+function digestIconFor(title) {
+  const hit = DIGEST_ICONS.find(([re]) => re.test(title));
+  return hit ? hit[1] : "📋";
+}
+
+function renderDigestSections(md) {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let i = 0;
+  while (i < lines.length && !/^##\s+/.test(lines[i])) i++; // skip the "# Digest du ..." title line
+  while (i < lines.length) {
+    const h = lines[i].match(/^##\s+(.*)$/);
+    if (!h) { i++; continue; }
+    const title = h[1];
+    i++;
+    const body = [];
+    while (i < lines.length && !/^##\s+/.test(lines[i])) { body.push(lines[i]); i++; }
+    html += `<section class="card digest-section"><h2><span class="digest-icon">${digestIconFor(title)}</span>${title}</h2>${renderMarkdown(body.join("\n"))}</section>`;
+  }
+  return html || `<section class="card"><div class="markdown-body">${renderMarkdown(md)}</div></section>`;
 }
 
 // ============================================================================
@@ -403,11 +508,13 @@ async function allTrainingWeekLabels() {
   return labels;
 }
 
-/** {weekLabel, path, week, session} for the session dated `today`, found
+/** {weekLabel, path, week, session} for the session dated `date`, found
  * across data/training/ (top-level) then data/training/app-log/, or null.
  * Also returns a best-guess weekLabel (most recent file's label) for
- * logging a brand-new session when nothing is dated today yet. */
-async function findTodaySession(today) {
+ * logging a brand-new session when nothing is dated `date` yet. Used both
+ * for today's quick-log flow and for opening any past/future date from the
+ * week day-strip or Historique. */
+async function findSessionForDate(date) {
   const top = await ghListDir("data/training");
   const jsonFiles = top.filter((e) => e.type === "file" && e.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name));
   const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
@@ -420,29 +527,71 @@ async function findTodaySession(today) {
     let week;
     try { week = JSON.parse(file.content); } catch (_) { continue; }
     if (week.week_label) lastLabel = week.week_label;
-    const session = (week.sessions || []).find((s) => s.date === today);
+    const session = (week.sessions || []).find((s) => s.date === date);
     if (session) return { weekLabel: week.week_label, path: entry.path, week, session };
   }
   return { weekLabel: lastLabel, path: null, week: null, session: null };
 }
 
+/** All sessions across data/training/ (Sheets-synced) and
+ * data/training/app-log/ (app edits — win on a same-date collision),
+ * newest first. Powers "Séances précédentes" in Historique. */
+async function listAllSessions() {
+  const top = await ghListDir("data/training");
+  const jsonFiles = top.filter((e) => e.type === "file" && e.name.endsWith(".json"));
+  const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
+  const appFiles = appLogDir ? (await ghListDir("data/training/app-log")).filter((e) => e.type === "file" && e.name.endsWith(".json")) : [];
+
+  const byDate = new Map();
+  for (const entry of [...jsonFiles, ...appFiles]) {
+    const file = await ghGetFile(entry.path);
+    if (!file) continue;
+    let week;
+    try { week = JSON.parse(file.content); } catch (_) { continue; }
+    for (const s of week.sessions || []) byDate.set(s.date, { date: s.date, name: s.name, weekLabel: week.week_label });
+  }
+  return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/** ISO date `n` days after `iso` (n can be negative) — used to turn a
+ * plan's Monday (its filename) plus a day-of-week into a concrete date,
+ * so the week day-strip can link straight into that day's session. */
+function addDaysISO(iso, n) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
+function formatFrDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(y, m - 1, d);
+  return dt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+}
+
 // ============================================================================
 // App state / navigation
 // ============================================================================
-const state = { view: "today", weekSubTab: "planning" };
+const state = { view: "today", weekSubTab: "planning", sessionDate: null };
 
 const views = {
   today: { title: "Aujourd'hui", render: renderToday },
   week: { title: "Semaine", render: renderWeek },
   progress: { title: "Progression", render: renderProgress },
   chat: { title: "Coach", render: renderChat },
-  "log-session": { title: "Loguer la séance", render: renderLogSession },
+  session: { title: "Séance", render: renderSession },
   "write-note": { title: "Nouvelle note", render: renderWriteNote },
   "adjust-week": { title: "Ajuster ma semaine", render: renderAdjustWeek },
 };
 
-function showView(name) {
+/** `params.date` (ISO) targets the "session" view at an arbitrary date —
+ * set from the Aujourd'hui quick action (today), a day-strip card, or a
+ * Historique entry (past date). renderSession overwrites the topbar title
+ * itself once it knows the date, so the generic title below is just the
+ * instant placeholder while it loads. */
+function showView(name, params = {}) {
   state.view = name;
+  if (params.date) state.sessionDate = params.date;
   document.getElementById("topbar-title").textContent = views[name].title;
   document.querySelectorAll(".nav-item").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === name);
@@ -468,19 +617,89 @@ document.getElementById("refresh-button").addEventListener("click", (e) => {
 });
 
 // ============================================================================
+// Credo — a short personal motto shown big at the top of Aujourd'hui. No
+// server round-trip: it's purely per-device (localStorage), tap the pencil
+// to change it, same trust model as the token itself.
+// ============================================================================
+const DEFAULT_CREDO = "TROISIÈME LIGNE. CHAQUE SÉANCE COMPTE POUR REVENIR PLUS FORT.";
+const CREDO_KEY = "coach_credo";
+
+function getCredo() {
+  try { return localStorage.getItem(CREDO_KEY) || DEFAULT_CREDO; } catch (_) { return DEFAULT_CREDO; }
+}
+
+function setupCredo() {
+  const textEl = document.getElementById("credo-text");
+  if (!textEl) return;
+  textEl.textContent = getCredo();
+  document.getElementById("credo-edit").addEventListener("click", () => {
+    const next = window.prompt("Ton credo (affiché en haut de l'app) :", getCredo());
+    if (next === null) return;
+    const trimmed = next.trim();
+    try { localStorage.setItem(CREDO_KEY, trimmed || DEFAULT_CREDO); } catch (_) { /* ignore */ }
+    textEl.textContent = trimmed || DEFAULT_CREDO;
+  });
+}
+
+/** Triggers a GitHub Actions workflow_dispatch — used by the "Nouveau
+ * digest" button so a fresh digest can be regenerated on demand instead of
+ * only waiting for the 8h30 cron. Needs the token to also carry an
+ * Actions: Read and write permission (Contents alone isn't enough for
+ * this one call) — see docs/app-deploy.md and docs/adr/0018. */
+async function ghDispatchWorkflow(fileName, ref = "main") {
+  const res = await fetch(`${API}/repos/${REPO}/actions/workflows/${fileName}/dispatches`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${getToken()}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ref }),
+  });
+  if (!res.ok) {
+    if (res.status === 403 || res.status === 404) {
+      throw new Error("Le token n'a pas la permission Actions — voir docs/app-deploy.md.");
+    }
+    throw new Error(`GitHub ${res.status} en déclenchant ${fileName}`);
+  }
+}
+
+// ============================================================================
 // Views
 // ============================================================================
 async function renderToday() {
+  setupCredo();
+
+  document.getElementById("adjust-week-cta").addEventListener("click", () => showView("adjust-week"));
+
+  document.querySelectorAll("#today-quick-actions [data-action]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const action = btn.dataset.action;
+      showView(action, action === "session" ? { date: todayISO() } : {});
+    });
+  });
+
+  const genBtn = document.getElementById("generate-digest-button");
+  const genStatus = document.getElementById("generate-digest-status");
+  genBtn.addEventListener("click", async () => {
+    genBtn.disabled = true;
+    genStatus.textContent = "Déclenchement…";
+    try {
+      await ghDispatchWorkflow("daily-digest.yml");
+      genStatus.textContent = "Lancé ✓ — nouveau digest dans quelques minutes, puis ⟳ pour le récupérer.";
+    } catch (err) {
+      genStatus.textContent = `Échec : ${err.message}`;
+    } finally {
+      genBtn.disabled = false;
+    }
+  });
+
   document.getElementById("today-digest-content").innerHTML = skeletonHTML();
   const digest = await latestFileOnOrBefore("data/digests", ".md", todayISO());
   document.getElementById("today-digest-date").textContent = digest ? `Digest du ${digest.date}` : "Digest";
   document.getElementById("today-digest-content").innerHTML = digest
-    ? renderMarkdown(digest.content)
+    ? renderDigestSections(digest.content)
     : "<p class='muted'>Pas encore de digest généré.</p>";
-
-  document.querySelectorAll("#today-quick-actions [data-action]").forEach((btn) => {
-    btn.addEventListener("click", () => showView(btn.dataset.action));
-  });
 }
 
 async function listPlans() {
@@ -492,12 +711,14 @@ async function renderWeek() {
   const tabs = document.querySelectorAll("#week-tabs .segment");
   const planningPanel = document.getElementById("week-planning-panel");
   const blockPanel = document.getElementById("week-block-content");
+  const blockDetailPanel = document.getElementById("week-block-detail-content");
   const historyPanel = document.getElementById("week-history-panel");
 
   const applyTab = () => {
     tabs.forEach((t) => t.classList.toggle("active", t.dataset.weekTab === state.weekSubTab));
     planningPanel.hidden = state.weekSubTab !== "planning";
     blockPanel.hidden = state.weekSubTab !== "block";
+    blockDetailPanel.hidden = state.weekSubTab !== "block-detail";
     historyPanel.hidden = state.weekSubTab !== "history";
     if (state.weekSubTab === "history") loadPlanHistory();
   };
@@ -510,7 +731,7 @@ async function renderWeek() {
   document.getElementById("week-planning-content").innerHTML = skeletonHTML();
   const plan = await latestFileOnOrBefore("data/plans", ".md", todayISO());
   if (plan) {
-    renderWeekOverview(document.getElementById("week-overview"), plan.content, todayISO());
+    renderWeekOverview(document.getElementById("week-overview"), plan.content, todayISO(), plan.date);
     document.getElementById("week-planning-content").innerHTML = renderMarkdown(plan.content);
   } else {
     document.getElementById("week-overview").innerHTML = "";
@@ -518,17 +739,31 @@ async function renderWeek() {
   }
 
   const blockContentEl = blockPanel.querySelector(".markdown-body");
+  const blockDetailEl = blockDetailPanel.querySelector(".markdown-body");
   blockContentEl.innerHTML = skeletonHTML();
+  blockDetailEl.innerHTML = skeletonHTML();
   const blockLabel = await currentBlockLabel();
   if (blockLabel) {
     const blockFile = await ghGetFile(`data/blocks/${blockLabel}.md`);
-    blockContentEl.innerHTML = blockFile ? renderMarkdown(blockFile.content) : "<p class='muted'>Pas de fichier de bloc.</p>";
+    if (blockFile) {
+      const { overview, detail } = splitBlockMarkdown(blockFile.content);
+      blockContentEl.innerHTML = renderMarkdown(overview);
+      blockDetailEl.innerHTML = detail ? renderMarkdown(detail) : "<p class='muted'>Pas de détail séance par séance pour ce bloc.</p>";
+    } else {
+      blockContentEl.innerHTML = "<p class='muted'>Pas de fichier de bloc.</p>";
+      blockDetailEl.innerHTML = "<p class='muted'>Pas de fichier de bloc.</p>";
+    }
   } else {
     blockContentEl.innerHTML = "<p class='muted'>Pas de bloc en cours.</p>";
+    blockDetailEl.innerHTML = "<p class='muted'>Pas de bloc en cours.</p>";
   }
 }
 
 async function loadPlanHistory() {
+  await Promise.all([loadPlanHistoryList(), loadSessionHistoryList()]);
+}
+
+async function loadPlanHistoryList() {
   const container = document.getElementById("history-plans-list");
   if (container.dataset.loaded) return;
   container.innerHTML = skeletonHTML();
@@ -558,6 +793,34 @@ async function loadPlanHistory() {
         detail.hidden = false;
       }
     });
+  });
+}
+
+async function loadSessionHistoryList(limit = 10) {
+  const container = document.getElementById("history-sessions-list");
+  if (container.dataset.loaded && +container.dataset.limit >= limit) return;
+  container.innerHTML = skeletonHTML();
+  const sessions = await listAllSessions();
+  const shown = sessions.slice(0, limit);
+  if (shown.length === 0) { container.innerHTML = "<p class='muted small'>Pas encore de séance loguée.</p>"; return; }
+  container.innerHTML = shown
+    .map((s) => `
+      <button class="history-item" data-date="${s.date}">
+        <div class="history-date">${formatFrDate(s.date)}</div>
+        <div class="history-sub">${s.name || "Séance"}</div>
+      </button>`)
+    .join("");
+  if (sessions.length > shown.length) {
+    container.insertAdjacentHTML("beforeend", `<button class="details-toggle" id="sessions-see-more">Voir plus (${sessions.length - shown.length})</button>`);
+    document.getElementById("sessions-see-more").addEventListener("click", () => {
+      container.dataset.loaded = "";
+      loadSessionHistoryList(limit + 15);
+    });
+  }
+  container.dataset.loaded = "1";
+  container.dataset.limit = String(limit);
+  container.querySelectorAll(".history-item[data-date]").forEach((btn) => {
+    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
   });
 }
 
@@ -700,108 +963,178 @@ function startChatPolling() {
   chatPollTimer = setInterval(() => { if (state.view === "chat") refreshChatLog(); }, 15000);
 }
 
-// ---- Log a session ----
-async function renderLogSession() {
-  const el = document.getElementById("log-session-content");
-  el.innerHTML = skeletonHTML();
-  const today = todayISO();
-  const found = await findTodaySession(today);
+// ---- Session detail: view/log/edit any date's session ----
+// Reachable from Aujourd'hui ("Loguer la séance", today), a day-strip card
+// in Semaine (any day of the current week), or a Historique entry (any
+// past date). Exercises can be reordered, added, removed and renamed, not
+// just filled in — see docs/adr/0018. `sessionWorking` holds the in-memory
+// copy being edited; nothing is written to GitHub until "Enregistrer".
+let sessionWorking = null;
 
-  if (!found.session) {
+function blankExercise() {
+  return {
+    name: "Nouvel exercice",
+    planned: { sets: null, reps: null, load: null },
+    executed: { sets: null, reps: null, load: null },
+    rir: null,
+    notes: null,
+    superset_with_previous: false,
+  };
+}
+
+async function renderSession() {
+  const date = state.sessionDate || todayISO();
+  document.getElementById("topbar-title").textContent = `Séance — ${formatFrDate(date)}`;
+  document.getElementById("session-content").innerHTML = skeletonHTML();
+
+  const found = await findSessionForDate(date);
+  sessionWorking = {
+    weekLabel: found.weekLabel || "app",
+    date,
+    session: found.session ? JSON.parse(JSON.stringify(found.session)) : null,
+  };
+  renderSessionContent();
+}
+
+function renderSessionContent() {
+  const el = document.getElementById("session-content");
+  const { session, date } = sessionWorking;
+
+  if (!session) {
     el.innerHTML = `
       <section class="card">
-        <p class="muted">Pas de séance détectée pour aujourd'hui (${today}).</p>
+        <p class="muted">Pas de séance enregistrée pour le ${formatFrDate(date)}.</p>
         <label>Nom de la séance</label>
-        <input id="log-session-name" value="Séance">
-        <button id="log-session-start" class="primary-button">Créer la séance du jour</button>
+        <input id="session-name-input" value="Séance">
+        <button id="session-create" class="primary-button">Créer la séance</button>
       </section>`;
-    document.getElementById("log-session-start").addEventListener("click", async () => {
-      const name = document.getElementById("log-session-name").value.trim() || "Séance";
-      await saveExercise(found, today, { name: "Exercice", executed_sets: "", executed_reps: "", executed_load: "", rir: "", notes: "" }, name, true);
-      renderLogSession();
+    document.getElementById("session-create").addEventListener("click", () => {
+      const name = document.getElementById("session-name-input").value.trim() || "Séance";
+      sessionWorking.session = { name, date, exercises: [blankExercise()], notes: "Créée depuis l'app." };
+      renderSessionContent();
     });
     return;
   }
 
-  const exercises = found.session.exercises || [];
-  el.innerHTML = exercises
-    .map(
-      (ex, idx) => `
-      <div class="exercise-log-card" data-idx="${idx}">
-        <h3>${ex.name}</h3>
-        <div class="exercise-log-grid">
-          <div><label>Séries</label><input type="text" class="f-sets" value="${ex.executed?.sets ?? ""}"></div>
-          <div><label>Reps (ex. 4-4-4-3)</label><input type="text" class="f-reps" value="${ex.executed?.reps ?? ""}"></div>
-          <div><label>Charge (kg)</label><input type="text" class="f-load" value="${ex.executed?.load ?? ""}"></div>
-          <div><label>RIR (ex. 2-2-1)</label><input type="text" class="f-rir" value="${ex.rir ?? ""}"></div>
-        </div>
-        <button class="primary-button small save-exercise" style="margin-top:10px">Enregistrer</button>
-        <div class="exercise-saved-badge" hidden>Enregistré ✓</div>
-      </div>`
-    )
-    .join("");
+  const exercises = session.exercises || [];
+  el.innerHTML = `
+    <section class="card">
+      <label>Nom de la séance</label>
+      <input id="session-name-input" value="${(session.name || "Séance").replace(/"/g, "&quot;")}">
+    </section>
+    <div id="exercise-list">${exercises.map((ex, idx) => exerciseCardHTML(ex, idx, exercises.length)).join("")}</div>
+    <button type="button" id="add-exercise" class="primary-button ghost small" style="margin-bottom:14px">+ Ajouter un exercice</button>
+    <button id="save-session" class="primary-button">Enregistrer la séance</button>
+    <p id="session-status" class="muted small"></p>`;
 
-  el.querySelectorAll(".save-exercise").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const card = btn.closest(".exercise-log-card");
-      const idx = +card.dataset.idx;
-      const ex = exercises[idx];
-      btn.disabled = true;
-      try {
-        await saveExercise(found, today, {
-          name: ex.name,
-          executed_sets: card.querySelector(".f-sets").value,
-          executed_reps: card.querySelector(".f-reps").value,
-          executed_load: card.querySelector(".f-load").value,
-          rir: card.querySelector(".f-rir").value,
-        });
-        card.querySelector(".exercise-saved-badge").hidden = false;
-      } catch (err) {
-        card.insertAdjacentHTML("beforeend", `<p class="error-text small">${err.message}</p>`);
-      } finally {
-        btn.disabled = false;
-      }
-    });
+  bindSessionContentEvents();
+}
+
+function exerciseCardHTML(ex, idx, total) {
+  const planned = ex.planned || {};
+  const plannedHint = planned.sets || planned.reps || planned.load
+    ? `<div class="planned-hint">Prévu : ${planned.sets ?? "?"}×${planned.reps ?? "?"} ${planned.load ?? ""}</div>`
+    : "";
+  return `
+    <div class="exercise-log-card" data-idx="${idx}">
+      <div class="exercise-log-head">
+        <input type="text" class="f-name" value="${(ex.name || "").replace(/"/g, "&quot;")}">
+        <div class="reorder-buttons">
+          <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
+          <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
+          <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
+        </div>
+      </div>
+      ${plannedHint}
+      <div class="exercise-log-grid">
+        <div><label>Séries</label><input type="text" class="f-sets" value="${ex.executed?.sets ?? ""}"></div>
+        <div><label>Reps (ex. 4-4-4-3)</label><input type="text" class="f-reps" value="${ex.executed?.reps ?? ""}"></div>
+        <div><label>Charge (kg)</label><input type="text" class="f-load" value="${ex.executed?.load ?? ""}"></div>
+        <div><label>RIR (ex. 2-2-1)</label><input type="text" class="f-rir" value="${ex.rir ?? ""}"></div>
+      </div>
+    </div>`;
+}
+
+/** Reads whatever's currently typed in the exercise cards back into
+ * `sessionWorking.session` — called before any structural change (reorder/
+ * add/remove) so in-progress edits survive the re-render, and before the
+ * final save. */
+function syncFormIntoSession() {
+  const nameInput = document.getElementById("session-name-input");
+  if (nameInput) sessionWorking.session.name = nameInput.value.trim() || "Séance";
+  document.querySelectorAll("#exercise-list .exercise-log-card").forEach((card) => {
+    const idx = +card.dataset.idx;
+    const ex = sessionWorking.session.exercises[idx];
+    if (!ex) return;
+    ex.name = card.querySelector(".f-name").value.trim() || ex.name;
+    ex.executed = {
+      sets: card.querySelector(".f-sets").value || null,
+      reps: card.querySelector(".f-reps").value || null,
+      load: card.querySelector(".f-load").value || null,
+    };
+    ex.rir = card.querySelector(".f-rir").value || null;
   });
 }
 
-/** Writes/updates data/training/app-log/<date>.json with one exercise's
- * executed values — read-modify-write so logging exercises one at a time
- * never loses a previous one. Schema matches coach.sheets_parse.parse_week
- * exactly so every existing reader (trajectory, progression, compliance,
- * blocks) picks it up with no code changes — see docs/adr/0017. */
-async function saveExercise(found, date, exerciseUpdate, sessionName, isNewSession = false) {
+function bindSessionContentEvents() {
+  document.getElementById("add-exercise").addEventListener("click", () => {
+    syncFormIntoSession();
+    sessionWorking.session.exercises.push(blankExercise());
+    renderSessionContent();
+  });
+
+  document.querySelectorAll(".move-up").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const idx = +btn.closest(".exercise-log-card").dataset.idx;
+    const arr = sessionWorking.session.exercises;
+    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".move-down").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const idx = +btn.closest(".exercise-log-card").dataset.idx;
+    const arr = sessionWorking.session.exercises;
+    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".remove-exercise").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const idx = +btn.closest(".exercise-log-card").dataset.idx;
+    sessionWorking.session.exercises.splice(idx, 1);
+    renderSessionContent();
+  }));
+
+  document.getElementById("save-session").addEventListener("click", async (e) => {
+    syncFormIntoSession();
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("session-status");
+    btn.disabled = true;
+    statusEl.textContent = "Enregistrement…";
+    try {
+      await saveSession(sessionWorking.weekLabel, sessionWorking.date, sessionWorking.session);
+      statusEl.textContent = "Enregistré ✓";
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+/** Overwrites the whole session for `date` in data/training/app-log/<date>.json
+ * — replaces the old per-exercise overlay (a partial merge could never
+ * represent a reordered or resized exercise list coherently). Schema
+ * matches coach.sheets_parse.parse_week exactly so every existing reader
+ * (trajectory, progression, compliance, blocks) picks it up unchanged —
+ * see docs/adr/0017 and docs/adr/0018. */
+async function saveSession(weekLabel, date, session) {
   const path = `data/training/app-log/${date}.json`;
-  await ghPutJSON(path, null, `App : log ${date}`, (current) => {
-    const base = current || {
-      week_label: found.weekLabel || "app",
-      objective: null,
-      bodyweight: {},
-      sessions: [],
-    };
-    let session = base.sessions.find((s) => s.date === date);
-    if (!session) {
-      session = { name: sessionName || (found.session && found.session.name) || "Séance", date, exercises: [], notes: "Loguée depuis l'app." };
-      base.sessions.push(session);
-    }
-    let exercise = session.exercises.find((e) => e.name === exerciseUpdate.name);
-    if (!exercise) {
-      exercise = {
-        name: exerciseUpdate.name,
-        planned: { sets: null, reps: null, load: null },
-        executed: { sets: null, reps: null, load: null },
-        rir: null,
-        notes: null,
-        superset_with_previous: false,
-      };
-      session.exercises.push(exercise);
-    }
-    exercise.executed = {
-      sets: exerciseUpdate.executed_sets || null,
-      reps: exerciseUpdate.executed_reps || null,
-      load: exerciseUpdate.executed_load || null,
-    };
-    exercise.rir = exerciseUpdate.rir || null;
+  await ghPutJSON(path, null, `App : séance du ${date}`, (current) => {
+    const base = current || { week_label: weekLabel, objective: null, bodyweight: {}, sessions: [] };
+    const nextSession = { ...session, date };
+    const idx = base.sessions.findIndex((s) => s.date === date);
+    if (idx === -1) base.sessions.push(nextSession);
+    else base.sessions[idx] = nextSession;
     return base;
   });
 }
@@ -811,7 +1144,8 @@ async function renderWriteNote() {
   setupMicButton(
     document.getElementById("note-mic"),
     document.getElementById("note-voice-hint"),
-    document.getElementById("note-text")
+    document.getElementById("note-text"),
+    document.getElementById("note-live-caption")
   );
   document.getElementById("note-save").addEventListener("click", async () => {
     const textEl = document.getElementById("note-text");
@@ -843,7 +1177,8 @@ async function renderAdjustWeek() {
   setupMicButton(
     document.getElementById("adjust-mic"),
     document.getElementById("adjust-voice-hint"),
-    document.getElementById("adjust-text")
+    document.getElementById("adjust-text"),
+    document.getElementById("adjust-live-caption")
   );
 
   const chipsEl = document.getElementById("adjust-suggestions");

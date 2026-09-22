@@ -289,9 +289,9 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   flex: 1;
   border: none;
   background: none;
-  padding: 9px;
+  padding: 9px 2px;
   border-radius: 8px;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   cursor: pointer;
   color: var(--muted);
 }
@@ -424,7 +424,11 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   border-radius: 12px;
   padding: 10px 8px;
   text-align: center;
+  font: inherit;
+  cursor: pointer;
+  color: inherit;
 }
+.day-card:active { transform: scale(0.96); background: var(--border); }
 .day-card.is-today { background: var(--green-pale); border-color: var(--green-light); border-width: 2px; }
 .day-card.is-today .day-name { color: var(--green-light); }
 .day-card .day-name { font-size: 0.72rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-family: var(--font-display); letter-spacing: 0.03em; }
@@ -498,6 +502,21 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   50% { box-shadow: 0 0 0 10px rgba(198,40,40,0); }
 }
 .voice-hint { font-size: 0.78rem; color: var(--muted); margin: 6px 0 0; }
+.voice-hint:not(:empty) { color: var(--text); }
+
+/* Live interim caption while dictating — separate from the textarea, which
+   only ever holds confirmed (final) text, so tapping mic-off then the
+   screen's own Save/Envoyer button is the actual validation step before
+   anything is sent. */
+.live-caption {
+  font-size: 0.9rem;
+  font-style: italic;
+  color: var(--green-light);
+  background: var(--green-pale);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 6px 0 0;
+}
 
 /* ---------- History ---------- */
 .history-item {
@@ -527,3 +546,126 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   color: var(--text);
   margin-top: 12px;
 }
+
+/* ---------- Credo (Aujourd'hui, tout en haut) ---------- */
+.credo-card {
+  position: relative;
+  background: linear-gradient(135deg, var(--green-light) 0%, var(--green) 60%, var(--pitch-dark) 100%);
+  border-radius: var(--radius);
+  padding: 20px 44px 20px 20px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+}
+.credo-text {
+  margin: 0;
+  color: white;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.15rem;
+  line-height: 1.3;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.credo-edit-button {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: rgba(255,255,255,0.14);
+  border: none;
+  color: white;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.credo-edit-button:active { background: var(--gold); }
+
+/* ---------- "Ajuster ma semaine" CTA (Aujourd'hui) ---------- */
+.cta-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  background: var(--gold-pale);
+  border: 1.5px solid var(--gold);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.92rem;
+}
+.cta-banner:active { background: var(--gold); transform: scale(0.99); }
+.cta-banner .cta-icon { font-size: 1.6rem; flex-shrink: 0; }
+.cta-banner .cta-text { flex: 1; line-height: 1.35; }
+.cta-banner .cta-arrow { font-size: 1.2rem; color: var(--gold); flex-shrink: 0; }
+
+/* ---------- Digest (Aujourd'hui) ---------- */
+.digest-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 4px 0 4px;
+}
+.digest-header h2 { margin: 0; font-size: 1.1rem; font-family: var(--font-display); font-weight: 600; }
+.digest-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 0;
+}
+.digest-section .digest-icon { font-size: 1.1rem; }
+.digest-section ol {
+  list-style: none;
+  padding-left: 0;
+  counter-reset: digest-advice;
+}
+.digest-section ol li {
+  counter-increment: digest-advice;
+  position: relative;
+  padding-left: 30px;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
+.digest-section ol li::before {
+  content: counter(digest-advice);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--green);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ---------- Session detail: reorder/add/remove exercises ---------- */
+.exercise-log-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.exercise-log-head .f-name { flex: 1; font-weight: 600; }
+.reorder-buttons { display: flex; gap: 4px; flex-shrink: 0; }
+.icon-button.small {
+  width: 30px;
+  height: 30px;
+  font-size: 0.85rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.icon-button.small:active { background: var(--border); transform: scale(0.92); }
+.icon-button.small:disabled { opacity: 0.35; }
+.icon-button.small.danger { color: var(--danger); }
+.icon-button.small.danger:active { background: var(--danger); color: white; }
+.planned-hint { font-size: 0.78rem; color: var(--muted); margin-bottom: 8px; }

@@ -63,20 +63,35 @@
 </template>
 
 <template id="tpl-today">
+  <section class="credo-card">
+    <button type="button" id="credo-edit" class="credo-edit-button" title="Modifier mon credo" aria-label="Modifier mon credo">✏️</button>
+    <p id="credo-text" class="credo-text"></p>
+  </section>
+
+  <button type="button" id="adjust-week-cta" class="cta-banner">
+    <span class="cta-icon">🗣️</span>
+    <span class="cta-text"><strong>Ajuster ma semaine</strong><br>Parle à ton coach, il reconstruit le planning</span>
+    <span class="cta-arrow">→</span>
+  </button>
+
   <section class="card" id="today-quick-actions">
-    <button class="action-button" data-action="log-session"><span class="action-icon">📝</span>Loguer la séance</button>
+    <button class="action-button" data-action="session"><span class="action-icon">📝</span>Loguer la séance</button>
     <button class="action-button" data-action="write-note"><span class="action-icon">🎙️</span>Écrire une note</button>
   </section>
-  <section class="card">
+
+  <div class="digest-header">
     <h2 id="today-digest-date">Digest</h2>
-    <div id="today-digest-content" class="markdown-body"></div>
-  </section>
+    <button type="button" id="generate-digest-button" class="primary-button ghost small">🔄 Nouveau digest</button>
+  </div>
+  <p id="generate-digest-status" class="muted small"></p>
+  <div id="today-digest-content" class="markdown-body"></div>
 </template>
 
 <template id="tpl-week">
   <div class="segmented" id="week-tabs">
     <button class="segment active" data-week-tab="planning">Planning</button>
     <button class="segment" data-week-tab="block">Bloc</button>
+    <button class="segment" data-week-tab="block-detail">Séances</button>
     <button class="segment" data-week-tab="history">Historique</button>
   </div>
 
@@ -92,10 +107,18 @@
     <div class="markdown-body"></div>
   </section>
 
+  <section class="card" id="week-block-detail-content" hidden>
+    <div class="markdown-body"></div>
+  </section>
+
   <div id="week-history-panel" hidden>
     <section class="card">
       <h2>Plannings précédents</h2>
       <div id="history-plans-list"></div>
+    </section>
+    <section class="card">
+      <h2>Séances précédentes</h2>
+      <div id="history-sessions-list"></div>
     </section>
     <div class="git-history-note">
       <span>🔒</span>
@@ -116,8 +139,8 @@
   </form>
 </template>
 
-<template id="tpl-log-session">
-  <div id="log-session-content"></div>
+<template id="tpl-session">
+  <div id="session-content"></div>
 </template>
 
 <template id="tpl-write-note">
@@ -127,7 +150,8 @@
       <textarea id="note-text" rows="5" placeholder="Ressenti, feedback de séance/match, repas…"></textarea>
       <button type="button" id="note-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
     </div>
-    <p class="voice-hint" id="note-voice-hint" hidden>🔴 Enregistrement… appuie à nouveau pour arrêter</p>
+    <p class="voice-hint" id="note-voice-hint" hidden></p>
+    <p class="live-caption" id="note-live-caption" hidden></p>
     <button id="note-save" class="primary-button" style="margin-top:10px">Enregistrer</button>
     <p id="note-status" class="muted small"></p>
   </section>
@@ -145,7 +169,8 @@
       <textarea id="adjust-text" rows="4" placeholder="Ex : j'ai un empêchement jeudi, décale la séance…"></textarea>
       <button type="button" id="adjust-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
     </div>
-    <p class="voice-hint" id="adjust-voice-hint" hidden>🔴 Enregistrement… appuie à nouveau pour arrêter</p>
+    <p class="voice-hint" id="adjust-voice-hint" hidden></p>
+    <p class="live-caption" id="adjust-live-caption" hidden></p>
     <div id="adjust-suggestions" class="suggestion-chips"></div>
     <button id="adjust-send" class="primary-button" style="margin-top:12px">Envoyer au coach</button>
     <p id="adjust-status" class="muted small"></p>
