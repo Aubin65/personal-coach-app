@@ -433,6 +433,21 @@ function splitBlockMarkdown(md) {
   return { overview, detail };
 }
 
+/** Splits an already-condensed block overview (see splitBlockMarkdown)
+ * further, for the Bloc tab specifically: the title + intro paragraph
+ * (before the first "## " heading) is genuinely short and always shown;
+ * everything else (Bilan, Objectifs chiffrés, Points de vigilance —
+ * still useful, just not a one-glance "overview") collapses behind a
+ * single toggle. The "🎯 Objectifs du bloc" reference shown while
+ * planning/logging a session keeps the fuller `overview` as-is — more
+ * detail is welcome there, it's already tucked behind its own toggle. */
+function splitBlockIntro(md) {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const firstHeadingIdx = lines.findIndex((l) => /^##\s+/.test(l));
+  if (firstHeadingIdx === -1) return { intro: md, rest: "" };
+  return { intro: lines.slice(0, firstHeadingIdx).join("\n"), rest: lines.slice(firstHeadingIdx).join("\n") };
+}
+
 /** Renders a digest's "## " sections as separate cards with an icon per
  * heading, instead of one long undifferentiated markdown blob — purely a
  * readability pass, the underlying markdown/content is unchanged. */
@@ -511,6 +526,41 @@ function formatFrDate(iso) {
   return dt.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 }
 
+/** true for a Saturday/Sunday ISO date. */
+function isWeekendISO(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 0=Sun..6=Sat
+  return dow === 0 || dow === 6;
+}
+
+/** Whether a session counts as actually done — a rugby/autre session
+ * counts once it has a note, a musculation one once any exercise has a
+ * real executed value. Mirrors coach.app_export._session_has_executed
+ * (Python) exactly — kept in sync by hand on both sides, since the app
+ * has no Python runtime of its own to share the logic with. */
+function sessionHasExecuted(session) {
+  if (!session) return false;
+  if (session.type && session.type !== "musculation" && session.notes) return true;
+  return (session.exercises || []).some((ex) => ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load));
+}
+
+/** Status label for a day, shared by the Semaine "Séances" table, Forge
+ * tiles and the Historique week browser — takes plain booleans rather
+ * than a session object so it works equally from a full session
+ * (`sessionHasExecuted(session)`) or from the lightweight precomputed
+ * index (its own `has_executed` field), never requiring a full fetch just
+ * to show a status. A date in the future can never be "Fait" — checked
+ * first and short-circuits, whatever `hasExecuted` says — a spreadsheet
+ * sync artifact (e.g. a template row carried over with last week's values
+ * before being overwritten) could otherwise make an unplayed future day
+ * look completed. */
+function sessionDayStatus(date, hasSession, hasExecuted, today) {
+  if (date > today) return hasSession ? "📝 Planifié" : "⏳ À venir";
+  if (hasExecuted) return "✅ Fait";
+  if (hasSession) return "📝 Planifié";
+  return "— Non loggé";
+}
+
 /** Most recent entry in a directory listing whose name (minus extension)
  * is <= today — mirrors latest_digest/current_plan's file-picking. */
 async function latestFileOnOrBefore(dirPath, ext, today) {
@@ -526,78 +576,137 @@ async function latestFileOnOrBefore(dirPath, ext, today) {
   return file ? { date: stem, content: file.content } : null;
 }
 
+// ============================================================================
+// Training data index — two tiers, merged.
+//
+// 1. `summaryIndex`: coach.app_export precomputes `training_index` into
+//    data/app/summary.json — date -> {name, type, week_label, path,
+//    has_executed} for every Sheets-synced session. One small file to
+//    fetch instead of scanning every week file (already 18+ a few weeks
+//    into a season, and it only grows) — this was the actual reason
+//    Historique/Forge felt slow. At most a day stale (refreshed with
+//    every digest, same cadence Sheets itself syncs on), which is fine
+//    for Sheets data that doesn't change more often than that anyway.
+// 2. `appLogIndex`: data/training/app-log/ scanned live — a session just
+//    logged from the app has to show up immediately, not only after the
+//    next digest regenerates the precomputed index, so this side is never
+//    precomputed. Wins over the summary index on a same-date collision.
+//
+// Listing views (Séances table, Forge tiles, Historique) only need this
+// lightweight merged data (name/type/status) — see lookupDaySummary/
+// listAllSessions. Only opening a specific day (renderSession) pays for
+// one targeted extra fetch, of the exact file the index points to,
+// instead of a scan. Invalidated (app-log side only) on every
+// saveSession write so a just-saved session is never read back stale.
+// ============================================================================
+let summaryIndexCache = null;
+let appLogIndexCache = null;
+
+function invalidateAppLogIndex() {
+  appLogIndexCache = null;
+}
+
+async function loadSummaryIndex() {
+  if (summaryIndexCache) return summaryIndexCache;
+  const index = new Map();
+  const file = await ghGetFile("data/app/summary.json");
+  if (file) {
+    try {
+      const summary = JSON.parse(file.content);
+      for (const [date, hit] of Object.entries(summary.training_index || {})) index.set(date, hit);
+    } catch (_) { /* malformed/missing summary — treat as empty, app-log still works */ }
+  }
+  summaryIndexCache = index;
+  return index;
+}
+
+async function loadAppLogIndex() {
+  if (appLogIndexCache) return appLogIndexCache;
+  const top = await ghListDir("data/training");
+  const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
+  const entries = appLogDir ? (await ghListDir("data/training/app-log")).filter((e) => e.type === "file" && e.name.endsWith(".json")) : [];
+  const files = await Promise.all(entries.map((e) => ghGetFile(e.path)));
+
+  const index = new Map();
+  files.forEach((file, i) => {
+    if (!file) return;
+    let week;
+    try { week = JSON.parse(file.content); } catch (_) { return; }
+    for (const s of week.sessions || []) index.set(s.date, { session: s, weekLabel: week.week_label, path: entries[i].path });
+  });
+  appLogIndexCache = index;
+  return index;
+}
+
 /** Highest B<n> block label seen across data/training/ (top-level + app-log),
  * mirroring coach.blocks.current_block. */
 async function currentBlockLabel() {
-  const weeks = await allTrainingWeekLabels();
+  const [appLogIndex, summaryIndex] = await Promise.all([loadAppLogIndex(), loadSummaryIndex()]);
   let best = null, bestN = -1;
-  for (const label of weeks) {
-    const m = /^B(\d+)-S\d+$/.exec(label);
+  const consider = (label) => {
+    const m = /^B(\d+)-S\d+$/.exec(label || "");
     if (m && +m[1] > bestN) { bestN = +m[1]; best = `B${m[1]}`; }
-  }
+  };
+  for (const hit of summaryIndex.values()) consider(hit.week_label);
+  for (const entry of appLogIndex.values()) consider(entry.weekLabel);
   return best;
 }
 
-async function allTrainingWeekLabels() {
-  const top = await ghListDir("data/training");
-  const labels = top.filter((e) => e.type === "file" && e.name.endsWith(".json")).map((e) => e.name.slice(0, -5));
-  const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
-  if (appLogDir) {
-    const appFiles = await ghListDir("data/training/app-log");
-    const files = await Promise.all(appFiles.filter((e) => e.type === "file" && e.name.endsWith(".json")).map((e) => ghGetFile(e.path)));
-    for (const file of files) {
-      if (!file) continue;
-      try { labels.push(JSON.parse(file.content).week_label); } catch (_) { /* ignore malformed file */ }
-    }
+/** Lightweight {date, name, type, hasSession, hasExecuted} for a single
+ * date — from the merged indexes only, no extra fetch. Used by list/table
+ * views (Séances table, Forge tiles, Historique) that only need to show a
+ * name and a status, not full exercise detail. */
+async function lookupDaySummary(date) {
+  const appLogIndex = await loadAppLogIndex();
+  const appLogHit = appLogIndex.get(date);
+  if (appLogHit) {
+    const s = appLogHit.session;
+    return { date, name: s.name, type: s.type, hasSession: true, hasExecuted: sessionHasExecuted(s) };
   }
-  return labels;
+  const summaryIndex = await loadSummaryIndex();
+  const hit = summaryIndex.get(date);
+  if (hit) return { date, name: hit.name, type: hit.type, hasSession: true, hasExecuted: !!hit.has_executed };
+  return { date, name: null, type: null, hasSession: false, hasExecuted: false };
 }
 
-/** {weekLabel, path, week, session} for the session dated `date`, found
- * across data/training/ (top-level) then data/training/app-log/, or null.
- * Also returns a best-guess weekLabel (most recent file's label) for
- * logging a brand-new session when nothing is dated `date` yet. Used for
- * today's quick-log flow, Forge, the week day-strip and Historique. */
+/** {weekLabel, path, session} with the FULL session for `date` — fetches
+ * at most one extra file beyond the two indexes (the exact Sheets week
+ * file the summary index points to), never a scan. `session: null` with a
+ * best-guess weekLabel (most recent seen) when nothing is dated `date`
+ * yet, for creating a brand-new session there. Used when actually opening
+ * a day (renderSession, Forge's quick-set/skeleton, the prefill picker's
+ * clone action) — listing views should use lookupDaySummary instead. */
 async function findSessionForDate(date) {
-  const top = await ghListDir("data/training");
-  const jsonFiles = top.filter((e) => e.type === "file" && e.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name));
-  const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
-  const appFiles = appLogDir ? (await ghListDir("data/training/app-log")).filter((e) => e.type === "file" && e.name.endsWith(".json")) : [];
+  const appLogIndex = await loadAppLogIndex();
+  const appLogHit = appLogIndex.get(date);
+  if (appLogHit) return { weekLabel: appLogHit.weekLabel, path: appLogHit.path, session: appLogHit.session };
 
-  let lastLabel = null;
-  for (const entry of [...jsonFiles, ...appFiles]) {
-    const file = await ghGetFile(entry.path);
-    if (!file) continue;
-    let week;
-    try { week = JSON.parse(file.content); } catch (_) { continue; }
-    if (week.week_label) lastLabel = week.week_label;
-    const session = (week.sessions || []).find((s) => s.date === date);
-    if (session) return { weekLabel: week.week_label, path: entry.path, week, session };
+  const summaryIndex = await loadSummaryIndex();
+  const hit = summaryIndex.get(date);
+  if (!hit) {
+    let lastLabel = null;
+    for (const entry of appLogIndex.values()) if (entry.weekLabel) lastLabel = entry.weekLabel;
+    for (const h of summaryIndex.values()) if (h.week_label) lastLabel = h.week_label;
+    return { weekLabel: lastLabel, path: null, session: null };
   }
-  return { weekLabel: lastLabel, path: null, week: null, session: null };
+
+  const file = await ghGetFile(`data/${hit.path}`);
+  if (!file) return { weekLabel: hit.week_label, path: null, session: null };
+  let week;
+  try { week = JSON.parse(file.content); } catch (_) { return { weekLabel: hit.week_label, path: null, session: null }; }
+  const session = (week.sessions || []).find((s) => s.date === date) || null;
+  return { weekLabel: hit.week_label, path: `data/${hit.path}`, session };
 }
 
-/** All sessions across data/training/ (Sheets-synced) and
- * data/training/app-log/ (app edits — win on a same-date collision),
- * newest first. Powers "Séances précédentes" in Historique and the
- * "dupliquer une séance récente" prefill picker. Fetches every week file
- * in parallel (not one await at a time) — with a season's worth of
- * history this was the main reason Historique used to feel slow/stuck. */
+/** All known sessions (merged indexes, no extra fetch), newest first.
+ * Powers the "dupliquer une séance récente" prefill picker — the picker
+ * only needs name/date to list candidates; the actual clone, once one is
+ * tapped, goes through findSessionForDate for full detail. */
 async function listAllSessions() {
-  const top = await ghListDir("data/training");
-  const jsonFiles = top.filter((e) => e.type === "file" && e.name.endsWith(".json"));
-  const appLogDir = top.find((e) => e.name === "app-log" && e.type === "dir");
-  const appFiles = appLogDir ? (await ghListDir("data/training/app-log")).filter((e) => e.type === "file" && e.name.endsWith(".json")) : [];
-
-  const files = await Promise.all([...jsonFiles, ...appFiles].map((e) => ghGetFile(e.path)));
-
+  const [appLogIndex, summaryIndex] = await Promise.all([loadAppLogIndex(), loadSummaryIndex()]);
   const byDate = new Map();
-  for (const file of files) {
-    if (!file) continue;
-    let week;
-    try { week = JSON.parse(file.content); } catch (_) { continue; }
-    for (const s of week.sessions || []) byDate.set(s.date, { date: s.date, name: s.name, type: s.type, weekLabel: week.week_label });
-  }
+  for (const [date, hit] of summaryIndex) byDate.set(date, { date, name: hit.name, type: hit.type });
+  for (const [date, entry] of appLogIndex) byDate.set(date, { date, name: entry.session.name, type: entry.session.type });
   return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
 }
 
@@ -817,6 +926,21 @@ async function renderWeek(token) {
 
   document.getElementById("adjust-week-button").addEventListener("click", () => showView("adjust-week"));
 
+  if (!state.historyMonday) state.historyMonday = addDaysISO(mondayOfWeek(todayISO()), -7); // last week by default
+  document.getElementById("history-prev-week").addEventListener("click", () => {
+    state.historyMonday = addDaysISO(state.historyMonday, -7);
+    renderSessionHistoryWeek(renderToken).catch(() => {});
+  });
+  document.getElementById("history-next-week").addEventListener("click", () => {
+    state.historyMonday = addDaysISO(state.historyMonday, 7);
+    renderSessionHistoryWeek(renderToken).catch(() => {});
+  });
+  document.getElementById("history-jump-date").addEventListener("change", (e) => {
+    if (!e.target.value) return;
+    state.historyMonday = mondayOfWeek(e.target.value);
+    renderSessionHistoryWeek(renderToken).catch(() => {});
+  });
+
   document.getElementById("week-overview").innerHTML = skeletonHTML();
   document.getElementById("week-planning-content").innerHTML = skeletonHTML();
   document.getElementById("pending-proposal").innerHTML = "";
@@ -842,9 +966,15 @@ async function renderWeek(token) {
   if (blockLabel) {
     const blockFile = await ghGetFile(`data/blocks/${blockLabel}.md`);
     if (stale(token)) return;
-    blockContentEl.innerHTML = blockFile
-      ? renderMarkdown(splitBlockMarkdown(blockFile.content).overview)
-      : "<p class='muted'>Pas de fichier de bloc.</p>";
+    if (blockFile) {
+      const { overview } = splitBlockMarkdown(blockFile.content);
+      const { intro, rest } = splitBlockIntro(overview);
+      blockContentEl.innerHTML = renderMarkdown(intro) + (rest
+        ? `<details class="block-overview-details"><summary>📋 Bilan et objectifs détaillés</summary>${renderMarkdown(rest)}</details>`
+        : "");
+    } else {
+      blockContentEl.innerHTML = "<p class='muted'>Pas de fichier de bloc.</p>";
+    }
   } else {
     blockContentEl.innerHTML = "<p class='muted'>Pas de bloc en cours.</p>";
   }
@@ -861,7 +991,7 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
   if (!mondayISO) { el.innerHTML = "<p class='muted'>Pas de planning disponible pour cette semaine.</p>"; return; }
 
   const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(mondayISO, i));
-  const founds = await Promise.all(dates.map((d) => findSessionForDate(d)));
+  const summaries = await Promise.all(dates.map((d) => lookupDaySummary(d)));
   if (stale(token)) return;
 
   const today = todayISO();
@@ -869,16 +999,8 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
     .map((date, i) => {
       const planDay = planDays.find((d) => DAY_NAMES.indexOf(d.day) === i);
       const plannedLabel = planDay ? planDay.title : "—";
-      const session = founds[i].session;
-      const hasExecuted = !!session && (
-        (session.type && session.type !== "musculation" && session.notes) ||
-        (session.exercises || []).some((ex) => ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load))
-      );
-      let status;
-      if (hasExecuted) status = "✅ Fait";
-      else if (date > today) status = session ? "📝 Planifié" : "⏳ À venir";
-      else if (session) status = "📝 Planifié";
-      else status = "— Non loggé";
+      const s = summaries[i];
+      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today);
       return `
         <tr class="week-table-row" data-date="${date}">
           <td>${DAY_NAMES[i].slice(0, 3)} ${date.slice(8, 10)}/${date.slice(5, 7)}</td>
@@ -968,7 +1090,7 @@ async function loadPendingProposal(token) {
 }
 
 async function loadPlanHistory(token) {
-  await Promise.all([loadPlanHistoryList(token), loadSessionHistoryList(token)]);
+  await Promise.all([loadPlanHistoryList(token), renderSessionHistoryWeek(token)]);
 }
 
 async function loadPlanHistoryList(token) {
@@ -1005,30 +1127,38 @@ async function loadPlanHistoryList(token) {
   });
 }
 
-async function loadSessionHistoryList(token, limit = 10) {
+/** "Séances précédentes" — a week browser (◀/▶ + a native date input to
+ * jump straight to a week, a real calendar picker on iOS) defaulting to
+ * last week, instead of an ever-growing flat list. Uses lookupDaySummary
+ * (the merged, precomputed-first index) so browsing weeks costs no extra
+ * fetch beyond the one-time index load — this, together with that index,
+ * is what actually fixes Historique feeling slow to open (see
+ * docs/adr/0020), not just how it's displayed. */
+async function renderSessionHistoryWeek(token) {
+  const monday = state.historyMonday;
+  document.getElementById("history-week-label").textContent = `Semaine du ${formatFrDate(monday)}`;
   const container = document.getElementById("history-sessions-list");
-  if (container.dataset.loaded && +container.dataset.limit >= limit) return;
   container.innerHTML = skeletonHTML();
-  const sessions = await listAllSessions();
+
+  const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
+  const summaries = await Promise.all(dates.map((d) => lookupDaySummary(d)));
   if (stale(token)) return;
-  const shown = sessions.slice(0, limit);
-  if (shown.length === 0) { container.innerHTML = "<p class='muted small'>Pas encore de séance loguée.</p>"; return; }
-  container.innerHTML = shown
-    .map((s) => `
-      <button class="history-item" data-date="${s.date}">
-        <div class="history-date">${formatFrDate(s.date)}</div>
-        <div class="history-sub">${escapeHtmlText(s.name || "Séance")}</div>
-      </button>`)
+
+  const today = todayISO();
+  const rows = dates
+    .map((date, i) => {
+      const s = summaries[i];
+      if (!s.hasSession) return "";
+      const icon = SESSION_TYPES[s.type] ? SESSION_TYPES[s.type].icon : "🏋️";
+      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today);
+      return `
+        <button class="history-item" data-date="${date}">
+          <div class="history-date">${icon} ${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
+          <div class="history-sub">${escapeHtmlText(s.name || "Séance")} · ${status}</div>
+        </button>`;
+    })
     .join("");
-  if (sessions.length > shown.length) {
-    container.insertAdjacentHTML("beforeend", `<button class="details-toggle" id="sessions-see-more">Voir plus (${sessions.length - shown.length})</button>`);
-    document.getElementById("sessions-see-more").addEventListener("click", () => {
-      container.dataset.loaded = "";
-      loadSessionHistoryList(renderToken, limit + 15);
-    });
-  }
-  container.dataset.loaded = "1";
-  container.dataset.limit = String(limit);
+  container.innerHTML = rows || "<p class='muted small'>Pas de séance cette semaine-là.</p>";
   container.querySelectorAll(".history-item[data-date]").forEach((btn) => {
     btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
   });
@@ -1048,7 +1178,33 @@ async function renderForge(token) {
   });
   bindBlockReferenceToggle(document.getElementById("forge-block-toggle"), document.getElementById("forge-block-content"));
 
+  document.getElementById("forge-skeleton-button").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("forge-skeleton-status");
+    btn.disabled = true;
+    statusEl.textContent = "Génération du squelette…";
+    try {
+      const { filled, skipped } = await proposeForgeSkeleton();
+      statusEl.textContent = filled === 0
+        ? "Rien à copier — aucune séance trouvée la semaine précédente, ou tous les jours de cette semaine sont déjà renseignés."
+        : `${filled} jour(s) pré-rempli(s) d'après la semaine précédente${skipped ? ` (${skipped} déjà renseigné(s), laissé(s) tel quel)` : ""}. Vérifie et ajuste chaque séance, puis c'est prêt.`;
+      await renderForgeContent(renderToken);
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
   await renderForgeContent(token);
+}
+
+function quickTypeButtonsHTML(date, currentType) {
+  return Object.entries(SESSION_TYPES)
+    .map(([key, t]) => `
+      <button type="button" class="forge-quick-type-button${currentType === key ? " active" : ""}"
+              data-date="${date}" data-type="${key}" title="${escapeAttr(t.label)}" aria-label="${escapeAttr(t.label)}">${t.icon}</button>`)
+    .join("");
 }
 
 async function renderForgeContent(token) {
@@ -1057,24 +1213,101 @@ async function renderForgeContent(token) {
   document.getElementById("forge-days").innerHTML = skeletonHTML();
 
   const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
-  const founds = await Promise.all(dates.map((d) => findSessionForDate(d)));
+  const summaries = await Promise.all(dates.map((d) => lookupDaySummary(d)));
   if (stale(token)) return;
 
+  const today = todayISO();
   document.getElementById("forge-days").innerHTML = dates
     .map((date, i) => {
-      const session = founds[i].session;
-      const type = session ? session.type || "musculation" : null;
-      const label = session ? `${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : "🏋️"} ${session.name || "Séance"}` : "Aucune séance planifiée";
+      const s = summaries[i];
+      const type = s.hasSession ? s.type || "musculation" : null;
+      const label = s.hasSession ? `${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : "🏋️"} ${escapeHtmlText(s.name || "Séance")}` : "Aucune séance planifiée";
       return `
-        <button type="button" class="forge-day-tile" data-date="${date}">
-          <div class="forge-day-name">${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
-          <div class="forge-day-session">${escapeHtmlText(label)}</div>
-        </button>`;
+        <div class="forge-day-row">
+          <button type="button" class="forge-day-tile" data-date="${date}">
+            <div class="forge-day-name">${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
+            <div class="forge-day-session">${label}</div>
+            <div class="forge-day-status">${sessionDayStatus(date, s.hasSession, s.hasExecuted, today)}</div>
+          </button>
+          <div class="forge-quick-types">${quickTypeButtonsHTML(date, type)}</div>
+        </div>`;
     })
     .join("");
   document.getElementById("forge-days").querySelectorAll(".forge-day-tile").forEach((btn) => {
     btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
   });
+  document.getElementById("forge-days").querySelectorAll(".forge-quick-type-button").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      document.querySelectorAll(".forge-quick-type-button").forEach((b) => (b.disabled = true));
+      await quickSetDayType(btn.dataset.date, btn.dataset.type);
+      await renderForgeContent(renderToken);
+    });
+  });
+}
+
+/** true if a session has enough real content that overwriting it deserves
+ * a confirmation first — used by the Forge quick-type buttons and the
+ * skeleton proposal, both of which can otherwise silently replace a
+ * session with a blank one of a different type. */
+function sessionHasContent(session) {
+  if (!session) return false;
+  if (session.notes) return true;
+  if (session.session_rpe != null || session.session_duration_min != null) return true;
+  return (session.exercises || []).some((ex) =>
+    (ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load)) ||
+    (ex.planned && (ex.planned.sets || ex.planned.reps || ex.planned.load))
+  );
+}
+
+/** Sets just a day's type from Forge — musculation/rugby/autre/repos —
+ * without opening the full session view, so a whole week's structure can
+ * be sketched in a few taps ("j'ai besoin de pouvoir simplement ajouter le
+ * type de séance dans la semaine"). Rugby on a Saturday/Sunday is always
+ * a match, never club training. */
+async function quickSetDayType(date, type) {
+  const found = await findSessionForDate(date);
+  const existing = found.session;
+  if (existing && (existing.type || "musculation") === type) return; // already this type
+  if (sessionHasContent(existing)) {
+    const ok = window.confirm(`Remplacer la séance déjà renseignée du ${formatFrDate(date)} (${existing.name}) ?`);
+    if (!ok) return;
+  }
+  await saveSession(found.weekLabel || "app", date, blankSession(date, type));
+}
+
+/** "🧬 Proposer un squelette" — clones the previous week's day-by-day
+ * structure (type, name, exercises — planned kept, executed/RIR reset)
+ * into the empty days of the Forge week currently shown, so planning a
+ * new week starts from last week's shape instead of a blank page. Never
+ * overwrites a day that already has a session — only fills empty ones. */
+async function proposeForgeSkeleton() {
+  const monday = state.forgeMonday;
+  const prevMonday = addDaysISO(monday, -7);
+  const targetDates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
+  const sourceDates = Array.from({ length: 7 }, (_, i) => addDaysISO(prevMonday, i));
+  const [targets, sources] = await Promise.all([
+    Promise.all(targetDates.map((d) => findSessionForDate(d))),
+    Promise.all(sourceDates.map((d) => findSessionForDate(d))),
+  ]);
+
+  let filled = 0;
+  let skipped = 0;
+  for (let i = 0; i < 7; i++) {
+    if (targets[i].session) { skipped++; continue; }
+    const src = sources[i].session;
+    if (!src) continue;
+    const cloned = JSON.parse(JSON.stringify(src));
+    cloned.date = targetDates[i];
+    if (cloned.exercises) {
+      cloned.exercises.forEach((ex) => { ex.executed = { sets: null, reps: null, load: null }; ex.rir = null; });
+    }
+    cloned.session_rpe = null;
+    cloned.session_duration_min = null;
+    if (cloned.type && cloned.type !== "musculation") cloned.notes = "";
+    await saveSession(targets[i].weekLabel || sources[i].weekLabel || "app", targetDates[i], cloned);
+    filled++;
+  }
+  return { filled, skipped };
 }
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -1164,8 +1397,8 @@ async function renderData(token) {
   }
   if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
 
-  const bw = s.bodyweight_recent && s.bodyweight_recent.history;
-  if (bw && bw.length > 1) {
+  const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || [];
+  if (bw.length > 1) {
     const first = bw[0].weight_kg, last = bw[bw.length - 1].weight_kg;
     const delta = last - first;
     const days = Math.max(1, (new Date(bw[bw.length - 1].date) - new Date(bw[0].date)) / 86400000);
@@ -1179,23 +1412,81 @@ async function renderData(token) {
           sur la période <span class="muted small">(~${perWeek >= 0 ? "+" : ""}${perWeek.toFixed(2)} kg/semaine)</span>
         </p>
       </section>`;
-  } else if (bw && bw.length === 1) {
+  } else if (bw.length === 1) {
     html += `<section class="card"><h2>⚖️ Poids de corps</h2><p class="trend-line">${bw[0].weight_kg.toFixed(1)} kg</p></section>`;
+  } else {
+    html += `<section class="card"><h2>⚖️ Poids de corps</h2><p class="muted small">Pas encore assez de pesées récentes.</p></section>`;
   }
 
-  if (s.sleep_recent) {
-    const sr = s.sleep_recent;
-    const hist = sr.history || [];
+  const sr = s.sleep_recent || {};
+  const sleepHist = sr.history || [];
+  if (sr.avg_7d != null || sleepHist.length) {
     const delta = sr.avg_7d != null && sr.avg_prior_7d != null ? sr.avg_7d - sr.avg_prior_7d : null;
     html += `
       <section class="card">
         <h2>😴 Sommeil</h2>
-        ${hist.length > 1 ? sparklineSVG(hist.map((h) => ({ date: h.date, value: h.hours }))) : ""}
+        ${sleepHist.length > 1 ? sparklineSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours }))) : ""}
         <p class="trend-line">
           ${sr.avg_7d != null ? `${sr.avg_7d.toFixed(1)} h/nuit <span class="muted small">(moy. 7j)</span>` : "Pas assez de données"}
           ${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} h vs semaine précédente</span>` : ""}
         </p>
       </section>`;
+  } else {
+    html += `<section class="card"><h2>😴 Sommeil</h2><p class="muted small">Pas encore de données de sommeil.</p></section>`;
+  }
+
+  const recoveryHist = (s.recovery_recent && s.recovery_recent.history) || [];
+  const lastWithField = (field) => {
+    for (let i = recoveryHist.length - 1; i >= 0; i--) if (recoveryHist[i][field] != null) return recoveryHist[i][field];
+    return null;
+  };
+  const restingHr = lastWithField("resting_heart_rate");
+  const hrv = lastWithField("hrv_ms");
+  if (restingHr != null || hrv != null) {
+    html += `
+      <section class="card">
+        <h2>❤️ Récupération</h2>
+        <div class="stat-grid">
+          ${restingHr != null ? statTileSimple("FC repos", `${Math.round(restingHr)} bpm`) : ""}
+          ${hrv != null ? statTileSimple("HRV", `${Math.round(hrv)} ms`) : ""}
+        </div>
+        <p class="muted small">FC repos basse et HRV stable/haute = bonne récupération ; une tendance inverse qui se maintient plusieurs jours est un signal précoce de fatigue.</p>
+      </section>`;
+  } else {
+    html += `<section class="card"><h2>❤️ Récupération</h2><p class="muted small">Pas encore de données FC repos/HRV.</p></section>`;
+  }
+
+  const bc = s.body_composition || [];
+  if (bc.length) {
+    const latest = bc[bc.length - 1];
+    const prev = bc.length > 1 ? bc[bc.length - 2] : null;
+    const delta = (field) => (prev && latest[field] != null && prev[field] != null) ? latest[field] - prev[field] : null;
+    html += `
+      <section class="card">
+        <h2>📏 Composition corporelle</h2>
+        <p class="muted small">Dernier scan InBody : ${latest.date}</p>
+        <div class="stat-grid">
+          ${latest.skeletal_muscle_mass_kg != null ? statTileSimple("Masse musculaire", `${latest.skeletal_muscle_mass_kg.toFixed(1)} kg`, delta("skeletal_muscle_mass_kg"), " kg") : ""}
+          ${latest.fat_mass_kg != null ? statTileSimple("Masse grasse", `${latest.fat_mass_kg.toFixed(1)} kg`, delta("fat_mass_kg"), " kg") : ""}
+        </div>
+        ${latest.inbody_score != null ? `<p class="muted small" style="margin-top:8px">Score InBody : ${latest.inbody_score}</p>` : ""}
+      </section>`;
+  } else {
+    html += `<section class="card"><h2>📏 Composition corporelle</h2><p class="muted small">Pas encore de scan InBody enregistré.</p></section>`;
+  }
+
+  const ACCESSORY_LABELS = { strict_press: "Strict Press", tractions: "Tractions", cmj: "CMJ", sprint: "Sprint" };
+  let accessoryTags = "";
+  for (const [key, label] of Object.entries(ACCESSORY_LABELS)) {
+    const entries = (s.secondary_lifts && s.secondary_lifts[key]) || (s.power_speed_progression && s.power_speed_progression[key]);
+    if (!entries || !entries.length) continue;
+    const last = entries[entries.length - 1];
+    const ex = last.executed || {};
+    const parts = [ex.sets, ex.reps, ex.load].filter((v) => v != null && v !== "").join(" × ");
+    accessoryTags += `<div class="accessory-tag"><span class="accessory-tag-label">${label}</span><span>${escapeHtmlText(parts || "—")}</span><span class="muted small">${last.date}</span></div>`;
+  }
+  if (accessoryTags) {
+    html += `<section class="card"><h2>💪 Accessoires & explosivité</h2><div class="accessory-tags">${accessoryTags}</div></section>`;
   }
 
   if (s.workload) {
@@ -1223,6 +1514,20 @@ async function renderData(token) {
   }
 
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
+}
+
+/** A compact labeled value, for secondary Data-tab metrics that don't
+ * warrant a full progress ring (recovery, body composition) — optionally
+ * with a small delta vs the previous reading. */
+function statTileSimple(label, valueText, delta, deltaUnit) {
+  const deltaHtml = delta != null
+    ? ` <span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)}${deltaUnit || ""}</span>`
+    : "";
+  return `
+    <div class="stat-tile-simple">
+      <div class="stat-label">${label}</div>
+      <div class="trend-line small">${valueText}${deltaHtml}</div>
+    </div>`;
 }
 
 // ---- Chat ----
@@ -1318,6 +1623,7 @@ const SESSION_TYPES = {
   musculation: { label: "Musculation", icon: "🏋️" },
   rugby: { label: "Rugby / Match", icon: "🏉" },
   autre: { label: "Autre (course, rando...)", icon: "🏃" },
+  repos: { label: "Repos", icon: "😴" },
 };
 
 const EXERCISE_FORMATS = {
@@ -1342,9 +1648,18 @@ function blankExercise() {
   };
 }
 
+/** A rugby session placed on a Saturday/Sunday is always a match, never
+ * club training — applies wherever a blank session is created (the type
+ * picker in the full session view, and Forge's quick-set buttons), not
+ * just one of the two. */
+function defaultSessionName(date, type) {
+  if (type === "rugby") return isWeekendISO(date) ? "Match" : "Entraînement club";
+  return SESSION_TYPES[type].label;
+}
+
 function blankSession(date, type) {
   return {
-    name: SESSION_TYPES[type].label,
+    name: defaultSessionName(date, type),
     date,
     type,
     exercises: type === "musculation" ? [blankExercise()] : [],
@@ -1417,11 +1732,13 @@ function renderSessionContent() {
 function notesLabelFor(type) {
   if (type === "rugby") return "Comment ça s'est passé ? (facultatif)";
   if (type === "autre") return "Description (facultatif)";
+  if (type === "repos") return "Note (facultatif)";
   return "📝 Note de séance (facultatif — ex. \"volume réduit, épaule un peu sensible\")";
 }
 function notesPlaceholderFor(type) {
   if (type === "rugby") return "Ressenti, intensité, contact, fatigue...";
   if (type === "autre") return "Où, combien de temps, ressenti...";
+  if (type === "repos") return "Étirements, ressenti, sommeil...";
   return "";
 }
 
@@ -1641,6 +1958,7 @@ async function saveSession(weekLabel, date, session) {
     else base.sessions[idx] = nextSession;
     return base;
   });
+  invalidateAppLogIndex();
 
   if (session.session_rpe != null || session.session_duration_min != null) {
     await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date}`, (current) => {

@@ -332,7 +332,14 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   padding: 14px 10px;
   text-align: center;
 }
-.stat-tile .stat-label {
+.stat-tile-simple {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 10px;
+  text-align: center;
+}
+.stat-tile .stat-label, .stat-tile-simple .stat-label {
   font-size: 0.72rem;
   color: var(--muted);
   font-weight: 600;
@@ -786,22 +793,20 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   min-width: 200px;
   text-align: center;
 }
+.forge-day-row { margin-bottom: 12px; }
 .forge-day-tile {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: block;
   width: 100%;
   text-align: left;
   background: var(--card-bg);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   box-shadow: var(--shadow);
-  padding: 14px 16px;
-  margin-bottom: 10px;
+  padding: 14px 16px 10px;
   cursor: pointer;
   color: var(--text);
 }
-.forge-day-tile:active { background: var(--bg); transform: scale(0.99); }
+.forge-day-tile:active { background: var(--bg); }
 .forge-day-name {
   font-family: var(--font-display);
   font-weight: 600;
@@ -810,7 +815,31 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   color: var(--muted);
   margin-bottom: 4px;
 }
-.forge-day-session { font-size: 0.95rem; }
+.forge-day-session { font-size: 0.95rem; margin-bottom: 2px; }
+.forge-day-status { font-size: 0.78rem; color: var(--muted); }
+
+.forge-quick-types {
+  display: flex;
+  gap: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  padding: 8px 10px;
+}
+.forge-quick-type-button {
+  flex: 1;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 0;
+  font-size: 1.15rem;
+  cursor: pointer;
+  line-height: 1;
+}
+.forge-quick-type-button.active { background: var(--green-pale); border-color: var(--green-light); }
+.forge-quick-type-button:active { transform: scale(0.92); }
+.forge-quick-type-button:disabled { opacity: 0.4; }
 
 /* ---------- Data : sparklines, tendances, charge ---------- */
 .sparkline { display: block; width: 100%; height: auto; margin: 6px 0; }
@@ -833,4 +862,31 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .workload-badge.zone-zone_prudente { background: var(--gold-pale); color: #8A5F1E; }
 .workload-badge.zone-risque_eleve { background: #FBE2E2; color: var(--danger); }
 
+.accessory-tags { display: flex; flex-direction: column; gap: 8px; }
+.accessory-tag {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 0.88rem;
+}
+.accessory-tag-label { font-weight: 600; flex-shrink: 0; }
+
 .markdown-body.small { font-size: 0.85rem; }
+
+.block-overview-details { margin-top: 10px; }
+.block-overview-details summary {
+  cursor: pointer;
+  color: var(--green-light);
+  font-size: 0.88rem;
+  font-weight: 600;
+  padding: 8px 0;
+  list-style: none;
+}
+.block-overview-details summary::-webkit-details-marker { display: none; }
+.block-overview-details summary::after { content: " ▾"; }
+.block-overview-details[open] summary::after { content: " ▴"; }

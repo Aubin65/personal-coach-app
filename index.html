@@ -126,7 +126,13 @@
     </section>
     <section class="card">
       <h2>Séances précédentes</h2>
-      <div id="history-sessions-list"></div>
+      <div class="forge-week-nav">
+        <button type="button" id="history-prev-week" class="icon-button small" aria-label="Semaine précédente">◀</button>
+        <span id="history-week-label" class="forge-week-label"></span>
+        <button type="button" id="history-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
+      </div>
+      <input type="date" id="history-jump-date" aria-label="Aller à une semaine">
+      <div id="history-sessions-list" style="margin-top:10px"></div>
     </section>
     <div class="git-history-note">
       <span>🔒</span>
@@ -147,6 +153,10 @@
     <button type="button" id="forge-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
   </div>
 
+  <button type="button" id="forge-skeleton-button" class="primary-button ghost small" style="margin-bottom:4px">🧬 Proposer un squelette (semaine précédente)</button>
+  <p id="forge-skeleton-status" class="muted small" style="margin-bottom:10px"></p>
+
+  <p class="muted small">Icônes = poser juste le type du jour (structure rapide) ; le bloc ouvre le détail complet.</p>
   <div id="forge-days"></div>
 </template>
 
