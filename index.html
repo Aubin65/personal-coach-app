@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Coach</title>
+<meta name="theme-color" content="#0B3D2C">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Coach">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login screen: shown until a GitHub token is stored -->
+<div id="login-screen" class="screen">
+  <div class="login-card">
+    <h1>🏉 Personal Coach</h1>
+    <p class="muted">Colle ton token GitHub (le même que celui utilisé pour les Raccourcis iOS — accès Contents lecture/écriture sur <code>Aubin65/personal_coach</code>).</p>
+    <input id="token-input" type="password" placeholder="github_pat_..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <button id="login-button" class="primary-button">Se connecter</button>
+    <p id="login-error" class="error-text" hidden></p>
+    <p class="muted small">Le token reste uniquement sur ce téléphone (stocké localement) — jamais envoyé ailleurs qu'à l'API GitHub.</p>
+  </div>
+</div>
+
+<!-- Main app shell -->
+<div id="app" class="screen" hidden>
+  <header class="topbar">
+    <span id="topbar-title">Aujourd'hui</span>
+    <button id="refresh-button" class="icon-button" title="Rafraîchir" aria-label="Rafraîchir">⟳</button>
+  </header>
+
+  <main id="content"></main>
+
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-view="today">
+      <span class="nav-icon">🏠</span><span>Aujourd'hui</span>
+    </button>
+    <button class="nav-item" data-view="week">
+      <span class="nav-icon">📅</span><span>Semaine</span>
+    </button>
+    <button class="nav-item" data-view="progress">
+      <span class="nav-icon">📊</span><span>Progression</span>
+    </button>
+    <button class="nav-item" data-view="chat">
+      <span class="nav-icon">💬</span><span>Coach</span>
+    </button>
+  </nav>
+</div>
+
+<!-- Templates for each screen's content, cloned into #content -->
+<template id="tpl-skeleton">
+  <div class="skeleton skeleton-line w-40"></div>
+  <div class="skeleton skeleton-line w-80"></div>
+  <div class="skeleton skeleton-line w-60"></div>
+</template>
+
+<template id="tpl-today">
+  <section class="card" id="today-quick-actions">
+    <button class="action-button" data-action="log-session"><span class="action-icon">📝</span>Loguer la séance</button>
+    <button class="action-button" data-action="write-note"><span class="action-icon">🎙️</span>Écrire une note</button>
+  </section>
+  <section class="card">
+    <h2 id="today-digest-date">Digest</h2>
+    <div id="today-digest-content" class="markdown-body"></div>
+  </section>
+</template>
+
+<template id="tpl-week">
+  <div class="segmented" id="week-tabs">
+    <button class="segment active" data-week-tab="planning">Planning</button>
+    <button class="segment" data-week-tab="block">Bloc</button>
+    <button class="segment" data-week-tab="history">Historique</button>
+  </div>
+
+  <div id="week-planning-panel">
+    <div id="week-overview"></div>
+    <section class="card">
+      <button class="primary-button ghost small" id="adjust-week-button" style="margin-bottom:12px">✏️ Ajuster ma semaine</button>
+      <div id="week-planning-content" class="markdown-body"></div>
+    </section>
+  </div>
+
+  <section class="card" id="week-block-content" hidden>
+    <div class="markdown-body"></div>
+  </section>
+
+  <div id="week-history-panel" hidden>
+    <section class="card">
+      <h2>Plannings précédents</h2>
+      <div id="history-plans-list"></div>
+    </section>
+    <div class="git-history-note">
+      <span>🔒</span>
+      <span>Chaque version de ton planning, bloc, séances et notes est conservée pour toujours (historique Git) — un ajustement ne remplace jamais silencieusement ce qu'il y avait avant.</span>
+    </div>
+  </div>
+</template>
+
+<template id="tpl-progress">
+  <section class="card"><div id="progress-content"></div></section>
+</template>
+
+<template id="tpl-chat">
+  <div class="chat-log" id="chat-log"></div>
+  <form class="chat-input-row" id="chat-form">
+    <input id="chat-input" type="text" placeholder="Une question pour le coach…" autocomplete="off">
+    <button type="submit" class="primary-button small">Envoyer</button>
+  </form>
+</template>
+
+<template id="tpl-log-session">
+  <div id="log-session-content"></div>
+</template>
+
+<template id="tpl-write-note">
+  <section class="card">
+    <h2>Nouvelle note</h2>
+    <div class="compose-row">
+      <textarea id="note-text" rows="5" placeholder="Ressenti, feedback de séance/match, repas…"></textarea>
+      <button type="button" id="note-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
+    </div>
+    <p class="voice-hint" id="note-voice-hint" hidden>🔴 Enregistrement… appuie à nouveau pour arrêter</p>
+    <button id="note-save" class="primary-button" style="margin-top:10px">Enregistrer</button>
+    <p id="note-status" class="muted small"></p>
+  </section>
+  <section class="card">
+    <h2>Notes récentes</h2>
+    <div id="recent-notes"></div>
+  </section>
+</template>
+
+<template id="tpl-adjust-week">
+  <section class="card">
+    <h2>Ajuster ma semaine</h2>
+    <p class="muted small">Décris ce que tu veux changer — le coach reconstruit le planning en conséquence (pas juste un remplacement mécanique).</p>
+    <div class="compose-row">
+      <textarea id="adjust-text" rows="4" placeholder="Ex : j'ai un empêchement jeudi, décale la séance…"></textarea>
+      <button type="button" id="adjust-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
+    </div>
+    <p class="voice-hint" id="adjust-voice-hint" hidden>🔴 Enregistrement… appuie à nouveau pour arrêter</p>
+    <div id="adjust-suggestions" class="suggestion-chips"></div>
+    <button id="adjust-send" class="primary-button" style="margin-top:12px">Envoyer au coach</button>
+    <p id="adjust-status" class="muted small"></p>
+  </section>
+</template>
+
+<script src="app.js"></script>
+</body>
+</html>
