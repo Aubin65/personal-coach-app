@@ -123,6 +123,16 @@ button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
   z-index: 2;
 }
+.topbar-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.topbar-sync-status {
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: rgba(255,255,255,0.75);
+}
+
 .icon-button {
   background: rgba(255,255,255,0.12);
   border: none;
@@ -458,10 +468,18 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .day-card:active { transform: scale(0.96); background: var(--border); }
 .day-card.is-today { background: var(--green-pale); border-color: var(--green-light); border-width: 2px; }
 .day-card.is-today .day-name { color: var(--green-light); }
+.day-card.is-selected { border-color: var(--gold); border-width: 2px; box-shadow: 0 0 0 1px var(--gold); }
 .day-card .day-name { font-size: 0.72rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-family: var(--font-display); letter-spacing: 0.03em; }
 .day-card .day-date { font-size: 0.85rem; color: var(--text); margin-bottom: 4px; font-family: var(--font-display); font-weight: 500; }
 .day-card .day-icon { font-size: 1.4rem; margin: 2px 0; }
 .day-card .day-title { font-size: 0.7rem; line-height: 1.25; }
+
+.day-overview-card { border: 1px solid var(--gold); }
+.day-overview-card h2 { margin-bottom: 10px; }
+.day-overview-card #day-overview-edit { margin-top: 10px; }
+.day-overview-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.day-overview-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); padding: 0 8px 8px 0; }
+.day-overview-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--border); }
 
 .highlights-card {
   background: var(--gold-pale);
@@ -887,6 +905,27 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .trend-line .small { font-size: 0.75rem; font-weight: 500; display: block; margin-top: 2px; }
 .trend-up { color: var(--green-light); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
 .trend-down { color: var(--danger); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
+
+.sleep-week-summary {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.sleep-week-summary-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin-bottom: 4px;
+}
+.sleep-week-summary-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
 
 .workload-badge {
   display: inline-block;

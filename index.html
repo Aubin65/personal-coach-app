@@ -33,7 +33,10 @@
 <!-- Main app shell -->
 <div id="app" class="screen" hidden>
   <header class="topbar">
-    <span id="topbar-title">Aujourd'hui</span>
+    <div class="topbar-titles">
+      <span id="topbar-title">Aujourd'hui</span>
+      <span id="topbar-sync-status" class="topbar-sync-status"></span>
+    </div>
     <button id="refresh-button" class="icon-button" title="Rafraîchir" aria-label="Rafraîchir">⟳</button>
   </header>
 
@@ -107,6 +110,7 @@
   <div id="week-planning-panel">
     <div id="pending-proposal"></div>
     <div id="week-overview"></div>
+    <div id="day-overview-panel"></div>
     <section class="card">
       <button class="primary-button ghost small" id="adjust-week-button" style="margin-bottom:12px">✏️ Ajuster ma semaine</button>
       <div id="week-planning-content" class="markdown-body"></div>

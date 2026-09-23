@@ -376,8 +376,10 @@ function normalizeDM(str) {
 /** `mondayISO` is the plan's own filename (data/plans/<lundi-AAAA-MM-jj>.md)
  * — the reliable source for each day's real ISO date, since the day
  * headers in the markdown only carry "DD/MM" with no year. Day cards are
- * clickable: they open that date's session directly (log/adjust/review),
- * rather than only ever reaching today's from the Aujourd'hui tab. */
+ * clickable: they show that date's overview inline (see
+ * showDayOverviewPanel) rather than jumping straight to the full session
+ * editor — a tap is "let me see what's there", not necessarily "let me
+ * edit it". */
 function renderWeekOverview(container, markdown, todayISOStr, mondayISO) {
   const { days, highlights } = parseWeekOverview(markdown);
   const [, tm, td] = todayISOStr.split("-");
@@ -409,8 +411,76 @@ function renderWeekOverview(container, markdown, todayISOStr, mondayISO) {
 
   container.innerHTML = html;
   container.querySelectorAll(".day-card[data-date]").forEach((btn) => {
-    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
+    btn.addEventListener("click", () => {
+      container.querySelectorAll(".day-card").forEach((c) => c.classList.toggle("is-selected", c === btn));
+      showDayOverviewPanel(renderToken, btn.dataset.date).catch(() => {});
+    });
   });
+}
+
+/** `{sets, reps, load}` (planned or executed) as one compact string, same
+ * join convention as the accessory tags in renderData — "" when there's
+ * nothing usable rather than a row of bare dashes. */
+function formatSetsRepsLoad(obj) {
+  if (!obj) return "";
+  return [obj.sets, obj.reps, obj.load].filter((v) => v != null && v !== "").join(" × ");
+}
+
+/** Inline read-only overview for a day tapped in Planning's day-strip —
+ * a table for musculation (one row per exercise, prévu/fait side by
+ * side), the free-text description for rugby/autre/repos, and an
+ * "✏️ Modifier la séance" button for whoever actually needs to change
+ * something, instead of every tap jumping straight into edit mode. */
+async function showDayOverviewPanel(token, date) {
+  const el = document.getElementById("day-overview-panel");
+  el.innerHTML = skeletonHTML();
+  const found = await findSessionForDate(date);
+  if (stale(token)) return;
+  const session = found.session;
+
+  const editButtonHTML = `<button type="button" id="day-overview-edit" class="primary-button ghost small" data-date="${date}">${session ? "✏️ Modifier la séance" : "+ Créer une séance"}</button>`;
+
+  if (!session) {
+    el.innerHTML = `
+      <section class="card day-overview-card">
+        <h2>${formatFrDate(date)}</h2>
+        <p class="muted small">Aucune séance ce jour-là.</p>
+        ${editButtonHTML}
+      </section>`;
+  } else {
+    const type = session.type || "musculation";
+    let body;
+    if (type === "musculation" && (session.exercises || []).length) {
+      const rows = session.exercises
+        .map(
+          (ex) => `
+          <tr>
+            <td>${escapeHtmlText(ex.name || "")}</td>
+            <td>${escapeHtmlText(formatSetsRepsLoad(ex.planned)) || "—"}</td>
+            <td>${escapeHtmlText(formatSetsRepsLoad(ex.executed)) || "—"}</td>
+          </tr>`
+        )
+        .join("");
+      body = `
+        <table class="day-overview-table">
+          <thead><tr><th>Exercice</th><th>Prévu</th><th>Fait</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    } else {
+      body = `<p class="small">${session.notes ? escapeHtmlText(session.notes) : "<span class='muted'>Pas de note.</span>"}</p>`;
+    }
+    const workload = session.session_rpe != null || session.session_duration_min != null
+      ? `<p class="muted small">${session.session_rpe != null ? `RPE ${session.session_rpe}` : ""}${session.session_rpe != null && session.session_duration_min != null ? " · " : ""}${session.session_duration_min != null ? `${session.session_duration_min} min` : ""}</p>`
+      : "";
+    el.innerHTML = `
+      <section class="card day-overview-card">
+        <h2>${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${escapeHtmlText(session.name || "Séance")} — ${formatFrDate(date)}</h2>
+        ${body}
+        ${workload}
+        ${editButtonHTML}
+      </section>`;
+  }
+  document.getElementById("day-overview-edit").addEventListener("click", () => showView("session", { date }));
 }
 
 /** Splits a block markdown into a condensed "objectifs principaux" part
@@ -807,6 +877,7 @@ document.querySelectorAll(".nav-item").forEach((btn) => {
 document.getElementById("refresh-button").addEventListener("click", (e) => {
   e.currentTarget.classList.add("spinning");
   showView(state.view);
+  loadSyncStatus();
   setTimeout(() => e.currentTarget.classList.remove("spinning"), 800);
 });
 
@@ -982,6 +1053,7 @@ async function renderWeek(token) {
   document.getElementById("week-overview").innerHTML = skeletonHTML();
   document.getElementById("week-planning-content").innerHTML = skeletonHTML();
   document.getElementById("pending-proposal").innerHTML = "";
+  document.getElementById("day-overview-panel").innerHTML = "";
   const plan = await latestFileOnOrBefore("data/plans", ".md", todayISO());
   if (stale(token)) return;
 
@@ -1525,8 +1597,13 @@ function ringSVG(fraction) {
  * it's progressing from — see bodyweight_progress.baseline_kg /
  * strength_trajectory[x].baseline_load) — without it a ring shows only
  * "how full", never "from where" or "how much of the objective, exactly"
- * ("je ne sais pas de quel point je pars"). */
-function statTile(label, current, unit, fraction, help, startValue) {
+ * ("je ne sais pas de quel point je pars"). `startDate` is when that
+ * baseline was recorded (bodyweight_progress.baseline_date /
+ * strength_trajectory[x].baseline_date — both anchored to the same
+ * `_RETURN_TO_TRAINING_DATE` server-side) — shown alongside the value so
+ * it's a specific, checkable point in time, not a bare number of
+ * uncertain origin ("les points de départ ne sont pas cohérents"). */
+function statTile(label, current, unit, fraction, help, startValue, startDate) {
   const valueText = current != null ? `${current}${unit}` : "—";
   const pct = fraction != null ? Math.round(fraction * 100) : null;
   return `
@@ -1537,7 +1614,7 @@ function statTile(label, current, unit, fraction, help, startValue) {
         <div class="ring-value">${valueText}</div>
       </div>
       ${pct != null ? `<div class="stat-pct">${pct}% de l'objectif</div>` : ""}
-      ${startValue != null ? `<div class="stat-start muted small">Départ ${startValue}${unit}</div>` : ""}
+      ${startValue != null ? `<div class="stat-start muted small">Départ ${startValue}${unit}${startDate ? ` (${shortDateFr(startDate)})` : ""}</div>` : ""}
       ${help ? `<div class="stat-help">${help}</div>` : ""}
     </div>`;
 }
@@ -1668,7 +1745,7 @@ async function renderData(token) {
   let tiles = "";
   if (s.bodyweight_progress) {
     const bp = s.bodyweight_progress;
-    tiles += statTile("Poids de corps", bp.current_kg, " kg", bp.fraction, `Objectif ${bp.target_kg} kg`, bp.baseline_kg);
+    tiles += statTile("Poids de corps", bp.current_kg, " kg", bp.fraction, `Objectif ${bp.target_kg} kg`, bp.baseline_kg, bp.baseline_date);
   }
   const liftLabels = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar Deadlift" };
   for (const [key, label] of Object.entries(liftLabels)) {
@@ -1681,7 +1758,8 @@ async function renderData(token) {
       " kg",
       entry.progress_fraction,
       entry.target ? `Cible 4RM : ${entry.target.four_rm.toFixed(1)} kg` : "Pas de cible calculable",
-      entry.baseline_load
+      entry.baseline_load,
+      entry.baseline_date
     );
   }
   if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
@@ -1720,6 +1798,15 @@ async function renderData(token) {
           ${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} h vs semaine précédente</span>` : ""}
         </p>
         <p class="muted small">Repère : ≥ ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit (barres dorées sous ce seuil).</p>
+        ${sr.week_avg != null ? `
+        <div class="sleep-week-summary">
+          <div class="sleep-week-summary-label">Cette semaine (lundi → dimanche)</div>
+          <div class="sleep-week-summary-figures">
+            <span><strong>${formatHoursFr(sr.week_avg)}</strong>/nuit en moyenne</span>
+            <span><strong>${formatHoursFr(sr.week_total)}</strong> cumulées <span class="muted small">(${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""})</span></span>
+          </div>
+          <div class="muted small">Objectif : ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit en moyenne · ${formatHoursFr(SLEEP_TARGET_HOURS * 7)} cumulées sur une semaine complète</div>
+        </div>` : ""}
       </section>`;
   } else {
     html += `<section class="card"><h2>😴 Sommeil</h2><p class="muted small">Pas encore de données de sommeil.</p></section>`;
@@ -2391,6 +2478,42 @@ async function loadRecentNotes(token, limit = 5) {
 }
 
 // ============================================================================
+// Last-sync indicator — persistent in the topbar (outside #content, so it
+// survives navigation instead of needing to be re-fetched/shown per view)
+// ============================================================================
+/** "il y a 5 min" / "il y a 3 h" / "le 23/09 à 08:32" from an ISO
+ * timestamp — a bare timestamp doesn't answer "is this actually fresh?"
+ * at a glance. */
+function relativeSyncText(isoTimestamp) {
+  const then = new Date(isoTimestamp);
+  const diffMin = Math.round((Date.now() - then.getTime()) / 60000);
+  if (diffMin < 1) return "à l'instant";
+  if (diffMin < 60) return `il y a ${diffMin} min`;
+  const diffH = Math.round(diffMin / 60);
+  if (diffH < 24) return `il y a ${diffH} h`;
+  const hh = String(then.getHours()).padStart(2, "0");
+  const mm = String(then.getMinutes()).padStart(2, "0");
+  return `le ${shortDateFr(isoTimestamp.slice(0, 10))} à ${hh}:${mm}`;
+}
+
+/** `data/app/summary.json`'s `generated_at` (written by `coach.app_export`
+ * on every digest/sync run — see docs/adr/0023) is the closest thing to a
+ * single "last sync" instant across the whole app, so that's what this
+ * shows — not a per-view concept, hence living in the topbar rather than
+ * in renderData. Silently leaves the indicator as-is on any failure
+ * (offline, malformed file) — a stale/missing timestamp is a minor
+ * inconvenience, never worth surfacing as an error here. */
+async function loadSyncStatus() {
+  const el = document.getElementById("topbar-sync-status");
+  if (!el) return;
+  try {
+    const file = await ghGetFile("data/app/summary.json");
+    const summary = file ? JSON.parse(file.content) : null;
+    el.textContent = summary && summary.generated_at ? `Synchro ${relativeSyncText(summary.generated_at)}` : "";
+  } catch (_) { /* leave the indicator as-is */ }
+}
+
+// ============================================================================
 // Login
 // ============================================================================
 async function init() {
@@ -2412,10 +2535,18 @@ async function init() {
   const loginScreen = document.getElementById("login-screen");
   const app = document.getElementById("app");
 
-  if (getToken()) {
+  const enterApp = () => {
     loginScreen.hidden = true;
     app.hidden = false;
     showView("today");
+    loadSyncStatus();
+    // Keeps the relative "il y a X min" text honest as time passes, and
+    // picks up a newer sync without needing a manual refresh.
+    setInterval(loadSyncStatus, 5 * 60 * 1000);
+  };
+
+  if (getToken()) {
+    enterApp();
     return;
   }
 
@@ -2438,9 +2569,7 @@ async function init() {
       errorEl.hidden = false;
       return;
     }
-    loginScreen.hidden = true;
-    app.hidden = false;
-    showView("today");
+    enterApp();
   });
 }
 
