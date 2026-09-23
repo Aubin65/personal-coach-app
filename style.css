@@ -1042,6 +1042,34 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .workload-badge.zone-zone_prudente { background: var(--gold-pale); color: #8A5F1E; }
 .workload-badge.zone-risque_eleve { background: #FBE2E2; color: var(--danger); }
 
+/* ---------- Tonnage hebdomadaire par compartiment (Data) ---------- */
+.tonnage-bars { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
+.tonnage-row {
+  display: grid;
+  grid-template-columns: 92px 1fr auto;
+  align-items: center;
+  gap: 10px;
+}
+.tonnage-row-label { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
+.tonnage-row-bar-track {
+  height: 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  overflow: hidden;
+}
+.tonnage-row-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--green-light), var(--gold));
+}
+.tonnage-row-value {
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-align: right;
+}
+.tonnage-row-value .trend-up, .tonnage-row-value .trend-down { margin-left: 4px; font-weight: 600; }
+
 .accessory-tags { display: flex; flex-direction: column; gap: 8px; }
 .accessory-tag {
   display: flex;

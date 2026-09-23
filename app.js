@@ -2001,7 +2001,72 @@ async function renderData(token) {
       </section>`;
   }
 
+  html += tonnageSectionHTML(s.tonnage);
+
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
+}
+
+const TONNAGE_CATEGORY_LABELS = {
+  jambes: "Jambes",
+  poussee: "Poussée",
+  tirage: "Tirage",
+  mollets: "Mollets",
+  bras: "Bras",
+  gainage: "Gainage",
+  explosivite_puissance: "Explosivité / puissance",
+  cardio: "Cardio",
+};
+
+/** "Tonnage de la semaine" (Data tab), juste après la charge aiguë:
+ * chronique — même esprit complémentaire que dans `coach.tonnage` : l'ACWR
+ * dit combien la semaine a chargé au global, ceci dit où, compartiment par
+ * compartiment, pour repérer un déséquilibre qu'un chiffre global ne peut
+ * pas montrer. Barres à longueur relative (proportionnelles au
+ * compartiment le plus chargé de la semaine), dans un ordre fixe plutôt
+ * que trié par valeur — un ordre qui bougerait chaque semaine serait plus
+ * dur à scanner d'un coup d'œil que la tendance elle-même. */
+function tonnageSectionHTML(tonnage) {
+  if (!tonnage) return "";
+  const categories = tonnage.categories || {};
+  const priorCategories = (tonnage.prior_week && tonnage.prior_week.categories) || {};
+  if (!tonnage.total_sets) {
+    return `
+      <section class="card">
+        <h2>🏋️ Tonnage de la semaine</h2>
+        <p class="muted small">Pas encore de séance de musculation loguée cette semaine (lundi → dimanche).</p>
+      </section>`;
+  }
+
+  const maxTonnage = Math.max(1, ...Object.values(categories).map((c) => c.tonnage_kg));
+  const totalDelta = tonnage.total_tonnage_kg - ((tonnage.prior_week && tonnage.prior_week.total_tonnage_kg) || 0);
+
+  let bars = "";
+  for (const [key, label] of Object.entries(TONNAGE_CATEGORY_LABELS)) {
+    const cat = categories[key] || { tonnage_kg: 0, sets: 0 };
+    if (!cat.sets) continue;
+    const prior = priorCategories[key] || { tonnage_kg: 0 };
+    const delta = cat.tonnage_kg - prior.tonnage_kg;
+    const widthPct = Math.max(3, (cat.tonnage_kg / maxTonnage) * 100);
+    bars += `
+      <div class="tonnage-row">
+        <div class="tonnage-row-label">${label}</div>
+        <div class="tonnage-row-bar-track"><div class="tonnage-row-bar" style="width:${widthPct}%"></div></div>
+        <div class="tonnage-row-value">
+          ${cat.tonnage_kg > 0 ? `${Math.round(cat.tonnage_kg)} kg` : `${cat.sets} série${cat.sets > 1 ? "s" : ""}`}
+          ${cat.tonnage_kg > 0 && Math.abs(delta) >= 1 ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${Math.round(delta)}</span>` : ""}
+        </div>
+      </div>`;
+  }
+
+  return `
+    <section class="card">
+      <h2>🏋️ Tonnage de la semaine</h2>
+      <p class="trend-line">${Math.round(tonnage.total_tonnage_kg)} kg <span class="small">au total</span>
+        ${Math.abs(totalDelta) >= 1 ? `<span class="${totalDelta >= 0 ? "trend-up" : "trend-down"} small">${totalDelta >= 0 ? "+" : ""}${Math.round(totalDelta)} kg vs semaine dernière</span>` : ""}
+      </p>
+      <div class="tonnage-bars">${bars}</div>
+      <p class="muted small">Séries × répétitions × charge, par compartiment — seules les séries avec une charge en kg connue comptent dans le tonnage ; le gainage et les exercices au poids du corps s'affichent en nombre de séries.</p>
+    </section>`;
 }
 
 const MONTH_NAMES_FR = [
