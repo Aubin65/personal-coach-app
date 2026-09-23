@@ -651,6 +651,32 @@ function sessionHasExecuted(session) {
   return (session.exercises || []).some((ex) => ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load));
 }
 
+/** True for "no session yet" AND for a quick-typed placeholder (Forge's
+ * icon row — `blankSession`/`blankExercise`: a musculation day with a
+ * single exercise still literally named "Nouvel exercice" and no real
+ * planned/executed value, or a rugby/autre/repos day with no notes and no
+ * workload logged) — the exact case the AI skeleton proposal is meant to
+ * fill in on top of. Anything with real content (an exercise actually
+ * renamed/filled in, a real note, an executed value) reads as false and
+ * is never touched — same never-overwrite guarantee as before, just no
+ * longer confusing "has a type set" with "has real content". Used both
+ * to decide which days a bulk "Valider" actually applies to, and whether
+ * a day's ✏️ edit should prefill the AI's proposal or the day's real,
+ * already-there content. */
+function sessionIsBlankSkeleton(session) {
+  if (!session) return true;
+  if (sessionHasExecuted(session)) return false;
+  if (session.type === "musculation") {
+    return (session.exercises || []).every((ex) => {
+      const blankName = !ex.name || ex.name === "Nouvel exercice";
+      const p = ex.planned;
+      const blankPlanned = !p || (p.sets == null && p.reps == null && p.load == null);
+      return blankName && blankPlanned;
+    });
+  }
+  return !session.notes;
+}
+
 /** Status label for a day, shared by the Semaine "Séances" table, Forge
  * tiles and the Historique week browser — takes plain booleans rather
  * than a session object so it works equally from a full session
@@ -1547,7 +1573,7 @@ async function loadForgePendingSkeleton(token) {
         const d = byDate.get(date);
         if (!d) continue;
         const found = await findSessionForDate(date);
-        if (found.session) { skipped++; continue; } // never overwrite a day with real content (incl. one just edited+saved via ✏️)
+        if (!sessionIsBlankSkeleton(found.session)) { skipped++; continue; } // never overwrite real content (incl. one just edited+saved via ✏️) — a quick-typed placeholder is fair game
         await saveSession(found.weekLabel || "app", date, forgeProposalDayToSession(date, d));
         filled++;
       }
@@ -1806,6 +1832,11 @@ async function renderData(token) {
             <span><strong>${formatHoursFr(sr.week_total)}</strong> cumulées <span class="muted small">(${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""})</span></span>
           </div>
           <div class="muted small">Objectif : ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit en moyenne · ${formatHoursFr(SLEEP_TARGET_HOURS * 7)} cumulées sur une semaine complète</div>
+        </div>` : ""}
+        ${(sr.weekly_average || []).length > 1 ? `
+        <div class="sleep-weekly-evolution">
+          <div class="sleep-week-summary-label">Évolution de la moyenne hebdomadaire</div>
+          ${sparklineSVG(sr.weekly_average.map((w) => ({ date: w.week_start, value: w.avg_hours })), { axis: true })}
         </div>` : ""}
       </section>`;
   } else {
@@ -2072,17 +2103,18 @@ async function renderSession(token) {
   // A day tapped "✏️" from a pending Forge skeleton proposal (see
   // loadForgePendingSkeleton) prefills here as an editable draft — nothing
   // is written until "Enregistrer la séance", same as any other new
-  // session. Only applies when nothing real already exists for the date
-  // (an existing session always wins) and is consumed once.
+  // session. Applies whenever the date has no real content yet — no
+  // session at all, or just a quick-typed placeholder (sessionIsBlankSkeleton) —
+  // real content on the date always wins over the draft. Consumed once.
   const draft = state.forgePrefillDraft;
   state.forgePrefillDraft = null;
-  const prefillSession = !found.session && draft && draft.date === date ? draft.session : null;
+  const useDraft = draft && draft.date === date && sessionIsBlankSkeleton(found.session);
   sessionWorking = {
     weekLabel: found.weekLabel || "app",
     date,
-    session: found.session
-      ? JSON.parse(JSON.stringify(found.session))
-      : prefillSession ? JSON.parse(JSON.stringify(prefillSession)) : null,
+    session: useDraft
+      ? JSON.parse(JSON.stringify(draft.session))
+      : found.session ? JSON.parse(JSON.stringify(found.session)) : null,
   };
   renderSessionContent();
 }

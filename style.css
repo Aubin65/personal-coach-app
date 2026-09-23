@@ -927,6 +927,12 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   margin-bottom: 4px;
 }
 
+.sleep-weekly-evolution {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
 .workload-badge {
   display: inline-block;
   border-radius: 999px;
