@@ -454,6 +454,14 @@ async function showDayOverviewPanel(token, date) {
       </section>`;
   } else {
     const type = session.type || "musculation";
+    // A future date's "Fait" cells are never trustworthy — Sheets carries
+    // planned values forward into the executed columns as a template for
+    // a row not yet performed (the app's own sessionDayStatus already
+    // treats a future date as never "Fait" for the same reason; this
+    // table was reading ex.executed directly and missed that guard). Show
+    // "—" there regardless of what the raw data says rather than a
+    // session that hasn't happened yet looking already logged.
+    const isFuture = date > todayISO();
     let body;
     if (type === "musculation" && (session.exercises || []).length) {
       const rows = session.exercises
@@ -475,7 +483,7 @@ async function showDayOverviewPanel(token, date) {
             <tr>
               <td>${nameCell}</td>
               <td>${escapeHtmlText(formatSetsRepsLoad(ex.planned)) || "—"}</td>
-              <td>${escapeHtmlText(formatSetsRepsLoad(ex.executed)) || "—"}</td>
+              <td>${isFuture ? "—" : escapeHtmlText(formatSetsRepsLoad(ex.executed)) || "—"}</td>
             </tr>`;
         })
         .join("");
@@ -487,7 +495,7 @@ async function showDayOverviewPanel(token, date) {
     } else {
       body = `<p class="small">${session.notes ? escapeHtmlText(session.notes) : "<span class='muted'>Pas de note.</span>"}</p>`;
     }
-    const workload = session.session_rpe != null || session.session_duration_min != null
+    const workload = !isFuture && (session.session_rpe != null || session.session_duration_min != null)
       ? `<p class="muted small">${session.session_rpe != null ? `RPE ${session.session_rpe}` : ""}${session.session_rpe != null && session.session_duration_min != null ? " · " : ""}${session.session_duration_min != null ? `${session.session_duration_min} min` : ""}</p>`
       : "";
     el.innerHTML = `
@@ -1528,13 +1536,38 @@ function forgeProposalDayToSession(date, d) {
   };
 }
 
+/** True while a "[Forge]" request has been sent but app-chat.yml hasn't
+ * answered it yet (no assistant turn after it) — the request is in
+ * flight even though `data/training/app-log/pending/` has nothing to
+ * show yet (the coach can take a few minutes). Without this, leaving the
+ * app and coming back (a fresh page load, no in-memory `disabled` state
+ * left) re-enabled the "Demander un squelette IA" button while a request
+ * was genuinely still being worked on, inviting a duplicate request. */
+async function hasUnansweredForgeRequest() {
+  const file = await ghGetFile("data/app-chat/conversation.json");
+  if (!file) return false;
+  let conversation;
+  try { conversation = JSON.parse(file.content); } catch (_) { return false; }
+  if (!Array.isArray(conversation)) return false;
+  const lastAssistantIdx = conversation.map((t) => t.role).lastIndexOf("assistant");
+  return conversation.slice(lastAssistantIdx + 1).some((t) => t.role === "user" && (t.text || "").startsWith("[Forge]"));
+}
+
 async function loadForgePendingSkeleton(token) {
   const box = document.getElementById("forge-skeleton-pending");
   const requestBtn = document.getElementById("forge-skeleton-button");
+  const statusEl = document.getElementById("forge-skeleton-status");
   const entries = await ghListDir("data/training/app-log/pending");
   if (stale(token)) return;
   const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name));
-  if (files.length === 0) { box.innerHTML = ""; if (requestBtn) requestBtn.disabled = false; return; }
+  if (files.length === 0) {
+    box.innerHTML = "";
+    const waiting = await hasUnansweredForgeRequest();
+    if (stale(token)) return;
+    if (requestBtn) requestBtn.disabled = waiting;
+    if (statusEl && !statusEl.textContent) statusEl.textContent = waiting ? "En attente de la réponse du coach…" : "";
+    return;
+  }
 
   const target = files[0];
   const file = await ghGetFile(target.path);
