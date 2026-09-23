@@ -1,4 +1,10 @@
 :root {
+  /* Tells native controls (the date input in Historique, etc.) which
+     palette to render themselves in — without this the browser defaults
+     to a light-scheme widget, which in dark mode means near-black text on
+     the app's dark card background: an apparently blank/broken box. */
+  color-scheme: light dark;
+
   /* Deep pitch green + trophy gold — a club/team feel rather than a
      generic "productivity app" green. Same custom-property names as
      before where reused (--green*) so every existing rule below just
@@ -363,6 +369,8 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   color: var(--text);
 }
 .stat-tile .stat-help { font-size: 0.7rem; color: var(--muted); margin-top: 8px; line-height: 1.3; }
+.stat-tile .stat-pct { font-size: 0.78rem; font-weight: 600; color: var(--green-light); margin-top: 8px; }
+.stat-tile .stat-start { margin-top: 2px; }
 
 /* ---------- Session logging ---------- */
 .exercise-log-card {
@@ -764,10 +772,15 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   font-size: 0.88rem;
 }
 .forge-pending-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 6px 0;
   border-top: 1px solid var(--border);
 }
 .forge-pending-list li:first-child { border-top: none; }
+.forge-proposal-edit { flex-shrink: 0; }
 
 /* ---------- Semaine : tableau des séances de la semaine ---------- */
 .week-sessions-table {
@@ -806,6 +819,20 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   min-width: 200px;
   text-align: center;
 }
+/* Compact, centered — the bare native picker at full input width (the
+   generic input/textarea/select rule) read as a big empty block sitting
+   awkwardly under the ◀▶ nav instead of a small secondary "jump to" affordance. */
+#history-jump-date {
+  display: block;
+  width: auto;
+  margin: 0 auto 14px;
+  padding: 7px 12px;
+  font-size: 0.82rem;
+  border-radius: 999px;
+  background: var(--card-bg);
+  color: var(--muted);
+}
+
 .forge-day-row { margin-bottom: 12px; }
 .forge-day-tile {
   display: block;

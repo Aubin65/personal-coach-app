@@ -448,6 +448,35 @@ function splitBlockIntro(md) {
   return { intro: lines.slice(0, firstHeadingIdx).join("\n"), rest: lines.slice(firstHeadingIdx).join("\n") };
 }
 
+/** The markdown under one `##`/`###`/... heading matching `headingRegex`,
+ * up to (not including) the next heading of the same or shallower level —
+ * null if no heading matches. */
+function extractHeadingSection(md, headingRegex) {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const startIdx = lines.findIndex((l) => headingRegex.test(l));
+  if (startIdx === -1) return null;
+  const level = lines[startIdx].match(/^(#+)/)[1].length;
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    const m = lines[i].match(/^(#+)\s/);
+    if (m && m[1].length <= level) { endIdx = i; break; }
+  }
+  return lines.slice(startIdx, endIdx).join("\n");
+}
+
+/** The "🎯 Objectifs du bloc" reference (Forge, session view) — just the
+ * main physical-quality goals and the typical session structure, not the
+ * full bilan/detailed numeric targets ("j'aimerais simplement les
+ * objectifs principaux... et la structure type d'une séance"). Relies on
+ * block-plan.md always producing these two exact headings; falls back to
+ * the fuller `splitBlockMarkdown` overview for an older block written
+ * before that convention, rather than showing nothing. */
+function blockObjectivesSummary(md) {
+  const goals = extractHeadingSection(md, /^##\s+Objectifs principaux du bloc/i);
+  const structure = extractHeadingSection(md, /^##\s+Structure type d'une séance/i);
+  return goals || structure ? [goals, structure].filter(Boolean).join("\n\n") : null;
+}
+
 /** Renders a digest's "## " sections as separate cards with an icon per
  * heading, instead of one long undifferentiated markdown blob — purely a
  * readability pass, the underlying markdown/content is unchanged. */
@@ -540,7 +569,15 @@ function isWeekendISO(iso) {
  * has no Python runtime of its own to share the logic with. */
 function sessionHasExecuted(session) {
   if (!session) return false;
-  if (session.type && session.type !== "musculation" && session.notes) return true;
+  // A rugby/autre/repos session counts as done once RPE and/or duration is
+  // filled in (see workloadSectionHTML — the post-session "how did it go"
+  // fields), never from `notes` alone: forge-skeleton.md deliberately
+  // pre-fills notes with a pre-session vigilance point on a proposed rugby
+  // day (e.g. "reprise du contact, prudence"), and a planning note like
+  // that would otherwise mark a session "Fait" before it's even happened.
+  if (session.type && session.type !== "musculation") {
+    return session.session_rpe != null || session.session_duration_min != null;
+  }
   return (session.exercises || []).some((ex) => ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load));
 }
 
@@ -713,7 +750,7 @@ async function listAllSessions() {
 // ============================================================================
 // App state / navigation
 // ============================================================================
-const state = { view: "today", weekSubTab: "planning", sessionDate: null, forgeMonday: null };
+const state = { view: "today", weekSubTab: "planning", sessionDate: null, forgeMonday: null, forgePrefillDraft: null };
 
 // Bumped on every navigation; each async render function captures it and
 // checks `stale(token)` after an await before touching the DOM. Without
@@ -844,8 +881,9 @@ async function ghDispatchWorkflow(fileName, ref = "main") {
 }
 
 /** Shared "🎯 Objectifs du bloc en cours" collapsible reference, used both
- * in the session view (musculation planning) and in Forge — condensed
- * block overview only (see splitBlockMarkdown), loaded once per toggle. */
+ * in the session view (musculation planning) and in Forge — just the main
+ * goals + typical session structure (see blockObjectivesSummary), loaded
+ * once per toggle. */
 function bindBlockReferenceToggle(toggleEl, boxEl) {
   if (!toggleEl || !boxEl) return;
   toggleEl.addEventListener("click", async () => {
@@ -855,7 +893,7 @@ function bindBlockReferenceToggle(toggleEl, boxEl) {
     const blockLabel = await currentBlockLabel();
     const blockFile = blockLabel ? await ghGetFile(`data/blocks/${blockLabel}.md`) : null;
     boxEl.innerHTML = blockFile
-      ? renderMarkdown(splitBlockMarkdown(blockFile.content).overview)
+      ? renderMarkdown(blockObjectivesSummary(blockFile.content) || splitBlockMarkdown(blockFile.content).overview)
       : "<p class='muted small'>Pas de bloc en cours.</p>";
     boxEl.dataset.loaded = "1";
   });
@@ -1194,14 +1232,31 @@ async function renderForge(token) {
     statusEl.textContent = "Envoi…";
     try {
       await postUserMessage(forgeSkeletonRequestText(state.forgeMonday));
-      statusEl.textContent = "Envoyé ✓ — le coach prépare une proposition (quelques minutes). Reviens sur cet onglet pour la valider.";
+      statusEl.textContent = "Envoyé ✓ — le coach prépare une proposition, elle apparaît ici automatiquement (quelques minutes).";
+      startForgePolling();
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
       btn.disabled = false;
     }
   });
 
+  startForgePolling();
   await Promise.all([renderForgeContent(token), loadForgePendingSkeleton(token)]);
+}
+
+/** Polls for a pending Forge skeleton proposal while the Forge tab is open,
+ * so it appears on its own (no manual ⟳) once the coach has finished —
+ * same pattern as startChatPolling. Stops itself once a proposal is
+ * showing (nothing left to wait for) or the tab is left. */
+let forgePollTimer = null;
+function startForgePolling() {
+  clearInterval(forgePollTimer);
+  forgePollTimer = setInterval(() => {
+    if (state.view !== "forge") { clearInterval(forgePollTimer); return; }
+    const box = document.getElementById("forge-skeleton-pending");
+    if (box && box.innerHTML.trim()) { clearInterval(forgePollTimer); return; } // already showing — nothing left to poll for
+    loadForgePendingSkeleton(renderToken).catch(() => {});
+  }, 10000);
 }
 
 function quickTypeButtonsHTML(date, currentType) {
@@ -1326,6 +1381,32 @@ async function quickSetDayType(date, type) {
  * Forge currently browses (it carries its own Monday), like the Planning
  * tab's proposal card. At most one pending file expected at a time — the
  * request button disables itself while one exists. */
+/** Maps one proposed day from a pending Forge skeleton (see
+ * loadForgePendingSkeleton) into the app's actual session schema — shared
+ * by the bulk "Valider" (writes straight to GitHub) and the per-day "✏️"
+ * (opens it as an editable draft in the session view first, see
+ * renderSession's forgePrefillDraft handling). */
+function forgeProposalDayToSession(date, d) {
+  return {
+    name: d.name || defaultSessionName(date, d.type),
+    date,
+    type: d.type,
+    exercises: (d.exercises || []).map((ex) => ({
+      name: ex.name,
+      format: ex.format || "standard",
+      planned: { sets: ex.planned && ex.planned.sets != null ? ex.planned.sets : null, reps: ex.planned && ex.planned.reps != null ? ex.planned.reps : null, load: ex.planned && ex.planned.load != null ? ex.planned.load : null },
+      executed: { sets: null, reps: null, load: null },
+      rir: null,
+      notes: ex.notes || null,
+      superset_with_previous: !!ex.superset_with_previous,
+    })),
+    notes: d.notes || "",
+    session_rpe: null,
+    session_duration_min: null,
+    distance_km: d.type === "autre" ? (d.distance_km != null ? d.distance_km : null) : undefined,
+  };
+}
+
 async function loadForgePendingSkeleton(token) {
   const box = document.getElementById("forge-skeleton-pending");
   const requestBtn = document.getElementById("forge-skeleton-button");
@@ -1352,7 +1433,10 @@ async function loadForgePendingSkeleton(token) {
       const icon = SESSION_TYPES[d.type] ? SESSION_TYPES[d.type].icon : "🏋️";
       const exCount = (d.exercises || []).length;
       const detail = d.type === "musculation" && exCount ? ` · ${exCount} exercice(s)` : "";
-      return `<li>${icon} <strong>${DAY_NAMES[i]}</strong> ${date.slice(8, 10)}/${date.slice(5, 7)} — ${escapeHtmlText(d.name || "")}${detail}</li>`;
+      return `<li>
+        <span>${icon} <strong>${DAY_NAMES[i]}</strong> ${date.slice(8, 10)}/${date.slice(5, 7)} — ${escapeHtmlText(d.name || "")}${detail}</span>
+        <button type="button" class="icon-button small forge-proposal-edit" data-date="${date}" title="Modifier avant validation" aria-label="Modifier avant validation">✏️</button>
+      </li>`;
     })
     .join("");
 
@@ -1369,6 +1453,16 @@ async function loadForgePendingSkeleton(token) {
       <p id="forge-proposal-status" class="muted small"></p>
     </section>`;
 
+  box.querySelectorAll(".forge-proposal-edit").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const date = btn.dataset.date;
+      const d = byDate.get(date);
+      if (!d) return;
+      state.forgePrefillDraft = { date, session: forgeProposalDayToSession(date, d) };
+      showView("session", { date });
+    });
+  });
+
   document.getElementById("forge-proposal-accept").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     const statusEl = document.getElementById("forge-proposal-status");
@@ -1381,26 +1475,8 @@ async function loadForgePendingSkeleton(token) {
         const d = byDate.get(date);
         if (!d) continue;
         const found = await findSessionForDate(date);
-        if (found.session) { skipped++; continue; } // never overwrite a day with real content
-        const session = {
-          name: d.name || defaultSessionName(date, d.type),
-          date,
-          type: d.type,
-          exercises: (d.exercises || []).map((ex) => ({
-            name: ex.name,
-            format: ex.format || "standard",
-            planned: { sets: ex.planned && ex.planned.sets != null ? ex.planned.sets : null, reps: ex.planned && ex.planned.reps != null ? ex.planned.reps : null, load: ex.planned && ex.planned.load != null ? ex.planned.load : null },
-            executed: { sets: null, reps: null, load: null },
-            rir: null,
-            notes: ex.notes || null,
-            superset_with_previous: !!ex.superset_with_previous,
-          })),
-          notes: d.notes || "",
-          session_rpe: null,
-          session_duration_min: null,
-          distance_km: d.type === "autre" ? (d.distance_km != null ? d.distance_km : null) : undefined,
-        };
-        await saveSession(found.weekLabel || "app", date, session);
+        if (found.session) { skipped++; continue; } // never overwrite a day with real content (incl. one just edited+saved via ✏️)
+        await saveSession(found.weekLabel || "app", date, forgeProposalDayToSession(date, d));
         filled++;
       }
       await ghDeleteFile(target.path, `Squelette Forge validé : ${target.name}`, file.sha);
@@ -1445,8 +1521,14 @@ function ringSVG(fraction) {
     </svg>`;
 }
 
-function statTile(label, current, unit, fraction, help) {
+/** `startValue` is where the ring's 0% actually is (the season baseline
+ * it's progressing from — see bodyweight_progress.baseline_kg /
+ * strength_trajectory[x].baseline_load) — without it a ring shows only
+ * "how full", never "from where" or "how much of the objective, exactly"
+ * ("je ne sais pas de quel point je pars"). */
+function statTile(label, current, unit, fraction, help, startValue) {
   const valueText = current != null ? `${current}${unit}` : "—";
+  const pct = fraction != null ? Math.round(fraction * 100) : null;
   return `
     <div class="stat-tile">
       <div class="stat-label">${label}</div>
@@ -1454,40 +1536,75 @@ function statTile(label, current, unit, fraction, help) {
         ${ringSVG(fraction)}
         <div class="ring-value">${valueText}</div>
       </div>
+      ${pct != null ? `<div class="stat-pct">${pct}% de l'objectif</div>` : ""}
+      ${startValue != null ? `<div class="stat-start muted small">Départ ${startValue}${unit}</div>` : ""}
       ${help ? `<div class="stat-help">${help}</div>` : ""}
     </div>`;
 }
 
+/** "dd/mm" from an ISO date — the short form used on chart axes. */
+function shortDateFr(iso) {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
 /** Minimal inline-SVG line sparkline — no charting dependency. `points`:
  * [{date, value}] ascending. Uses the app's own CSS custom properties so
- * it matches the rest of the palette automatically, light or dark. */
-function sparklineSVG(points) {
-  const w = 280, h = 60, pad = 6;
+ * it matches the rest of the palette automatically, light or dark.
+ * `opts.axis` adds min/max gridlines with their value, plus the first and
+ * last point's date underneath — a bare line with no scale or dates
+ * wasn't actually readable ("aucun axe, c'est peu exploitable"). */
+function sparklineSVG(points, opts = {}) {
+  const w = 280, h = 60, padRight = 6;
+  const padTop = opts.axis ? 12 : 6;
+  const padBottom = opts.axis ? 16 : 6;
+  const padLeft = opts.axis ? 30 : 6;
   if (points.length < 2) return "";
   const values = points.map((p) => p.value);
   const min = Math.min(...values), max = Math.max(...values);
   const range = max - min || 1;
-  const stepX = (w - pad * 2) / (points.length - 1);
-  const coords = points.map((p, i) => [
-    pad + i * stepX,
-    pad + (h - pad * 2) * (1 - (p.value - min) / range),
-  ]);
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+  const stepX = plotW / (points.length - 1);
+  const yFor = (v) => padTop + plotH * (1 - (v - min) / range);
+  const coords = points.map((p, i) => [padLeft + i * stepX, yFor(p.value)]);
   const path = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const [lastX, lastY] = coords[coords.length - 1];
+  const axis = opts.axis
+    ? `
+      <line x1="${padLeft}" y1="${padTop.toFixed(1)}" x2="${w - padRight}" y2="${padTop.toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
+      <text x="${padLeft - 4}" y="${(padTop + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${max.toFixed(1)}</text>
+      <line x1="${padLeft}" y1="${(padTop + plotH).toFixed(1)}" x2="${w - padRight}" y2="${(padTop + plotH).toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
+      <text x="${padLeft - 4}" y="${(padTop + plotH + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${min.toFixed(1)}</text>
+      <text x="${padLeft}" y="${h - 3}" text-anchor="start" font-size="9" fill="var(--muted)">${shortDateFr(points[0].date)}</text>
+      <text x="${w - padRight}" y="${h - 3}" text-anchor="end" font-size="9" fill="var(--muted)">${shortDateFr(points[points.length - 1].date)}</text>`
+    : "";
   return `
     <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="sparkline" preserveAspectRatio="none">
+      ${axis}
       <path d="${path}" fill="none" stroke="var(--green-light)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
       <circle cx="${lastX}" cy="${lastY}" r="4" fill="var(--gold)"/>
     </svg>`;
 }
 
+/** French single-letter day-of-week initial (L/M/M/J/V/S/D) for an ISO
+ * date — parsed as UTC like dayOfYear, so it's never off-by-one against
+ * the local timezone. */
+function dayInitial(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return ["D", "L", "M", "M", "J", "V", "S"][new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+}
+
 /** Bar chart — used for sleep (a night-by-night series reads better as
  * bars than as a connected line, which implies a continuous quantity).
  * `opts.reference` draws a dashed target line and colors bars below it
- * gold rather than green (e.g. the ≥7h sleep guideline). */
+ * gold rather than green (e.g. the sleep guideline). `opts.dayLabels`
+ * prints each bar's day-of-week initial underneath (`points[i].date`
+ * required) — bare numbers with no axis were hard to place in the week
+ * otherwise. */
 function barChartSVG(points, opts = {}) {
-  const w = 280, h = 70, pad = 6, gap = 3;
+  const w = 280, h = 70, pad = 6, gap = 3, labelH = 16;
   if (!points.length) return "";
+  const totalH = h + (opts.dayLabels ? labelH : 0);
   const values = points.map((p) => p.value);
   const max = (opts.reference != null ? Math.max(...values, opts.reference) : Math.max(...values)) * 1.15;
   const slotW = (w - pad * 2) / points.length;
@@ -1505,11 +1622,31 @@ function barChartSVG(points, opts = {}) {
   const refLine = opts.reference != null
     ? `<line x1="${pad}" y1="${yFor(opts.reference).toFixed(1)}" x2="${w - pad}" y2="${yFor(opts.reference).toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3,3"/>`
     : "";
+  const labels = opts.dayLabels
+    ? points
+        .map((p, i) => {
+          const cx = pad + i * slotW + barW / 2;
+          return `<text x="${cx.toFixed(1)}" y="${h + labelH - 4}" text-anchor="middle" font-size="9" fill="var(--muted)">${dayInitial(p.date)}</text>`;
+        })
+        .join("")
+    : "";
   return `
-    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="sparkline" preserveAspectRatio="none">
+    <svg width="${w}" height="${totalH}" viewBox="0 0 ${w} ${totalH}" class="sparkline" preserveAspectRatio="none">
       ${refLine}
       ${bars}
+      ${labels}
     </svg>`;
+}
+
+const SLEEP_TARGET_HOURS = 7.5;
+/** "7h30" rather than "7.5h" — how sleep durations are normally written
+ * in French. Only handles the half-hour case since that's all this app
+ * ever needs (the fixed target, and hour values are shown as decimals
+ * elsewhere). */
+function formatHoursFr(hours) {
+  const wholeHours = Math.floor(hours);
+  const minutes = Math.round((hours - wholeHours) * 60);
+  return minutes ? `${wholeHours}h${String(minutes).padStart(2, "0")}` : `${wholeHours}h`;
 }
 
 const WORKLOAD_ZONE_LABELS = {
@@ -1531,7 +1668,7 @@ async function renderData(token) {
   let tiles = "";
   if (s.bodyweight_progress) {
     const bp = s.bodyweight_progress;
-    tiles += statTile("Poids de corps", bp.current_kg, " kg", bp.fraction, `Objectif ${bp.target_kg} kg`);
+    tiles += statTile("Poids de corps", bp.current_kg, " kg", bp.fraction, `Objectif ${bp.target_kg} kg`, bp.baseline_kg);
   }
   const liftLabels = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar Deadlift" };
   for (const [key, label] of Object.entries(liftLabels)) {
@@ -1543,7 +1680,8 @@ async function renderData(token) {
       best ? best.load : null,
       " kg",
       entry.progress_fraction,
-      entry.target ? `Cible 4RM : ${entry.target.four_rm.toFixed(1)} kg` : "Pas de cible calculable"
+      entry.target ? `Cible 4RM : ${entry.target.four_rm.toFixed(1)} kg` : "Pas de cible calculable",
+      entry.baseline_load
     );
   }
   if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
@@ -1557,7 +1695,7 @@ async function renderData(token) {
     html += `
       <section class="card">
         <h2>⚖️ Poids de corps (moyenne hebdomadaire, ~3 mois)</h2>
-        ${sparklineSVG(bw.map((h) => ({ date: h.week_start, value: h.weight_kg })))}
+        ${sparklineSVG(bw.map((h) => ({ date: h.week_start, value: h.weight_kg })), { axis: true })}
         <p class="trend-line">${last.toFixed(1)} kg
           <span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg</span>
           sur la période <span class="muted small">(~${perWeek >= 0 ? "+" : ""}${perWeek.toFixed(2)} kg/semaine)</span>
@@ -1576,12 +1714,12 @@ async function renderData(token) {
     html += `
       <section class="card">
         <h2>😴 Sommeil</h2>
-        ${sleepHist.length ? barChartSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours })), { reference: 7 }) : ""}
+        ${sleepHist.length ? barChartSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours })), { reference: SLEEP_TARGET_HOURS, dayLabels: true }) : ""}
         <p class="trend-line">
           ${sr.avg_7d != null ? `${sr.avg_7d.toFixed(1)} h/nuit <span class="muted small">(moy. 7j)</span>` : "Pas assez de données"}
           ${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} h vs semaine précédente</span>` : ""}
         </p>
-        <p class="muted small">Repère : ≥ 7h/nuit (barres dorées sous ce seuil).</p>
+        <p class="muted small">Repère : ≥ ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit (barres dorées sous ce seuil).</p>
       </section>`;
   } else {
     html += `<section class="card"><h2>😴 Sommeil</h2><p class="muted small">Pas encore de données de sommeil.</p></section>`;
@@ -1694,14 +1832,24 @@ let chatPollTimer = null;
  * by "Ajuster ma semaine" (prompts/app-chat.md routes planning requests to
  * prompts/weekly-plan.md, which writes a proposal to data/plans/pending/
  * for the app to show — see loadPendingProposal — rather than applying it
- * directly, see docs/adr/0018). */
+ * directly, see docs/adr/0018). Also dispatches app-chat.yml immediately
+ * instead of waiting for its cron: GitHub only runs scheduled workflows
+ * on a best-effort basis, and in practice this one fires every couple of
+ * hours rather than every 5 minutes, which is why replies used to take so
+ * long to show up. The cron stays as a fallback (see app-chat.yml) for
+ * anything that reaches conversation.json some other way, so a dispatch
+ * failure (e.g. token missing the Actions permission — same requirement
+ * as "Nouveau digest", see docs/app-deploy.md) is swallowed rather than
+ * blocking the send. */
 async function postUserMessage(text) {
-  return ghPutJSON(
+  const result = await ghPutJSON(
     "data/app-chat/conversation.json",
     [],
     "App : nouveau message utilisateur",
     (conv) => [...conv, { role: "user", text, at: localISOWithOffset() }]
   );
+  ghDispatchWorkflow("app-chat.yml").catch(() => {});
+  return result;
 }
 
 async function renderChat(token) {
@@ -1834,10 +1982,20 @@ async function renderSession(token) {
 
   const found = await findSessionForDate(date);
   if (stale(token)) return;
+  // A day tapped "✏️" from a pending Forge skeleton proposal (see
+  // loadForgePendingSkeleton) prefills here as an editable draft — nothing
+  // is written until "Enregistrer la séance", same as any other new
+  // session. Only applies when nothing real already exists for the date
+  // (an existing session always wins) and is consumed once.
+  const draft = state.forgePrefillDraft;
+  state.forgePrefillDraft = null;
+  const prefillSession = !found.session && draft && draft.date === date ? draft.session : null;
   sessionWorking = {
     weekLabel: found.weekLabel || "app",
     date,
-    session: found.session ? JSON.parse(JSON.stringify(found.session)) : null,
+    session: found.session
+      ? JSON.parse(JSON.stringify(found.session))
+      : prefillSession ? JSON.parse(JSON.stringify(prefillSession)) : null,
   };
   renderSessionContent();
 }
