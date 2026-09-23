@@ -1042,6 +1042,49 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .workload-badge.zone-zone_prudente { background: var(--gold-pale); color: #8A5F1E; }
 .workload-badge.zone-risque_eleve { background: #FBE2E2; color: var(--danger); }
 
+/* ---------- Tonnage soulevé, all-time (Data) ---------- */
+.tonnage-milestone-card {
+  background: linear-gradient(135deg, var(--gold) 0%, #B47F2C 100%);
+  box-shadow: 0 4px 16px rgba(217, 164, 65, 0.35);
+}
+.tonnage-milestone-card h2 { color: white; }
+.tonnage-milestone-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+  gap: 10px;
+  margin-top: 4px;
+}
+.tonnage-milestone-tile {
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-sm);
+  padding: 14px 8px 12px;
+  text-align: center;
+}
+.tonnage-milestone-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.75rem;
+  color: white;
+  line-height: 1;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.tonnage-milestone-unit { font-size: 1rem; font-weight: 600; margin-left: 2px; opacity: 0.9; }
+.tonnage-milestone-label {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: rgba(255, 255, 255, 0.92);
+}
+.tonnage-milestone-caption {
+  margin: 12px 0 0;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.85);
+  text-align: center;
+}
+
 /* ---------- Tonnage hebdomadaire par compartiment (Data) ---------- */
 .tonnage-bars { display: flex; flex-direction: column; gap: 10px; margin-top: 10px; }
 .tonnage-row {

@@ -1867,15 +1867,9 @@ async function renderData(token) {
       entry.baseline_date
     );
   }
-  const lifetimeKg = (s.tonnage && s.tonnage.lifetime_main_lifts_kg) || {};
-  const lifetimeParts = Object.entries(liftLabels)
-    .map(([key, label]) => ({ label, kg: lifetimeKg[key] }))
-    .filter((p) => p.kg > 0)
-    .map((p) => `${p.label} ${(p.kg / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t`);
-  const lifetimeLine = lifetimeParts.length
-    ? `<p class="muted small" style="margin-top:10px">Tonnage total depuis le retour à l'entraînement (18/05) : ${lifetimeParts.join(" · ")}.</p>`
-    : "";
-  if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div>${lifetimeLine}</section>`;
+  if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
+
+  html += tonnageMilestoneHTML((s.tonnage && s.tonnage.lifetime_main_lifts_kg) || {}, liftLabels);
 
   const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || []; // weekly averages, ~3 mois
   if (bw.length > 1) {
@@ -2012,6 +2006,32 @@ async function renderData(token) {
   html += tonnageSectionHTML(s.tonnage);
 
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
+}
+
+/** "Tonnage soulevé" (Data tab) — un chiffre motivant, pas un signal de
+ * programmation (voir docs/adr/0034), donc traité visuellement à part :
+ * carte dorée façon podium plutôt qu'une ligne discrète noyée dans une
+ * autre section, pour que ça se remarque vraiment. */
+function tonnageMilestoneHTML(lifetimeKg, liftLabels) {
+  const tiles = Object.entries(liftLabels)
+    .map(([key, label]) => ({ label, kg: lifetimeKg[key] }))
+    .filter((t) => t.kg > 0)
+    .map((t) => {
+      const tonnes = (t.kg / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      return `
+        <div class="tonnage-milestone-tile">
+          <div class="tonnage-milestone-value">${tonnes}<span class="tonnage-milestone-unit">t</span></div>
+          <div class="tonnage-milestone-label">${t.label}</div>
+        </div>`;
+    })
+    .join("");
+  if (!tiles) return "";
+  return `
+    <section class="card tonnage-milestone-card">
+      <h2>🏋️ Tonnage soulevé</h2>
+      <div class="tonnage-milestone-grid">${tiles}</div>
+      <p class="tonnage-milestone-caption">Cumulé depuis le retour à l'entraînement (18/05/2026)</p>
+    </section>`;
 }
 
 const TONNAGE_CATEGORY_LABELS = {
