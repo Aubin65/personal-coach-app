@@ -2001,14 +2001,6 @@ async function renderData(token) {
       </section>`;
   }
 
-  if (s.upcoming_matches && s.upcoming_matches.length) {
-    html += "<section class='card'><h2>🏆 Calendrier</h2><ul>";
-    for (const m of s.upcoming_matches) {
-      html += `<li>${m.date} — ${m.opponent} (${m.home_away}) ${m.user_is_playing ? "" : "· tu ne joues pas encore"}</li>`;
-    }
-    html += "</ul></section>";
-  }
-
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
 }
 
