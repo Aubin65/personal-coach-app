@@ -482,6 +482,18 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .day-overview-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
 .day-overview-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); padding: 0 8px 8px 0; }
 .day-overview-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--border); }
+.format-tag {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--gold);
+  background: var(--gold-pale);
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: middle;
+}
 
 /* ---------- Calendrier (Matchs) ---------- */
 .calendar-month-label {
@@ -751,6 +763,15 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   padding: 9px 10px;
 }
 .exercise-log-card textarea.f-format-detail { margin-bottom: 0; }
+.superset-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin: 2px 0 8px;
+}
+.superset-toggle input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--gold); }
 
 .session-type-badge {
   display: inline-block;

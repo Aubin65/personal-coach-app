@@ -457,14 +457,27 @@ async function showDayOverviewPanel(token, date) {
     let body;
     if (type === "musculation" && (session.exercises || []).length) {
       const rows = session.exercises
-        .map(
-          (ex) => `
-          <tr>
-            <td>${escapeHtmlText(ex.name || "")}</td>
-            <td>${escapeHtmlText(formatSetsRepsLoad(ex.planned)) || "—"}</td>
-            <td>${escapeHtmlText(formatSetsRepsLoad(ex.executed)) || "—"}</td>
-          </tr>`
-        )
+        .map((ex) => {
+          const format = ex.format || "standard";
+          const nameCell = `${escapeHtmlText(ex.name || "")}${ex.superset_with_previous ? ' <span class="format-tag">🔗</span>' : ""}`;
+          // A freeform format (AMRAP/EMOM/For Time/Circuit/Autre) has no
+          // planned/executed sets×reps×load — its prescription lives in
+          // `notes` instead (see exerciseCardHTML) — showing "—/—" for it
+          // silently hid the actual content of the session.
+          if (format !== "standard") {
+            return `
+              <tr>
+                <td>${nameCell} <span class="format-tag">${escapeHtmlText(EXERCISE_FORMATS[format] || format)}</span></td>
+                <td colspan="2">${escapeHtmlText(ex.notes || "") || "—"}</td>
+              </tr>`;
+          }
+          return `
+            <tr>
+              <td>${nameCell}</td>
+              <td>${escapeHtmlText(formatSetsRepsLoad(ex.planned)) || "—"}</td>
+              <td>${escapeHtmlText(formatSetsRepsLoad(ex.executed)) || "—"}</td>
+            </tr>`;
+        })
         .join("");
       body = `
         <table class="day-overview-table">
@@ -2155,9 +2168,19 @@ const SESSION_TYPES = {
   repos: { label: "Repos", icon: "😴" },
 };
 
+/** Deliberately doesn't include "superset" — pairing with the previous
+ * exercise (`ex.superset_with_previous`) is an independent axis from how
+ * an exercise's own work is structured (see coaching-guidelines.md,
+ * "Supersets" vs "Format alternatif" are two separate sections): a
+ * superset pair is normally two `standard` exercises done back to back,
+ * not a format of its own. Used to conflate the two into one dropdown
+ * value, which meant re-opening and saving a session with a real
+ * `superset_with_previous: true` (format left as "standard", exactly how
+ * the Forge skeleton writes it) silently reset it to `false` the moment
+ * the format dropdown — showing "Standard" — was read back into the
+ * session on save. */
 const EXERCISE_FORMATS = {
   standard: "Standard",
-  superset: "Superset (lié au précédent)",
   amrap: "AMRAP",
   for_time: "For Time",
   emom: "EMOM",
@@ -2299,7 +2322,7 @@ function musculationBodyHTML(session) {
 
 function exerciseCardHTML(ex, idx, total) {
   const format = ex.format || "standard";
-  const isFreeform = !["standard", "superset"].includes(format);
+  const isFreeform = format !== "standard";
   const planned = ex.planned || {};
   const executed = ex.executed || {};
   return `
@@ -2315,6 +2338,9 @@ function exerciseCardHTML(ex, idx, total) {
       <select class="f-format">
         ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${format === key ? " selected" : ""}>${label}</option>`).join("")}
       </select>
+      ${idx > 0
+        ? `<label class="superset-toggle"><input type="checkbox" class="f-superset"${ex.superset_with_previous ? " checked" : ""}> 🔗 Superset avec l'exercice précédent</label>`
+        : ""}
       ${isFreeform
         ? `<textarea class="f-format-detail" rows="2" placeholder="Détail du format (ex. 15min : 10 burpees, 15 swings, 20 squats)">${escapeHtmlText(ex.notes || "")}</textarea>`
         : `
@@ -2374,7 +2400,8 @@ function syncFormIntoSession() {
     if (!ex) return;
     ex.name = card.querySelector(".f-name").value.trim() || ex.name;
     ex.format = card.querySelector(".f-format").value;
-    ex.superset_with_previous = ex.format === "superset";
+    const supersetCheckbox = card.querySelector(".f-superset");
+    ex.superset_with_previous = supersetCheckbox ? supersetCheckbox.checked : false;
 
     const detailEl = card.querySelector(".f-format-detail");
     if (detailEl) {
