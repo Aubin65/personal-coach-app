@@ -37,7 +37,10 @@
       <span id="topbar-title">Aujourd'hui</span>
       <span id="topbar-sync-status" class="topbar-sync-status"></span>
     </div>
-    <button id="refresh-button" class="icon-button" title="Rafraîchir" aria-label="Rafraîchir">⟳</button>
+    <div class="topbar-actions">
+      <button id="push-subscribe-button" class="icon-button" title="Activer les notifications" aria-label="Activer les notifications" hidden>🔔</button>
+      <button id="refresh-button" class="icon-button" title="Rafraîchir" aria-label="Rafraîchir">⟳</button>
+    </div>
   </header>
 
   <main id="content"></main>
@@ -54,6 +57,9 @@
     </button>
     <button class="nav-item" data-view="data">
       <span class="nav-icon">📊</span><span>Data</span>
+    </button>
+    <button class="nav-item" data-view="calendar">
+      <span class="nav-icon">🏉</span><span>Matchs</span>
     </button>
     <button class="nav-item" data-view="chat">
       <span class="nav-icon">💬</span><span>Coach</span>
@@ -109,11 +115,11 @@
 
   <div id="week-planning-panel">
     <div id="pending-proposal"></div>
-    <div id="week-overview"></div>
+    <div id="week-day-strip"></div>
     <div id="day-overview-panel"></div>
+    <div id="week-highlights"></div>
     <section class="card">
-      <button class="primary-button ghost small" id="adjust-week-button" style="margin-bottom:12px">✏️ Ajuster ma semaine</button>
-      <div id="week-planning-content" class="markdown-body"></div>
+      <button class="primary-button ghost small" id="adjust-week-button">✏️ Ajuster ma semaine</button>
     </section>
   </div>
 
@@ -168,6 +174,10 @@
 
 <template id="tpl-data">
   <div id="data-content"></div>
+</template>
+
+<template id="tpl-calendar">
+  <div id="calendar-content"></div>
 </template>
 
 <template id="tpl-chat">

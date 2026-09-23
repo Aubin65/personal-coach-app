@@ -149,6 +149,8 @@ button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
 }
 .icon-button:active { background: var(--gold); color: var(--green); transform: scale(0.92); }
 .icon-button.spinning { animation: spin 0.8s linear infinite; }
+.icon-button.is-active { background: var(--gold); color: var(--green); }
+.topbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 #content {
@@ -480,6 +482,43 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .day-overview-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
 .day-overview-table th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); padding: 0 8px 8px 0; }
 .day-overview-table td { padding: 8px 8px 8px 0; border-top: 1px solid var(--border); }
+
+/* ---------- Calendrier (Matchs) ---------- */
+.calendar-month-label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  margin: 18px 4px 6px;
+}
+.calendar-month-label:first-child { margin-top: 4px; }
+.calendar-match {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow);
+}
+.calendar-match.is-past { opacity: 0.55; }
+.calendar-match.is-next { border-color: var(--gold); border-width: 2px; background: var(--gold-pale); }
+.calendar-match-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 42px;
+  flex-shrink: 0;
+}
+.calendar-match-day { font-size: 0.68rem; color: var(--muted); font-weight: 600; text-transform: uppercase; font-family: var(--font-display); }
+.calendar-match-dm { font-size: 0.9rem; font-family: var(--font-display); font-weight: 600; }
+.calendar-match-info { flex: 1; min-width: 0; }
+.calendar-match-opponent { font-weight: 600; font-size: 0.95rem; }
+.calendar-match-meta { font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+.calendar-match-status { font-size: 1.1rem; flex-shrink: 0; width: 20px; text-align: center; color: var(--green-light); }
 
 .highlights-card {
   background: var(--gold-pale);

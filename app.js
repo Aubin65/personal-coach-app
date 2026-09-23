@@ -380,19 +380,25 @@ function normalizeDM(str) {
  * showDayOverviewPanel) rather than jumping straight to the full session
  * editor — a tap is "let me see what's there", not necessarily "let me
  * edit it". */
-function renderWeekOverview(container, markdown, todayISOStr, mondayISO) {
+/** Renders into two separate containers, `dayStripEl` and `highlightsEl`,
+ * rather than one — `#day-overview-panel` (the table for whichever day was
+ * tapped) sits between them in the DOM, so the selected day's detail
+ * appears right under the day-strip and above "Objectifs clés de la
+ * semaine", not buried below both ("au dessus des objectifs, pour que ce
+ * soit plus ergonomique"). */
+function renderWeekOverview(dayStripEl, highlightsEl, markdown, todayISOStr, mondayISO) {
   const { days, highlights } = parseWeekOverview(markdown);
   const [, tm, td] = todayISOStr.split("-");
   const todayDM = normalizeDM(`${parseInt(td, 10)}/${parseInt(tm, 10)}`);
-  let html = "";
 
+  let stripHTML = "";
   if (days.length) {
-    html += '<div class="day-strip">';
+    stripHTML += '<div class="day-strip">';
     for (const d of days) {
       const isToday = normalizeDM(d.date) === todayDM;
       const dayIdx = DAY_NAMES.indexOf(d.day);
       const iso = mondayISO && dayIdx !== -1 ? addDaysISO(mondayISO, dayIdx) : null;
-      html += `
+      stripHTML += `
         <button type="button" class="day-card${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <div class="day-name">${d.day.slice(0, 3)}</div>
           <div class="day-date">${d.date}</div>
@@ -400,22 +406,21 @@ function renderWeekOverview(container, markdown, todayISOStr, mondayISO) {
           <div class="day-title">${d.title.slice(0, 28)}</div>
         </button>`;
     }
-    html += "</div>";
+    stripHTML += "</div>";
   }
-
-  if (highlights.length) {
-    html += `<div class="highlights-card"><h2>🎯 Objectifs clés de la semaine</h2><ul>${highlights
-      .map((h) => `<li>${h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")}</li>`)
-      .join("")}</ul></div>`;
-  }
-
-  container.innerHTML = html;
-  container.querySelectorAll(".day-card[data-date]").forEach((btn) => {
+  dayStripEl.innerHTML = stripHTML;
+  dayStripEl.querySelectorAll(".day-card[data-date]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      container.querySelectorAll(".day-card").forEach((c) => c.classList.toggle("is-selected", c === btn));
+      dayStripEl.querySelectorAll(".day-card").forEach((c) => c.classList.toggle("is-selected", c === btn));
       showDayOverviewPanel(renderToken, btn.dataset.date).catch(() => {});
     });
   });
+
+  highlightsEl.innerHTML = highlights.length
+    ? `<div class="highlights-card"><h2>🎯 Objectifs clés de la semaine</h2><ul>${highlights
+        .map((h) => `<li>${h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")}</li>`)
+        .join("")}</ul></div>`
+    : "";
 }
 
 /** `{sets, reps, load}` (planned or executed) as one compact string, same
@@ -865,6 +870,7 @@ const views = {
   week: { title: "Semaine", render: renderWeek },
   forge: { title: "Forge", render: renderForge },
   data: { title: "Data", render: renderData },
+  calendar: { title: "Matchs", render: renderCalendar },
   chat: { title: "Coach", render: renderChat },
   session: { title: "Séance", render: renderSession },
   "write-note": { title: "Nouvelle note", render: renderWriteNote },
@@ -1076,8 +1082,8 @@ async function renderWeek(token) {
     renderSessionHistoryWeek(renderToken).catch(() => {});
   });
 
-  document.getElementById("week-overview").innerHTML = skeletonHTML();
-  document.getElementById("week-planning-content").innerHTML = skeletonHTML();
+  document.getElementById("week-day-strip").innerHTML = skeletonHTML();
+  document.getElementById("week-highlights").innerHTML = "";
   document.getElementById("pending-proposal").innerHTML = "";
   document.getElementById("day-overview-panel").innerHTML = "";
   const plan = await latestFileOnOrBefore("data/plans", ".md", todayISO());
@@ -1085,12 +1091,16 @@ async function renderWeek(token) {
 
   let planDays = [];
   if (plan) {
-    renderWeekOverview(document.getElementById("week-overview"), plan.content, todayISO(), plan.date);
-    document.getElementById("week-planning-content").innerHTML = renderMarkdown(plan.content);
+    renderWeekOverview(
+      document.getElementById("week-day-strip"),
+      document.getElementById("week-highlights"),
+      plan.content,
+      todayISO(),
+      plan.date
+    );
     planDays = parseWeekOverview(plan.content).days;
   } else {
-    document.getElementById("week-overview").innerHTML = "";
-    document.getElementById("week-planning-content").innerHTML = "<p class='muted'>Pas de planning disponible.</p>";
+    document.getElementById("week-day-strip").innerHTML = "<p class='muted'>Pas de planning disponible.</p>";
   }
   loadPendingProposal(token).catch(() => {});
   renderWeekSessionsTable(token, plan ? plan.date : null, planDays).catch(() => {});
@@ -1645,6 +1655,29 @@ function statTile(label, current, unit, fraction, help, startValue, startDate) {
     </div>`;
 }
 
+/** Ring tile for a recurring weekly sleep target (average or cumulative),
+ * visually consistent with `statTile`'s trajectory rings — but no
+ * `startValue`/`startDate`: a weekly goal resets every week, there's no
+ * season baseline to progress from, only "how close to this week's
+ * target" ("des indicateurs plus ergonomiques pour le sommeil moyen et
+ * cumulé de la semaine" — replaces a plain text line with the same at-a-
+ * glance ring language used everywhere else in Data). `valueText` is
+ * preformatted (e.g. "7h15" via formatHoursFr) since these are hours, not
+ * a bare number+unit like statTile's kg tiles. */
+function sleepGoalTile(label, valueText, fraction, help) {
+  const pct = fraction != null ? Math.round(fraction * 100) : null;
+  return `
+    <div class="stat-tile">
+      <div class="stat-label">${label}</div>
+      <div class="ring-wrap">
+        ${ringSVG(fraction)}
+        <div class="ring-value">${valueText}</div>
+      </div>
+      ${pct != null ? `<div class="stat-pct">${pct}% de l'objectif</div>` : ""}
+      ${help ? `<div class="stat-help">${help}</div>` : ""}
+    </div>`;
+}
+
 /** "dd/mm" from an ISO date — the short form used on chart axes. */
 function shortDateFr(iso) {
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
@@ -1826,12 +1859,21 @@ async function renderData(token) {
         <p class="muted small">Repère : ≥ ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit (barres dorées sous ce seuil).</p>
         ${sr.week_avg != null ? `
         <div class="sleep-week-summary">
-          <div class="sleep-week-summary-label">Cette semaine (lundi → dimanche)</div>
-          <div class="sleep-week-summary-figures">
-            <span><strong>${formatHoursFr(sr.week_avg)}</strong>/nuit en moyenne</span>
-            <span><strong>${formatHoursFr(sr.week_total)}</strong> cumulées <span class="muted small">(${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""})</span></span>
+          <div class="sleep-week-summary-label">Cette semaine (lundi → dimanche) — ${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""} enregistrée${sr.week_nights_logged > 1 ? "s" : ""}</div>
+          <div class="stat-grid">
+            ${sleepGoalTile(
+              "Moyenne/nuit",
+              formatHoursFr(sr.week_avg),
+              Math.min(1, sr.week_avg / SLEEP_TARGET_HOURS),
+              `Objectif ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit`
+            )}
+            ${sleepGoalTile(
+              "Cumul semaine",
+              formatHoursFr(sr.week_total),
+              Math.min(1, sr.week_total / (SLEEP_TARGET_HOURS * 7)),
+              `Objectif ${formatHoursFr(SLEEP_TARGET_HOURS * 7)}`
+            )}
           </div>
-          <div class="muted small">Objectif : ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit en moyenne · ${formatHoursFr(SLEEP_TARGET_HOURS * 7)} cumulées sur une semaine complète</div>
         </div>` : ""}
         ${(sr.weekly_average || []).length > 1 ? `
         <div class="sleep-weekly-evolution">
@@ -1922,6 +1964,70 @@ async function renderData(token) {
   }
 
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
+}
+
+const MONTH_NAMES_FR = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+]; // fmt: skip
+
+/** "Septembre 2026" from an ISO date's year/month — the month-group
+ * header for the Calendrier tab. */
+function monthLabelFr(iso) {
+  const [y, m] = iso.split("-").map(Number);
+  return `${MONTH_NAMES_FR[m - 1]} ${y}`;
+}
+
+/** "Matchs" tab — the whole season's fixtures (`season_matches`, past and
+ * future), grouped by month, distinct from the short "next 3" preview in
+ * Data: a full-year view was asked for explicitly, so this is not a
+ * truncated list. Past matches are dimmed, the next one the user actually
+ * plays is highlighted — "de manière ergonomique" means scannable at a
+ * glance, not a raw dump of the schedule file. */
+async function renderCalendar(token) {
+  const el = document.getElementById("calendar-content");
+  el.innerHTML = skeletonHTML();
+  const file = await ghGetFile("data/app/summary.json");
+  if (stale(token)) return;
+  if (!file) { el.innerHTML = "<p class='muted'>Pas encore de résumé exporté.</p>"; return; }
+  const s = JSON.parse(file.content);
+  const matches = s.season_matches || [];
+  if (!matches.length) { el.innerHTML = "<p class='muted'>Aucun match dans le calendrier de la saison.</p>"; return; }
+
+  const today = todayISO();
+  const nextPlayed = matches.find((m) => m.date >= today && m.user_is_playing);
+  const nextAny = matches.find((m) => m.date >= today);
+  const nextDate = (nextPlayed || nextAny || {}).date;
+
+  const byMonth = new Map();
+  for (const m of matches) {
+    const key = m.date.slice(0, 7);
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key).push(m);
+  }
+
+  let html = "<div class='calendar-list'>";
+  for (const monthMatches of byMonth.values()) {
+    html += `<div class="calendar-month-label">${monthLabelFr(monthMatches[0].date)}</div>`;
+    for (const m of monthMatches) {
+      const isPast = m.date < today;
+      const isNext = m.date === nextDate;
+      html += `
+        <div class="calendar-match${isPast ? " is-past" : ""}${isNext ? " is-next" : ""}">
+          <div class="calendar-match-date">
+            <span class="calendar-match-day">${dayInitial(m.date)}</span>
+            <span class="calendar-match-dm">${shortDateFr(m.date)}</span>
+          </div>
+          <div class="calendar-match-info">
+            <div class="calendar-match-opponent">${escapeHtmlText(m.opponent)}</div>
+            <div class="calendar-match-meta">${escapeHtmlText(m.home_away)} · ${escapeHtmlText(m.phase)}${m.user_is_playing ? "" : " · tu ne joues pas encore"}</div>
+          </div>
+          <div class="calendar-match-status">${isPast ? "✓" : isNext ? "▶" : ""}</div>
+        </div>`;
+    }
+  }
+  html += "</div>";
+  el.innerHTML = html;
 }
 
 /** A compact labeled value, for secondary Data-tab metrics that don't
@@ -2546,6 +2652,91 @@ async function loadSyncStatus() {
 }
 
 // ============================================================================
+// Notifications push (Web Push, VAPID) — replaces the Telegram bot as the
+// "ping me even when I'm not in the app" channel (see docs/adr/0025). This
+// public key has nothing to protect (only the matching private key, held
+// server-side as a GitHub Actions secret, can actually sign a push) — safe
+// to ship in the client.
+// ============================================================================
+const VAPID_PUBLIC_KEY = "BLFn9QoifLmwUBlO7AXZmG8A0qFTZUUZKdYr6apkpSw82iE6NFRapZ-HQ7dn9DpYi8MC7ju_VUyM96FyCyTxlh0";
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+function setPushButtonState(button, subscribed) {
+  button.classList.toggle("is-active", subscribed);
+  button.title = subscribed ? "Notifications activées (appuyer pour désactiver)" : "Activer les notifications";
+  button.setAttribute("aria-label", button.title);
+}
+
+async function subscribeToPush(button) {
+  if (Notification.permission === "denied") {
+    alert("Notifications bloquées pour cette app — active-les dans Réglages iOS puis réessaie.");
+    return;
+  }
+  button.disabled = true;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+    await ghPutJSON("data/app/push-subscription.json", null, "App : abonnement notifications activé", () => subscription.toJSON());
+    setPushButtonState(button, true);
+  } catch (err) {
+    alert(`Impossible d'activer les notifications : ${err.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function unsubscribeFromPush(button) {
+  button.disabled = true;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) await subscription.unsubscribe();
+    const current = await ghGetFile("data/app/push-subscription.json");
+    if (current) await ghDeleteFile("data/app/push-subscription.json", "App : abonnement notifications désactivé", current.sha);
+    setPushButtonState(button, false);
+  } catch (err) {
+    alert(`Impossible de désactiver les notifications : ${err.message}`);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/** Hides the bell entirely when Push isn't supported (no service worker,
+ * or Safari on an iOS old enough to lack Web Push — 16.4+ required, and
+ * only once the app is installed to the home screen) rather than showing a
+ * button that would just fail on tap. */
+async function initPushButton() {
+  const button = document.getElementById("push-subscribe-button");
+  if (!button) return;
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    button.hidden = true;
+    return;
+  }
+  button.hidden = false;
+  const registration = await navigator.serviceWorker.ready;
+  const existing = await registration.pushManager.getSubscription();
+  setPushButtonState(button, !!existing);
+  button.addEventListener("click", async () => {
+    const registration = await navigator.serviceWorker.ready;
+    const subscription = await registration.pushManager.getSubscription();
+    if (subscription) {
+      await unsubscribeFromPush(button);
+    } else {
+      await subscribeToPush(button);
+    }
+  });
+}
+
+// ============================================================================
 // Login
 // ============================================================================
 async function init() {
@@ -2575,6 +2766,7 @@ async function init() {
     // Keeps the relative "il y a X min" text honest as time passes, and
     // picks up a newer sync without needing a manual refresh.
     setInterval(loadSyncStatus, 5 * 60 * 1000);
+    initPushButton().catch(() => {});
   };
 
   if (getToken()) {
