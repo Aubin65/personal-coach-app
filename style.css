@@ -756,6 +756,19 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .proposal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .proposal-actions .primary-button { flex: 1; }
 
+/* ---------- Forge : squelette IA en attente ---------- */
+.forge-pending-list {
+  list-style: none;
+  margin: 10px 0;
+  padding: 0;
+  font-size: 0.88rem;
+}
+.forge-pending-list li {
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.forge-pending-list li:first-child { border-top: none; }
+
 /* ---------- Semaine : tableau des séances de la semaine ---------- */
 .week-sessions-table {
   width: 100%;

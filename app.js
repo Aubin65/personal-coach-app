@@ -1165,6 +1165,15 @@ async function renderSessionHistoryWeek(token) {
 }
 
 // ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
+
+/** Fixed-format trigger text recognized by prompts/app-chat.md (the
+ * "[Forge]" prefix) and routed to prompts/forge-skeleton.md — same async
+ * request/poll pattern as "Ajuster ma semaine" (postUserMessage), but
+ * asking for a structured week proposal instead of a chat answer. */
+function forgeSkeletonRequestText(monday) {
+  return `[Forge] Squelette IA pour la semaine du ${monday} : propose la meilleure structure (types de séance et exercices, jour par jour) en te basant sur l'historique d'entraînement, les objectifs de trajectoire et le bloc validé en cours — pas une copie de la semaine précédente.`;
+}
+
 async function renderForge(token) {
   if (!state.forgeMonday) state.forgeMonday = addDaysISO(mondayOfWeek(todayISO()), 7);
 
@@ -1182,21 +1191,17 @@ async function renderForge(token) {
     const btn = e.currentTarget;
     const statusEl = document.getElementById("forge-skeleton-status");
     btn.disabled = true;
-    statusEl.textContent = "Génération du squelette…";
+    statusEl.textContent = "Envoi…";
     try {
-      const { filled, skipped } = await proposeForgeSkeleton();
-      statusEl.textContent = filled === 0
-        ? "Rien à copier — aucune séance trouvée la semaine précédente, ou tous les jours de cette semaine sont déjà renseignés."
-        : `${filled} jour(s) pré-rempli(s) d'après la semaine précédente${skipped ? ` (${skipped} déjà renseigné(s), laissé(s) tel quel)` : ""}. Vérifie et ajuste chaque séance, puis c'est prêt.`;
-      await renderForgeContent(renderToken);
+      await postUserMessage(forgeSkeletonRequestText(state.forgeMonday));
+      statusEl.textContent = "Envoyé ✓ — le coach prépare une proposition (quelques minutes). Reviens sur cet onglet pour la valider.";
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
-    } finally {
       btn.disabled = false;
     }
   });
 
-  await renderForgeContent(token);
+  await Promise.all([renderForgeContent(token), loadForgePendingSkeleton(token)]);
 }
 
 function quickTypeButtonsHTML(date, currentType) {
@@ -1205,6 +1210,33 @@ function quickTypeButtonsHTML(date, currentType) {
       <button type="button" class="forge-quick-type-button${currentType === key ? " active" : ""}"
               data-date="${date}" data-type="${key}" title="${escapeAttr(t.label)}" aria-label="${escapeAttr(t.label)}">${t.icon}</button>`)
     .join("");
+}
+
+/** One day's row markup — shared by the full-week render and
+ * `patchForgeDayRow` (a single-row DOM patch after a quick-type tap), so
+ * the two can never drift apart. `data-day-index` lets the patch path
+ * recover `DAY_NAMES[i]` without recomputing it from the date. */
+function forgeDayRowHTML(date, dayIndex, s, today) {
+  const type = s.hasSession ? s.type || "musculation" : null;
+  const label = s.hasSession ? `${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : "🏋️"} ${escapeHtmlText(s.name || "Séance")}` : "Aucune séance planifiée";
+  return `
+    <div class="forge-day-row" data-date="${date}" data-day-index="${dayIndex}">
+      <button type="button" class="forge-day-tile" data-date="${date}">
+        <div class="forge-day-name">${DAY_NAMES[dayIndex]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
+        <div class="forge-day-session">${label}</div>
+        <div class="forge-day-status">${sessionDayStatus(date, s.hasSession, s.hasExecuted, today)}</div>
+      </button>
+      <div class="forge-quick-types">${quickTypeButtonsHTML(date, type)}</div>
+    </div>`;
+}
+
+function bindForgeDayRowEvents(scope) {
+  scope.querySelectorAll(".forge-day-tile").forEach((btn) => {
+    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
+  });
+  scope.querySelectorAll(".forge-quick-type-button").forEach((btn) => {
+    btn.addEventListener("click", () => handleForgeQuickType(btn));
+  });
 }
 
 async function renderForgeContent(token) {
@@ -1217,32 +1249,34 @@ async function renderForgeContent(token) {
   if (stale(token)) return;
 
   const today = todayISO();
-  document.getElementById("forge-days").innerHTML = dates
-    .map((date, i) => {
-      const s = summaries[i];
-      const type = s.hasSession ? s.type || "musculation" : null;
-      const label = s.hasSession ? `${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : "🏋️"} ${escapeHtmlText(s.name || "Séance")}` : "Aucune séance planifiée";
-      return `
-        <div class="forge-day-row">
-          <button type="button" class="forge-day-tile" data-date="${date}">
-            <div class="forge-day-name">${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
-            <div class="forge-day-session">${label}</div>
-            <div class="forge-day-status">${sessionDayStatus(date, s.hasSession, s.hasExecuted, today)}</div>
-          </button>
-          <div class="forge-quick-types">${quickTypeButtonsHTML(date, type)}</div>
-        </div>`;
-    })
-    .join("");
-  document.getElementById("forge-days").querySelectorAll(".forge-day-tile").forEach((btn) => {
-    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
-  });
-  document.getElementById("forge-days").querySelectorAll(".forge-quick-type-button").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      document.querySelectorAll(".forge-quick-type-button").forEach((b) => (b.disabled = true));
-      await quickSetDayType(btn.dataset.date, btn.dataset.type);
-      await renderForgeContent(renderToken);
-    });
-  });
+  const daysEl = document.getElementById("forge-days");
+  daysEl.innerHTML = dates.map((date, i) => forgeDayRowHTML(date, i, summaries[i], today)).join("");
+  bindForgeDayRowEvents(daysEl);
+}
+
+/** A quick-type tap only ever changes the one day tapped — patching just
+ * that row (instead of `renderForgeContent`'s full skeleton-flash +
+ * 7-day refetch) is what makes the picker feel immediate rather than
+ * "pas très fluide". `quickSetDayType` already knows exactly what it
+ * wrote, so no re-fetch is needed to know what to show. */
+async function handleForgeQuickType(btn) {
+  const row = btn.closest(".forge-day-row");
+  const date = btn.dataset.date;
+  const dayIndex = +row.dataset.dayIndex;
+  row.querySelectorAll(".forge-quick-type-button").forEach((b) => (b.disabled = true));
+  let result;
+  try {
+    result = await quickSetDayType(date, btn.dataset.type);
+  } finally {
+    row.querySelectorAll(".forge-quick-type-button").forEach((b) => (b.disabled = false));
+  }
+  if (!result) return; // user cancelled the overwrite confirm, or already this type
+  const today = todayISO();
+  row.outerHTML = forgeDayRowHTML(date, dayIndex, result, today);
+  // `row` is now detached (outerHTML replaced it) — bind only the fresh
+  // element, never the whole container, or every untouched row's buttons
+  // would pick up one more duplicate listener on every single tap.
+  bindForgeDayRowEvents(document.querySelector(`.forge-day-row[data-date="${date}"]`));
 }
 
 /** true if a session has enough real content that overwriting it deserves
@@ -1263,51 +1297,137 @@ function sessionHasContent(session) {
  * without opening the full session view, so a whole week's structure can
  * be sketched in a few taps ("j'ai besoin de pouvoir simplement ajouter le
  * type de séance dans la semaine"). Rugby on a Saturday/Sunday is always
- * a match, never club training. */
+ * a match, never club training.
+ *
+ * Returns a `lookupDaySummary`-shaped `{hasSession, type, name,
+ * hasExecuted}` so the caller can patch the Forge row locally without a
+ * re-fetch — `null` when nothing changed (already this type, or the
+ * overwrite confirm was declined). */
 async function quickSetDayType(date, type) {
   const found = await findSessionForDate(date);
   const existing = found.session;
-  if (existing && (existing.type || "musculation") === type) return; // already this type
+  if (existing && (existing.type || "musculation") === type) return null; // already this type
   if (sessionHasContent(existing)) {
     const ok = window.confirm(`Remplacer la séance déjà renseignée du ${formatFrDate(date)} (${existing.name}) ?`);
-    if (!ok) return;
+    if (!ok) return null;
   }
-  await saveSession(found.weekLabel || "app", date, blankSession(date, type));
+  const session = blankSession(date, type);
+  await saveSession(found.weekLabel || "app", date, session);
+  return { hasSession: true, type: session.type, name: session.name, hasExecuted: false };
 }
 
-/** "🧬 Proposer un squelette" — clones the previous week's day-by-day
- * structure (type, name, exercises — planned kept, executed/RIR reset)
- * into the empty days of the Forge week currently shown, so planning a
- * new week starts from last week's shape instead of a blank page. Never
- * overwrites a day that already has a session — only fills empty ones. */
-async function proposeForgeSkeleton() {
-  const monday = state.forgeMonday;
-  const prevMonday = addDaysISO(monday, -7);
-  const targetDates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
-  const sourceDates = Array.from({ length: 7 }, (_, i) => addDaysISO(prevMonday, i));
-  const [targets, sources] = await Promise.all([
-    Promise.all(targetDates.map((d) => findSessionForDate(d))),
-    Promise.all(sourceDates.map((d) => findSessionForDate(d))),
-  ]);
+/** A "🧠 Demander un squelette IA" request is answered asynchronously by
+ * prompts/forge-skeleton.md (routed from app-chat.md, see
+ * forgeSkeletonRequestText), which writes a structured proposal to
+ * data/training/app-log/pending/<lundi>.json rather than applying it
+ * directly — same validation-gate principle as the Semaine planning
+ * proposals (loadPendingProposal/docs/adr/0019), but JSON/structured since
+ * this feeds real session data, not prose. Shown regardless of which week
+ * Forge currently browses (it carries its own Monday), like the Planning
+ * tab's proposal card. At most one pending file expected at a time — the
+ * request button disables itself while one exists. */
+async function loadForgePendingSkeleton(token) {
+  const box = document.getElementById("forge-skeleton-pending");
+  const requestBtn = document.getElementById("forge-skeleton-button");
+  const entries = await ghListDir("data/training/app-log/pending");
+  if (stale(token)) return;
+  const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name));
+  if (files.length === 0) { box.innerHTML = ""; if (requestBtn) requestBtn.disabled = false; return; }
 
-  let filled = 0;
-  let skipped = 0;
-  for (let i = 0; i < 7; i++) {
-    if (targets[i].session) { skipped++; continue; }
-    const src = sources[i].session;
-    if (!src) continue;
-    const cloned = JSON.parse(JSON.stringify(src));
-    cloned.date = targetDates[i];
-    if (cloned.exercises) {
-      cloned.exercises.forEach((ex) => { ex.executed = { sets: null, reps: null, load: null }; ex.rir = null; });
+  const target = files[0];
+  const file = await ghGetFile(target.path);
+  if (stale(token)) return;
+  let week = null;
+  try { week = file ? JSON.parse(file.content) : null; } catch (_) { week = null; }
+  if (!file || !week) { box.innerHTML = ""; if (requestBtn) requestBtn.disabled = false; return; }
+  if (requestBtn) requestBtn.disabled = true;
+
+  const monday = target.name.slice(0, -5);
+  const byDate = new Map((week.days || []).filter((d) => d && d.date).map((d) => [d.date, d]));
+  const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
+  const rows = dates
+    .map((date, i) => {
+      const d = byDate.get(date);
+      if (!d) return "";
+      const icon = SESSION_TYPES[d.type] ? SESSION_TYPES[d.type].icon : "🏋️";
+      const exCount = (d.exercises || []).length;
+      const detail = d.type === "musculation" && exCount ? ` · ${exCount} exercice(s)` : "";
+      return `<li>${icon} <strong>${DAY_NAMES[i]}</strong> ${date.slice(8, 10)}/${date.slice(5, 7)} — ${escapeHtmlText(d.name || "")}${detail}</li>`;
+    })
+    .join("");
+
+  box.innerHTML = `
+    <section class="card pending-proposal-card">
+      <h2>🧠 Squelette proposé par le coach — à valider</h2>
+      <p class="muted small">Semaine du ${formatFrDate(monday)}</p>
+      ${week.rationale ? `<p class="small">${escapeHtmlText(week.rationale)}</p>` : ""}
+      <ul class="forge-pending-list">${rows || "<li class='muted small'>Aucun jour proposé.</li>"}</ul>
+      <div class="proposal-actions">
+        <button type="button" id="forge-proposal-reject" class="primary-button ghost small">❌ Refuser</button>
+        <button type="button" id="forge-proposal-accept" class="primary-button small">✅ Valider</button>
+      </div>
+      <p id="forge-proposal-status" class="muted small"></p>
+    </section>`;
+
+  document.getElementById("forge-proposal-accept").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("forge-proposal-status");
+    btn.disabled = true;
+    statusEl.textContent = "Application…";
+    try {
+      let filled = 0;
+      let skipped = 0;
+      for (const date of dates) {
+        const d = byDate.get(date);
+        if (!d) continue;
+        const found = await findSessionForDate(date);
+        if (found.session) { skipped++; continue; } // never overwrite a day with real content
+        const session = {
+          name: d.name || defaultSessionName(date, d.type),
+          date,
+          type: d.type,
+          exercises: (d.exercises || []).map((ex) => ({
+            name: ex.name,
+            format: ex.format || "standard",
+            planned: { sets: ex.planned && ex.planned.sets != null ? ex.planned.sets : null, reps: ex.planned && ex.planned.reps != null ? ex.planned.reps : null, load: ex.planned && ex.planned.load != null ? ex.planned.load : null },
+            executed: { sets: null, reps: null, load: null },
+            rir: null,
+            notes: ex.notes || null,
+            superset_with_previous: !!ex.superset_with_previous,
+          })),
+          notes: d.notes || "",
+          session_rpe: null,
+          session_duration_min: null,
+          distance_km: d.type === "autre" ? (d.distance_km != null ? d.distance_km : null) : undefined,
+        };
+        await saveSession(found.weekLabel || "app", date, session);
+        filled++;
+      }
+      await ghDeleteFile(target.path, `Squelette Forge validé : ${target.name}`, file.sha);
+      statusEl.textContent = `Validé ✓ — ${filled} jour(s) appliqué(s)${skipped ? `, ${skipped} déjà renseigné(s) laissé(s) tel quel` : ""}.`;
+      box.innerHTML = "";
+      if (requestBtn) requestBtn.disabled = false;
+      await renderForgeContent(renderToken);
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
     }
-    cloned.session_rpe = null;
-    cloned.session_duration_min = null;
-    if (cloned.type && cloned.type !== "musculation") cloned.notes = "";
-    await saveSession(targets[i].weekLabel || sources[i].weekLabel || "app", targetDates[i], cloned);
-    filled++;
-  }
-  return { filled, skipped };
+  });
+
+  document.getElementById("forge-proposal-reject").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("forge-proposal-status");
+    btn.disabled = true;
+    statusEl.textContent = "Suppression…";
+    try {
+      await ghDeleteFile(target.path, `Squelette Forge refusé : ${target.name}`, file.sha);
+      box.innerHTML = "";
+      if (requestBtn) requestBtn.disabled = false;
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
+    }
+  });
 }
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -1361,6 +1481,37 @@ function sparklineSVG(points) {
     </svg>`;
 }
 
+/** Bar chart — used for sleep (a night-by-night series reads better as
+ * bars than as a connected line, which implies a continuous quantity).
+ * `opts.reference` draws a dashed target line and colors bars below it
+ * gold rather than green (e.g. the ≥7h sleep guideline). */
+function barChartSVG(points, opts = {}) {
+  const w = 280, h = 70, pad = 6, gap = 3;
+  if (!points.length) return "";
+  const values = points.map((p) => p.value);
+  const max = (opts.reference != null ? Math.max(...values, opts.reference) : Math.max(...values)) * 1.15;
+  const slotW = (w - pad * 2) / points.length;
+  const barW = Math.max(slotW - gap, 2);
+  const yFor = (v) => pad + (h - pad * 2) * (1 - Math.min(v, max) / max);
+  const bars = points
+    .map((p, i) => {
+      const x = pad + i * slotW;
+      const y = yFor(p.value);
+      const barH = Math.max(h - pad - y, 1);
+      const below = opts.reference != null && p.value < opts.reference;
+      return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" fill="${below ? "var(--gold)" : "var(--green-light)"}"/>`;
+    })
+    .join("");
+  const refLine = opts.reference != null
+    ? `<line x1="${pad}" y1="${yFor(opts.reference).toFixed(1)}" x2="${w - pad}" y2="${yFor(opts.reference).toFixed(1)}" stroke="var(--muted)" stroke-width="1" stroke-dasharray="3,3"/>`
+    : "";
+  return `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="sparkline" preserveAspectRatio="none">
+      ${refLine}
+      ${bars}
+    </svg>`;
+}
+
 const WORKLOAD_ZONE_LABELS = {
   sous_charge: "Sous-charge",
   zone_optimale: "Zone optimale",
@@ -1397,16 +1548,16 @@ async function renderData(token) {
   }
   if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
 
-  const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || [];
+  const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || []; // weekly averages, ~3 mois
   if (bw.length > 1) {
     const first = bw[0].weight_kg, last = bw[bw.length - 1].weight_kg;
     const delta = last - first;
-    const days = Math.max(1, (new Date(bw[bw.length - 1].date) - new Date(bw[0].date)) / 86400000);
-    const perWeek = (delta / days) * 7;
+    const weeks = Math.max(1, bw.length - 1);
+    const perWeek = delta / weeks;
     html += `
       <section class="card">
-        <h2>⚖️ Poids de corps (${bw.length} derniers points)</h2>
-        ${sparklineSVG(bw.map((h) => ({ date: h.date, value: h.weight_kg })))}
+        <h2>⚖️ Poids de corps (moyenne hebdomadaire, ~3 mois)</h2>
+        ${sparklineSVG(bw.map((h) => ({ date: h.week_start, value: h.weight_kg })))}
         <p class="trend-line">${last.toFixed(1)} kg
           <span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg</span>
           sur la période <span class="muted small">(~${perWeek >= 0 ? "+" : ""}${perWeek.toFixed(2)} kg/semaine)</span>
@@ -1425,11 +1576,12 @@ async function renderData(token) {
     html += `
       <section class="card">
         <h2>😴 Sommeil</h2>
-        ${sleepHist.length > 1 ? sparklineSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours }))) : ""}
+        ${sleepHist.length ? barChartSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours })), { reference: 7 }) : ""}
         <p class="trend-line">
           ${sr.avg_7d != null ? `${sr.avg_7d.toFixed(1)} h/nuit <span class="muted small">(moy. 7j)</span>` : "Pas assez de données"}
           ${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} h vs semaine précédente</span>` : ""}
         </p>
+        <p class="muted small">Repère : ≥ 7h/nuit (barres dorées sous ce seuil).</p>
       </section>`;
   } else {
     html += `<section class="card"><h2>😴 Sommeil</h2><p class="muted small">Pas encore de données de sommeil.</p></section>`;
@@ -1466,8 +1618,8 @@ async function renderData(token) {
         <h2>📏 Composition corporelle</h2>
         <p class="muted small">Dernier scan InBody : ${latest.date}</p>
         <div class="stat-grid">
-          ${latest.skeletal_muscle_mass_kg != null ? statTileSimple("Masse musculaire", `${latest.skeletal_muscle_mass_kg.toFixed(1)} kg`, delta("skeletal_muscle_mass_kg"), " kg") : ""}
-          ${latest.fat_mass_kg != null ? statTileSimple("Masse grasse", `${latest.fat_mass_kg.toFixed(1)} kg`, delta("fat_mass_kg"), " kg") : ""}
+          ${latest.skeletal_muscle_mass_kg != null ? statTileSimple("Masse musculaire", `${latest.skeletal_muscle_mass_kg.toFixed(1)} kg`, delta("skeletal_muscle_mass_kg"), " kg", "up") : ""}
+          ${latest.fat_mass_kg != null ? statTileSimple("Masse grasse", `${latest.fat_mass_kg.toFixed(1)} kg`, delta("fat_mass_kg"), " kg", "down") : ""}
         </div>
         ${latest.inbody_score != null ? `<p class="muted small" style="margin-top:8px">Score InBody : ${latest.inbody_score}</p>` : ""}
       </section>`;
@@ -1519,9 +1671,14 @@ async function renderData(token) {
 /** A compact labeled value, for secondary Data-tab metrics that don't
  * warrant a full progress ring (recovery, body composition) — optionally
  * with a small delta vs the previous reading. */
-function statTileSimple(label, valueText, delta, deltaUnit) {
+/** `goodDirection`: "up" (default — more is better, e.g. muscle mass) or
+ * "down" (less is better, e.g. fat mass) — determines which sign of
+ * `delta` is shown green vs red, since "positive number" doesn't mean
+ * the same thing for every metric on this tab. */
+function statTileSimple(label, valueText, delta, deltaUnit, goodDirection = "up") {
+  const isGood = delta != null && (goodDirection === "down" ? delta <= 0 : delta >= 0);
   const deltaHtml = delta != null
-    ? ` <span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)}${deltaUnit || ""}</span>`
+    ? ` <span class="${isGood ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)}${deltaUnit || ""}</span>`
     : "";
   return `
     <div class="stat-tile-simple">
