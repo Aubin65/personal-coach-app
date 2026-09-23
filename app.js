@@ -2042,42 +2042,68 @@ async function renderCalendar(token) {
   const nextAny = ownMatches.find((m) => m.date >= today);
   const nextDate = (nextPlayed || nextAny || {}).date;
 
-  const byMonth = new Map();
+  // Une même rencontre (date + adversaire) est jouée séparément par la
+  // Première et la Réserve (voir docs/adr/0029) — regrouper les deux en
+  // une seule ligne dépliable plutôt que deux lignes quasi identiques,
+  // surtout indiscernables tant qu'aucun résultat n'est encore connu.
+  const groups = new Map();
   for (const m of matches) {
-    const key = m.date.slice(0, 7);
-    if (!byMonth.has(key)) byMonth.set(key, []);
-    byMonth.get(key).push(m);
+    const key = `${m.date}|${m.opponent}`;
+    if (!groups.has(key)) groups.set(key, { date: m.date, opponent: m.opponent, home_away: m.home_away, phase: m.phase, byTeam: {} });
+    groups.get(key).byTeam[m.team || "Première"] = m;
   }
 
+  const byMonth = new Map();
+  for (const g of groups.values()) {
+    const key = g.date.slice(0, 7);
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key).push(g);
+  }
+
+  // Résultat (score_for/score_against/result) rempli automatiquement chaque
+  // lundi par prompts/match-results.md une fois le match joué — absent tant
+  // que le score n'est pas encore connu, même pour un match déjà passé
+  // (page pas encore lisible cette semaine-là) — voir docs/adr/0029.
+  const teamRowHtml = (m, isPast) => {
+    if (!m) return "<span class='muted small'>Non communiqué</span>";
+    const hasScore = m.score_for != null && m.score_against != null;
+    const resultClass = m.result === "victoire" ? "is-win" : m.result === "défaite" ? "is-loss" : m.result === "nul" ? "is-draw" : "";
+    const scoreHtml = hasScore
+      ? `<span class="calendar-match-score ${resultClass}">${m.score_for}-${m.score_against}</span>`
+      : `<span class="muted small">${isPast ? "Résultat à venir" : "À venir"}</span>`;
+    const note = m.user_is_playing ? "" : " <span class='muted small'>· tu ne joues pas encore</span>";
+    return scoreHtml + note;
+  };
+
   let html = "<div class='calendar-list'>";
-  for (const monthMatches of byMonth.values()) {
-    html += `<div class="calendar-month-label">${monthLabelFr(monthMatches[0].date)}</div>`;
-    for (const m of monthMatches) {
-      const isPast = m.date < today;
-      const isNext = m.date === nextDate;
-      // Résultat (score_for/score_against/result) rempli automatiquement
-      // chaque lundi par prompts/match-results.md une fois le match joué
-      // — absent tant que le score n'est pas encore connu, même pour un
-      // match déjà passé (page pas encore lisible cette semaine-là,
-      // résultat pas encore publié par la fédération) — voir docs/adr/0029.
-      const hasScore = m.score_for != null && m.score_against != null;
-      const resultClass = m.result === "victoire" ? "is-win" : m.result === "défaite" ? "is-loss" : m.result === "nul" ? "is-draw" : "";
-      const statusHtml = hasScore
-        ? `<span class="calendar-match-score ${resultClass}">${m.score_for}-${m.score_against}</span>`
-        : isPast ? "✓" : isNext ? "▶" : "";
-      const teamTag = m.team === "Réserve" ? '<span class="format-tag">Réserve</span> ' : "";
+  for (const monthGroups of byMonth.values()) {
+    html += `<div class="calendar-month-label">${monthLabelFr(monthGroups[0].date)}</div>`;
+    for (const g of monthGroups) {
+      const isPast = g.date < today;
+      const isNext = g.date === nextDate;
+      const premiere = g.byTeam["Première"];
+      const reserve = g.byTeam["Réserve"];
+      const anyScore = [premiere, reserve].some((m) => m && m.score_for != null && m.score_against != null);
+      const summaryStatus = anyScore ? "🏉" : isPast ? "✓" : isNext ? "▶" : "";
       html += `
-        <div class="calendar-match${isPast ? " is-past" : ""}${isNext ? " is-next" : ""}">
-          <div class="calendar-match-date">
-            <span class="calendar-match-day">${dayInitial(m.date)}</span>
-            <span class="calendar-match-dm">${shortDateFr(m.date)}</span>
+        <details class="calendar-match${isPast ? " is-past" : ""}${isNext ? " is-next" : ""}">
+          <summary class="calendar-match-summary">
+            <div class="calendar-match-date">
+              <span class="calendar-match-day">${dayInitial(g.date)}</span>
+              <span class="calendar-match-dm">${shortDateFr(g.date)}</span>
+            </div>
+            <div class="calendar-match-info">
+              <div class="calendar-match-opponent">${escapeHtmlText(g.opponent)}</div>
+              <div class="calendar-match-meta">${escapeHtmlText(g.home_away)} · ${escapeHtmlText(g.phase)}</div>
+            </div>
+            <div class="calendar-match-status">${summaryStatus}</div>
+            <span class="calendar-match-chevron">▾</span>
+          </summary>
+          <div class="calendar-match-detail">
+            <div class="calendar-match-detail-row"><span class="format-tag">Première</span>${teamRowHtml(premiere, isPast)}</div>
+            <div class="calendar-match-detail-row"><span class="format-tag">Réserve</span>${teamRowHtml(reserve, isPast)}</div>
           </div>
-          <div class="calendar-match-info">
-            <div class="calendar-match-opponent">${teamTag}${escapeHtmlText(m.opponent)}</div>
-            <div class="calendar-match-meta">${escapeHtmlText(m.home_away)} · ${escapeHtmlText(m.phase)}${m.user_is_playing ? "" : " · tu ne joues pas encore"}</div>
-          </div>
-          <div class="calendar-match-status">${statusHtml}</div>
-        </div>`;
+        </details>`;
     }
   }
   html += "</div>";
