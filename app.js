@@ -1867,7 +1867,15 @@ async function renderData(token) {
       entry.baseline_date
     );
   }
-  if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
+  const lifetimeKg = (s.tonnage && s.tonnage.lifetime_main_lifts_kg) || {};
+  const lifetimeParts = Object.entries(liftLabels)
+    .map(([key, label]) => ({ label, kg: lifetimeKg[key] }))
+    .filter((p) => p.kg > 0)
+    .map((p) => `${p.label} ${(p.kg / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} t`);
+  const lifetimeLine = lifetimeParts.length
+    ? `<p class="muted small" style="margin-top:10px">Tonnage total depuis le retour à l'entraînement (18/05) : ${lifetimeParts.join(" · ")}.</p>`
+    : "";
+  if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div>${lifetimeLine}</section>`;
 
   const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || []; // weekly averages, ~3 mois
   if (bw.length > 1) {
