@@ -530,7 +530,19 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .calendar-match-info { flex: 1; min-width: 0; }
 .calendar-match-opponent { font-weight: 600; font-size: 0.95rem; }
 .calendar-match-meta { font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
-.calendar-match-status { font-size: 1.1rem; flex-shrink: 0; width: 20px; text-align: center; color: var(--green-light); }
+.calendar-match-status { font-size: 1.1rem; flex-shrink: 0; min-width: 20px; text-align: center; color: var(--green-light); }
+.calendar-match-score {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.88rem;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+}
+.calendar-match-score.is-win { background: var(--green-pale); color: var(--green-light); }
+.calendar-match-score.is-loss { background: rgba(211, 71, 71, 0.12); color: var(--danger); }
 
 .highlights-card {
   background: var(--gold-pale);

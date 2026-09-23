@@ -2033,8 +2033,13 @@ async function renderCalendar(token) {
   if (!matches.length) { el.innerHTML = "<p class='muted'>Aucun match dans le calendrier de la saison.</p>"; return; }
 
   const today = todayISO();
-  const nextPlayed = matches.find((m) => m.date >= today && m.user_is_playing);
-  const nextAny = matches.find((m) => m.date >= today);
+  // "Prochain match" ne veut dire que la Première ici — les fixtures
+  // Réserve (voir docs/adr/0029) portent toujours user_is_playing: true
+  // (pas de notion de reprise en match pour elles) et fausseraient sinon
+  // ce repère, pensé pour "quand est-ce que je rejoue moi-même".
+  const ownMatches = matches.filter((m) => m.team !== "Réserve");
+  const nextPlayed = ownMatches.find((m) => m.date >= today && m.user_is_playing);
+  const nextAny = ownMatches.find((m) => m.date >= today);
   const nextDate = (nextPlayed || nextAny || {}).date;
 
   const byMonth = new Map();
@@ -2050,6 +2055,17 @@ async function renderCalendar(token) {
     for (const m of monthMatches) {
       const isPast = m.date < today;
       const isNext = m.date === nextDate;
+      // Résultat (score_for/score_against/result) rempli automatiquement
+      // chaque lundi par prompts/match-results.md une fois le match joué
+      // — absent tant que le score n'est pas encore connu, même pour un
+      // match déjà passé (page pas encore lisible cette semaine-là,
+      // résultat pas encore publié par la fédération) — voir docs/adr/0029.
+      const hasScore = m.score_for != null && m.score_against != null;
+      const resultClass = m.result === "victoire" ? "is-win" : m.result === "défaite" ? "is-loss" : m.result === "nul" ? "is-draw" : "";
+      const statusHtml = hasScore
+        ? `<span class="calendar-match-score ${resultClass}">${m.score_for}-${m.score_against}</span>`
+        : isPast ? "✓" : isNext ? "▶" : "";
+      const teamTag = m.team === "Réserve" ? '<span class="format-tag">Réserve</span> ' : "";
       html += `
         <div class="calendar-match${isPast ? " is-past" : ""}${isNext ? " is-next" : ""}">
           <div class="calendar-match-date">
@@ -2057,10 +2073,10 @@ async function renderCalendar(token) {
             <span class="calendar-match-dm">${shortDateFr(m.date)}</span>
           </div>
           <div class="calendar-match-info">
-            <div class="calendar-match-opponent">${escapeHtmlText(m.opponent)}</div>
+            <div class="calendar-match-opponent">${teamTag}${escapeHtmlText(m.opponent)}</div>
             <div class="calendar-match-meta">${escapeHtmlText(m.home_away)} · ${escapeHtmlText(m.phase)}${m.user_is_playing ? "" : " · tu ne joues pas encore"}</div>
           </div>
-          <div class="calendar-match-status">${isPast ? "✓" : isNext ? "▶" : ""}</div>
+          <div class="calendar-match-status">${statusHtml}</div>
         </div>`;
     }
   }
