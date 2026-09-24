@@ -951,7 +951,7 @@ async function listAllSessions() {
 // ============================================================================
 // App state / navigation
 // ============================================================================
-const state = { view: "today", weekSubTab: "planning", sessionDate: null, forgeMonday: null, forgePrefillDraft: null, planningMonday: null };
+const state = { view: "today", weekSubTab: "planning", sessionDate: null, forgeMonday: null, forgePrefillDraft: null, planningMonday: null, sessionReturnTo: null };
 
 // Bumped on every navigation; each async render function captures it and
 // checks `stale(token)` after an await before touching the DOM. Without
@@ -1004,9 +1004,19 @@ function showView(name, params = {}) {
     Object.values(blockTimerIntervalIds).forEach((id) => clearInterval(id));
     blockTimerIntervalIds = {};
   }
+  // Remember where a dive into a single session came from (day-strip,
+  // Forge, Historique, the Séances table...) so the back arrow can return
+  // there — direct request: "quand je plonge dans une séance j'aurais
+  // besoin d'une flèche pour revenir à la page précédente". Only captured
+  // on the way in (never session → session in practice), and only the
+  // view name is needed since every other view already restores its own
+  // state on its own (planningMonday, weekSubTab, etc.).
+  if (name === "session" && state.view !== "session") state.sessionReturnTo = state.view;
   state.view = name;
   if (params.date) state.sessionDate = params.date;
   document.getElementById("topbar-title").textContent = views[name].title;
+  const backBtn = document.getElementById("topbar-back");
+  if (backBtn) backBtn.hidden = !(name === "session" && state.sessionReturnTo);
   document.querySelectorAll(".nav-item").forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.view === name);
   });
@@ -1023,6 +1033,10 @@ function showView(name, params = {}) {
 
 document.querySelectorAll(".nav-item").forEach((btn) => {
   btn.addEventListener("click", () => showView(btn.dataset.view));
+});
+
+document.getElementById("topbar-back").addEventListener("click", () => {
+  if (state.sessionReturnTo) showView(state.sessionReturnTo);
 });
 
 document.getElementById("refresh-button").addEventListener("click", (e) => {

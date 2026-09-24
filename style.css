@@ -125,7 +125,9 @@ button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
   z-index: 2;
 }
+.topbar-leading { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .topbar-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+#topbar-back { flex-shrink: 0; font-size: 1rem; padding: 6px 10px; }
 .topbar-sync-status {
   font-family: var(--font-display);
   font-size: 0.6rem;
