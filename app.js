@@ -2880,6 +2880,21 @@ async function renderChat(token) {
   setTimeout(stop, 5000);
 }
 
+/** `.chat-log` itself never scrolls (no overflow/max-height set on it,
+ * just natural flex-column growth) — the actual scrollable element is
+ * `#content` (`flex:1; overflow-y:auto`, see style.css), shared by every
+ * view. Scrolling `.chat-log` was a no-op; scroll `#content` instead so
+ * opening the Coach tab lands on the latest message, not the top of a
+ * long conversation (direct request). `behavior: "instant"` overrides
+ * `#content`'s `scroll-behavior: smooth` (meant for in-page navigation,
+ * e.g. jumping to a day in Historique) — an animated multi-second scroll
+ * through a long conversation every time the tab opens would look
+ * laggy rather than landing straight on the latest message. */
+function scrollChatToBottom() {
+  const content = document.getElementById("content");
+  if (content) content.scrollTo({ top: content.scrollHeight, behavior: "instant" });
+}
+
 function appendChatBubble(text, role) {
   const log = document.getElementById("chat-log");
   if (!log) return;
@@ -2889,7 +2904,7 @@ function appendChatBubble(text, role) {
   div.className = `chat-bubble ${role}`;
   div.textContent = text;
   log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
+  scrollChatToBottom();
 }
 
 async function refreshChatLog(token) {
@@ -2907,7 +2922,7 @@ async function refreshChatLog(token) {
     div.textContent = turn.text;
     log.appendChild(div);
   }
-  log.scrollTop = log.scrollHeight;
+  scrollChatToBottom();
 }
 
 function startChatPolling() {
