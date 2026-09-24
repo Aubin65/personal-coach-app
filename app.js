@@ -951,7 +951,7 @@ async function listAllSessions() {
 // ============================================================================
 // App state / navigation
 // ============================================================================
-const state = { view: "today", weekSubTab: "planning", sessionDate: null, forgeMonday: null, forgePrefillDraft: null };
+const state = { view: "today", weekSubTab: "planning", sessionDate: null, forgeMonday: null, forgePrefillDraft: null, planningMonday: null };
 
 // Bumped on every navigation; each async render function captures it and
 // checks `stale(token)` after an await before touching the DOM. Without
@@ -1234,6 +1234,42 @@ async function listPlans() {
   return entries.map((e) => ({ date: e.name.slice(0, -3), path: e.path })).sort((a, b) => b.date.localeCompare(a.date));
 }
 
+/** Planning sub-tab content for `state.planningMonday` — day-strip,
+ * "Objectifs clés", day-overview panel and the Séances table, all scoped
+ * to one specific week. Re-run standalone by the prev/next week buttons
+ * (see renderWeek), not just on first entry into Semaine — a plan file is
+ * fetched by its exact filename (`data/plans/<lundi>.md`) rather than
+ * "the latest plan on or before today" (that made sense only when this
+ * tab was locked to the current week) so navigating to a week without a
+ * plan reads as "no plan for this week", not silently falling back to an
+ * older one. */
+async function renderWeekPlanning(token) {
+  const monday = state.planningMonday;
+  document.getElementById("planning-week-label").textContent = `Semaine du ${formatFrDate(monday)}`;
+  document.getElementById("week-day-strip").innerHTML = skeletonHTML();
+  document.getElementById("week-highlights").innerHTML = "";
+  document.getElementById("day-overview-panel").innerHTML = "";
+
+  const planFile = await ghGetFile(`data/plans/${monday}.md`);
+  if (stale(token)) return;
+
+  let planDays = [];
+  if (planFile) {
+    renderWeekOverview(
+      document.getElementById("week-day-strip"),
+      document.getElementById("week-highlights"),
+      planFile.content,
+      todayISO(),
+      monday,
+      token
+    ).catch(() => {});
+    planDays = parseWeekOverview(planFile.content).days;
+  } else {
+    document.getElementById("week-day-strip").innerHTML = "<p class='muted'>Pas de planning disponible pour cette semaine.</p>";
+  }
+  renderWeekSessionsTable(token, monday, planDays).catch(() => {});
+}
+
 // ---- Semaine : Planning (+ proposition en attente), Bloc, Séances, Historique ----
 async function renderWeek(token) {
   const tabs = document.querySelectorAll("#week-tabs .segment");
@@ -1255,6 +1291,16 @@ async function renderWeek(token) {
 
   document.getElementById("adjust-week-button").addEventListener("click", () => showView("adjust-week"));
 
+  if (!state.planningMonday) state.planningMonday = mondayOfWeek(todayISO());
+  document.getElementById("planning-prev-week").addEventListener("click", () => {
+    state.planningMonday = addDaysISO(state.planningMonday, -7);
+    renderWeekPlanning(renderToken).catch(() => {});
+  });
+  document.getElementById("planning-next-week").addEventListener("click", () => {
+    state.planningMonday = addDaysISO(state.planningMonday, 7);
+    renderWeekPlanning(renderToken).catch(() => {});
+  });
+
   if (!state.historyMonday) state.historyMonday = addDaysISO(mondayOfWeek(todayISO()), -7); // last week by default
   document.getElementById("history-prev-week").addEventListener("click", () => {
     state.historyMonday = addDaysISO(state.historyMonday, -7);
@@ -1270,29 +1316,9 @@ async function renderWeek(token) {
     renderSessionHistoryWeek(renderToken).catch(() => {});
   });
 
-  document.getElementById("week-day-strip").innerHTML = skeletonHTML();
-  document.getElementById("week-highlights").innerHTML = "";
   document.getElementById("pending-proposal").innerHTML = "";
-  document.getElementById("day-overview-panel").innerHTML = "";
-  const plan = await latestFileOnOrBefore("data/plans", ".md", todayISO());
-  if (stale(token)) return;
-
-  let planDays = [];
-  if (plan) {
-    renderWeekOverview(
-      document.getElementById("week-day-strip"),
-      document.getElementById("week-highlights"),
-      plan.content,
-      todayISO(),
-      plan.date,
-      token
-    ).catch(() => {});
-    planDays = parseWeekOverview(plan.content).days;
-  } else {
-    document.getElementById("week-day-strip").innerHTML = "<p class='muted'>Pas de planning disponible.</p>";
-  }
   loadPendingProposal(token).catch(() => {});
-  renderWeekSessionsTable(token, plan ? plan.date : null, planDays).catch(() => {});
+  renderWeekPlanning(token).catch(() => {});
 
   const blockContentEl = blockPanel.querySelector(".markdown-body");
   blockContentEl.innerHTML = skeletonHTML();
