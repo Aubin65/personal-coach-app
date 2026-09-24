@@ -22,6 +22,7 @@
   --muted: #63705E;
   --border: #E2E1D6;
   --danger: #C62828;
+  --danger-pale: #FBE4E2;
   --radius: 16px;
   --radius-sm: 10px;
   --safe-top: env(safe-area-inset-top);
@@ -39,6 +40,7 @@
     --border: #2A3630;
     --green-pale: #16281F;
     --gold-pale: #2E2513;
+    --danger-pale: #331715;
     --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 14px rgba(0,0,0,0.25);
   }
 }
@@ -325,6 +327,9 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   border-radius: 50%;
   background: var(--gold);
   box-shadow: 0 0 0 1.5px var(--card-bg);
+}
+.segment.has-alert::after {
+  background: var(--danger);
 }
 
 /* ---------- Markdown rendering ---------- */
@@ -1032,6 +1037,11 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   border: 2px solid var(--gold);
   background: var(--gold-pale);
 }
+.pending-proposal-card.is-alert {
+  border-color: var(--danger);
+  background: var(--danger-pale);
+}
+.pending-proposal-card.is-alert h2 { color: var(--danger); }
 .pending-proposal-card .markdown-body {
   max-height: 320px;
   overflow-y: auto;

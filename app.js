@@ -1381,8 +1381,17 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
   });
 }
 
-/** A plan adjustment requested from the app (chat or "Ajuster ma semaine")
- * is never applied directly by the coach — it's written to
+// A pending proposal written by the coach on its own initiative (daily
+// re-evaluation of a red flag, see coaching-guidelines.md "Règle générale"
+// and docs/adr/0044) carries this marker as its first line, stripped
+// before rendering — same file format/mechanism as a user-requested
+// adjustment otherwise, just styled to stand out since the user didn't
+// ask for it.
+const ALERT_PROPOSAL_MARKER = "<!-- source: coach-alert -->";
+
+/** A plan adjustment requested from the app (chat or "Ajuster ma semaine"),
+ * or proposed on the coach's own initiative after a daily re-evaluation
+ * (see ALERT_PROPOSAL_MARKER), is never applied directly — it's written to
  * data/plans/pending/<lundi>.md and shown here for an explicit
  * Valider/Refuser, per prompts/weekly-plan.md's app-triggered branch and
  * docs/adr/0018/0019. Only the oldest pending file is shown at a time
@@ -1396,20 +1405,24 @@ async function loadPendingProposal(token) {
   const entries = await ghListDir("data/plans/pending");
   if (stale(token)) return;
   const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".md")).sort((a, b) => a.name.localeCompare(b.name));
-  if (files.length === 0) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
+  if (files.length === 0) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending", "has-alert"); return; }
 
   const target = files[0];
   const file = await ghGetFile(target.path);
   if (stale(token)) return;
-  if (!file) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
-  if (planningTab) planningTab.classList.add("has-pending");
+  if (!file) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending", "has-alert"); return; }
+
+  const isAlert = file.content.trimStart().startsWith(ALERT_PROPOSAL_MARKER);
+  const displayContent = isAlert ? file.content.replace(ALERT_PROPOSAL_MARKER, "").trimStart() : file.content;
+  if (planningTab) planningTab.classList.toggle("has-alert", isAlert);
+  if (planningTab) planningTab.classList.toggle("has-pending", !isAlert);
 
   const monday = target.name.slice(0, -3);
   box.innerHTML = `
-    <section class="card pending-proposal-card">
-      <h2>🗒️ Proposition du coach — à valider</h2>
+    <section class="card pending-proposal-card${isAlert ? " is-alert" : ""}">
+      <h2>${isAlert ? "⚠️ Alerte du coach — à valider" : "🗒️ Proposition du coach — à valider"}</h2>
       <p class="muted small">Semaine du ${monday}</p>
-      <div class="markdown-body">${renderMarkdown(file.content)}</div>
+      <div class="markdown-body">${renderMarkdown(displayContent)}</div>
       <div class="proposal-actions">
         <button type="button" id="proposal-reject" class="primary-button ghost small">❌ Refuser</button>
         <button type="button" id="proposal-accept" class="primary-button small">✅ Valider</button>
@@ -1425,7 +1438,7 @@ async function loadPendingProposal(token) {
     try {
       const targetPath = `data/plans/${target.name}`;
       const targetCurrent = await ghGetFile(targetPath);
-      await ghPutFile(targetPath, file.content, `Planning semaine du ${monday} (validé depuis l'app)`, targetCurrent ? targetCurrent.sha : null);
+      await ghPutFile(targetPath, displayContent, `Planning semaine du ${monday} (validé depuis l'app)`, targetCurrent ? targetCurrent.sha : null);
       await ghDeleteFile(target.path, `Proposition validée : ${target.name}`, file.sha);
       statusEl.textContent = "Validé ✓";
       renderWeek(renderToken);
