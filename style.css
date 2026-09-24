@@ -430,7 +430,7 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .exercise-block-stations .exercise-log-card { background: var(--card-bg); margin-bottom: 0; }
 .station-row {
   display: grid;
-  grid-template-columns: 1.3fr 1fr auto;
+  grid-template-columns: 1.1fr 0.8fr 0.8fr auto;
   gap: 8px;
   align-items: center;
   background: var(--card-bg);
@@ -438,7 +438,56 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   border-radius: var(--radius-sm);
   padding: 8px 10px;
 }
+/* Placeholder greyed out explicitly rather than relying on each browser's
+   own default shade (inconsistent, especially in dark mode) — the "Nouvel
+   exercice" placeholder needs to read clearly as "not filled in yet". */
+.station-row input::placeholder { color: var(--muted); opacity: 1; }
 .add-station-button { margin: 10px 0; }
+
+/* ---------- Timer de séance ---------- */
+.timer-card { display: flex; align-items: center; justify-content: center; padding: 14px; }
+.timer-card#start-timer,
+.timer-card #start-timer { width: 100%; }
+.timer-card.timer-running {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: linear-gradient(135deg, var(--green) 0%, var(--pitch-dark) 100%);
+  border: 1px solid var(--gold);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.timer-running-info { display: flex; flex-direction: column; gap: 2px; }
+.timer-label {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.timer-display {
+  font-family: var(--font-display);
+  font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--gold);
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.timer-stop-button {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: white;
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.timer-stop-button:active { background: var(--danger); border-color: var(--danger); }
 .exercise-block-result { margin-top: 4px; }
 .exercise-block-result label,
 .exercise-block-notes label { margin: 0 0 3px; }

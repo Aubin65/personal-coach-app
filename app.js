@@ -933,6 +933,13 @@ const views = {
 function showView(name, params = {}) {
   renderToken += 1;
   const token = renderToken;
+  // The session view's live timer interval targets #timer-display by id —
+  // about to be wiped from the DOM below along with the rest of #content,
+  // so it must stop now rather than keep ticking against a detached node.
+  if (typeof sessionTimerIntervalId !== "undefined" && sessionTimerIntervalId) {
+    clearInterval(sessionTimerIntervalId);
+    sessionTimerIntervalId = null;
+  }
   state.view = name;
   if (params.date) state.sessionDate = params.date;
   document.getElementById("topbar-title").textContent = views[name].title;
@@ -2294,7 +2301,7 @@ function tonnageSectionHTML(tonnage) {
         <div class="tonnage-row-label">${label}</div>
         <div class="tonnage-row-bar-track"><div class="tonnage-row-bar" style="width:${widthPct}%"></div></div>
         <div class="tonnage-row-value">
-          ${cat.tonnage_kg > 0 ? `${Math.round(cat.tonnage_kg)} kg` : `${cat.reps} rep.`}
+          ${cat.tonnage_kg > 0 ? `${Math.round(cat.tonnage_kg)} kg` : `${cat.sets} série${cat.sets > 1 ? "s" : ""}`}
           ${cat.tonnage_kg > 0 && Math.abs(delta) >= 1 ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${Math.round(delta)}</span>` : ""}
         </div>
       </div>`;
@@ -2307,38 +2314,54 @@ function tonnageSectionHTML(tonnage) {
         ${Math.abs(totalDelta) >= 1 ? `<span class="${totalDelta >= 0 ? "trend-up" : "trend-down"} small">${totalDelta >= 0 ? "+" : ""}${Math.round(totalDelta)} kg vs semaine dernière</span>` : ""}
       </p>
       <div class="tonnage-bars">${bars}</div>
-      <p class="muted small">Séries × répétitions × charge, par compartiment — seules les séries avec une charge en kg connue comptent dans le tonnage ; le gainage et les exercices au poids du corps s'affichent en répétitions totales (plus fiable que le nombre de séries, qui varie selon la façon dont une série longue est découpée).</p>
+      <p class="muted small">Séries × répétitions × charge, par compartiment — seules les séries avec une charge en kg connue comptent dans le tonnage ; le gainage et les exercices au poids du corps s'affichent en nombre de séries.</p>
     </section>`;
 }
 
 const TONNAGE_HEATMAP_PERIOD_LABELS = { "1": "Semaine", "3": "3 sem.", "6": "6 sem." };
 
-// Silhouette humaine stylisée (vue de face) — un peu plus de finesse que
-// de simples rectangles (torse en trapèze épaules→taille, bras en deux
-// segments pour un vague galbe) sans viser un rendu anatomique réaliste.
-// Le tirage (haut du dos/trapèzes) est la seule concession : représenté
-// comme une bande étroite près du cou, visible même de face, plutôt que
-// d'exiger une seconde silhouette de dos pour un seul compartiment. Les
-// fessiers occupent la bande de hanches (auparavant neutre) ; les
-// ischios-jambiers, pas vraiment visibles de face, sont suggérés par une
-// fine bande sur le bord externe de chaque cuisse plutôt qu'omis —
-// explosivite_puissance/cardio n'ont eux aucun équivalent anatomique
-// honnête (sprint, vélo...) : affichés à part en badges.
+// Silhouette humaine stylisée (vue de face) — torse et cuisses en formes
+// courbes (épaules/hanches arrondies, cuisses qui se resserrent au genou)
+// plutôt que de simples rectangles, segments qui se touchent sans espace
+// visible entre eux (bras contre torse, cuisses contre bassin...) pour
+// lire comme un seul corps continu plutôt qu'un empilement de blocs, et
+// mains/pieds neutres en bout de membre pour finir la silhouette — sans
+// viser un rendu anatomique réaliste pour autant. Le tirage (haut du
+// dos/trapèzes) est la seule concession : représenté comme une bande
+// étroite près du cou, visible même de face, plutôt que d'exiger une
+// seconde silhouette de dos pour un seul compartiment. Les fessiers
+// occupent la bande de hanches ; les ischios-jambiers, pas vraiment
+// visibles de face, sont suggérés par une fine bande sur le bord externe
+// de chaque cuisse plutôt qu'omis — explosivite_puissance/cardio n'ont
+// eux aucun équivalent anatomique honnête (sprint, vélo...) : affichés à
+// part en badges.
 const HEATMAP_BODY_ZONES = [
-  { cat: "tirage", shape: "rect", x: 28, y: 27, width: 44, height: 9, rx: 4 },
-  { cat: "poussee", shape: "path", d: "M21,34 Q21,32 24,32 L76,32 Q79,32 79,34 L73,64 L27,64 Z" },
-  { cat: "bras", shape: "rect", x: 6, y: 36, width: 13, height: 27, rx: 6 },
-  { cat: "bras", shape: "rect", x: 8, y: 61, width: 10, height: 25, rx: 5 },
-  { cat: "bras", shape: "rect", x: 81, y: 36, width: 13, height: 27, rx: 6 },
-  { cat: "bras", shape: "rect", x: 82, y: 61, width: 10, height: 25, rx: 5 },
-  { cat: "gainage", shape: "rect", x: 30, y: 66, width: 40, height: 26, rx: 8 },
-  { cat: "fessiers", shape: "rect", x: 28, y: 94, width: 44, height: 15, rx: 8 },
-  { cat: "ischios_jambiers", shape: "rect", x: 19, y: 114, width: 7, height: 44, rx: 3 },
-  { cat: "quadriceps", shape: "rect", x: 27, y: 110, width: 20, height: 50, rx: 9 },
-  { cat: "quadriceps", shape: "rect", x: 53, y: 110, width: 20, height: 50, rx: 9 },
-  { cat: "ischios_jambiers", shape: "rect", x: 74, y: 114, width: 7, height: 44, rx: 3 },
-  { cat: "mollets", shape: "rect", x: 28, y: 163, width: 17, height: 42, rx: 7 },
-  { cat: "mollets", shape: "rect", x: 55, y: 163, width: 17, height: 42, rx: 7 },
+  { cat: "tirage", shape: "rect", x: 26, y: 26, width: 48, height: 10, rx: 5 },
+  {
+    cat: "poussee",
+    shape: "path",
+    d: "M18,32 C18,27 24,25 30,25 L70,25 C76,25 82,27 82,32 L76,66 C76,69 55,70 50,70 C45,70 24,69 24,66 Z",
+  },
+  { cat: "bras", shape: "rect", x: 6, y: 30, width: 14, height: 28, rx: 7 },
+  { cat: "bras", shape: "rect", x: 8, y: 56, width: 11, height: 27, rx: 5 },
+  { cat: "bras", shape: "rect", x: 80, y: 30, width: 14, height: 28, rx: 7 },
+  { cat: "bras", shape: "rect", x: 81, y: 56, width: 11, height: 27, rx: 5 },
+  { cat: "gainage", shape: "rect", x: 29, y: 68, width: 42, height: 28, rx: 11 },
+  { cat: "fessiers", shape: "rect", x: 26, y: 96, width: 48, height: 16, rx: 11 },
+  { cat: "ischios_jambiers", shape: "rect", x: 17, y: 114, width: 9, height: 46, rx: 4 },
+  {
+    cat: "quadriceps",
+    shape: "path",
+    d: "M25,110 C25,107 30,106 34,106 C38,106 43,107 43,110 L41,158 C41,161 27,161 26,158 Z",
+  },
+  {
+    cat: "quadriceps",
+    shape: "path",
+    d: "M57,110 C57,107 62,106 66,106 C70,106 75,107 75,110 L74,158 C73,161 59,161 59,158 Z",
+  },
+  { cat: "ischios_jambiers", shape: "rect", x: 74, y: 114, width: 9, height: 46, rx: 4 },
+  { cat: "mollets", shape: "rect", x: 27, y: 159, width: 18, height: 42, rx: 8 },
+  { cat: "mollets", shape: "rect", x: 55, y: 159, width: 18, height: 42, rx: 8 },
 ];
 
 /** rgba() interpolée entre un fond quasi invisible (rien fait sur la
@@ -2350,25 +2373,28 @@ function heatFill(fraction) {
   return `rgba(30, 122, 77, ${alpha.toFixed(2)})`;
 }
 
-/** `metric` : nombre de répétitions totales par compartiment — pas le
- * nombre de séries, voir `tonnageSectionHTML`'s note sur le même sujet :
- * une série isométrique découpée en beaucoup de courtes séries (ex. 30
- * séries de 6 secondes) gonflerait sinon le gainage/les mollets bien
- * au-delà de ce que la séance représente vraiment. */
-function bodyHeatmapSVG(categories, maxReps) {
+/** `maxSets` : nombre de séries par compartiment — plus parlant côté
+ * prépa que les répétitions totales pour lire d'un coup d'œil ce qui a
+ * été touché. Pas de contour par zone (`stroke`) : les segments se
+ * touchent déjà géométriquement, un trait par bloc les aurait fait
+ * ressortir comme des cases séparées plutôt qu'un seul corps. */
+function bodyHeatmapSVG(categories, maxSets) {
   const shapes = HEATMAP_BODY_ZONES.map((zone) => {
-    const reps = (categories[zone.cat] && categories[zone.cat].reps) || 0;
-    const fill = heatFill(maxReps ? reps / maxReps : 0);
-    const common = `fill="${fill}" stroke="var(--border)" stroke-width="1"`;
+    const sets = (categories[zone.cat] && categories[zone.cat].sets) || 0;
+    const fill = heatFill(maxSets ? sets / maxSets : 0);
     return zone.shape === "path"
-      ? `<path d="${zone.d}" ${common} />`
-      : `<rect x="${zone.x}" y="${zone.y}" width="${zone.width}" height="${zone.height}" rx="${zone.rx}" ${common} />`;
+      ? `<path d="${zone.d}" fill="${fill}" />`
+      : `<rect x="${zone.x}" y="${zone.y}" width="${zone.width}" height="${zone.height}" rx="${zone.rx}" fill="${fill}" />`;
   }).join("");
   return `
     <svg viewBox="0 0 100 210" class="heatmap-body-svg" role="img" aria-label="Silhouette colorée par compartiment travaillé">
-      <circle cx="50" cy="14" r="10" fill="var(--border)" />
-      <rect x="45" y="22" width="10" height="7" fill="var(--border)" />
+      <circle cx="50" cy="13" r="11" fill="var(--border)" />
+      <path d="M43,21 L57,21 L55,29 L45,29 Z" fill="var(--border)" />
       ${shapes}
+      <circle cx="13" cy="85" r="6" fill="var(--border)" />
+      <circle cx="87" cy="85" r="6" fill="var(--border)" />
+      <rect x="25" y="199" width="20" height="8" rx="4" fill="var(--border)" />
+      <rect x="55" y="199" width="20" height="8" rx="4" fill="var(--border)" />
     </svg>`;
 }
 
@@ -2377,12 +2403,11 @@ function bodyHeatmapSVG(categories, maxReps) {
  * docs/adr/0035) — complète les barres de "Tonnage de la semaine"
  * au-dessus (précises mais limitées à la semaine en cours) avec une
  * lecture visuelle qui lisse le bruit d'une semaine à l'autre. Toujours en
- * répétitions totales (`reps`), jamais en tonnage kg ni en nombre de
- * séries — seule mesure commune aux compartiments à charge (quadriceps,
- * poussée...) et à ceux presque toujours au poids du corps (gainage,
- * mollets) qui reste proportionnée quelle que soit la façon dont une
- * série est découpée, même principe que `tonnageSectionHTML`. Le switch
- * de période est un pur radio/label CSS
+ * nombre de séries, jamais en tonnage kg — seule mesure commune aux
+ * compartiments à charge (quadriceps, poussée...) et à ceux presque
+ * toujours au poids du corps (gainage, mollets), plus parlant côté prépa
+ * que les répétitions totales, même principe que `tonnageSectionHTML`.
+ * Le switch de période est un pur radio/label CSS
  * (voir style.css), même esprit zéro-JS que les `<details>` du
  * Calendrier — pas de re-fetch, les 3 fenêtres sont déjà dans
  * `s.tonnage.periods`. */
@@ -2393,30 +2418,30 @@ function tonnageHeatmapHTML(periods) {
       const period = periods[key];
       if (!period) return "";
       const categories = period.categories || {};
-      const maxReps = Math.max(1, ...Object.values(categories).map((c) => c.reps));
+      const maxSets = Math.max(1, ...Object.values(categories).map((c) => c.sets));
       const badges = ["explosivite_puissance", "cardio"]
         .map((cat) => {
-          const reps = (categories[cat] && categories[cat].reps) || 0;
+          const sets = (categories[cat] && categories[cat].sets) || 0;
           const icon = cat === "cardio" ? "🫀" : "⚡";
-          return `<div class="heatmap-badge" style="background:${heatFill(reps / maxReps)}">${icon} ${TONNAGE_CATEGORY_LABELS[cat]} <strong>${reps}</strong></div>`;
+          return `<div class="heatmap-badge" style="background:${heatFill(sets / maxSets)}">${icon} ${TONNAGE_CATEGORY_LABELS[cat]} <strong>${sets}</strong></div>`;
         })
         .join("");
       const legend = Object.entries(TONNAGE_CATEGORY_LABELS)
         .filter(([cat]) => cat !== "explosivite_puissance" && cat !== "cardio")
         .map(([cat, label]) => {
-          const reps = (categories[cat] && categories[cat].reps) || 0;
+          const sets = (categories[cat] && categories[cat].sets) || 0;
           return `
             <div class="heatmap-legend-row">
-              <span class="heatmap-legend-swatch" style="background:${heatFill(reps / maxReps)}"></span>
+              <span class="heatmap-legend-swatch" style="background:${heatFill(sets / maxSets)}"></span>
               <span class="heatmap-legend-label">${label}</span>
-              <span class="heatmap-legend-value">${reps} rep.</span>
+              <span class="heatmap-legend-value">${sets} série${sets > 1 ? "s" : ""}</span>
             </div>`;
         })
         .join("");
       return `
         <div class="heatmap-panel" data-panel="${key}">
           ${period.total_sets
-            ? `<div class="heatmap-body-wrap">${bodyHeatmapSVG(categories, maxReps)}</div>
+            ? `<div class="heatmap-body-wrap">${bodyHeatmapSVG(categories, maxSets)}</div>
                <div class="heatmap-badges">${badges}</div>
                <div class="heatmap-legend">${legend}</div>`
             : `<p class="muted small">Pas de séance de musculation loguée sur cette période.</p>`}
@@ -2438,7 +2463,7 @@ function tonnageHeatmapHTML(periods) {
         </div>
         ${panels}
       </div>
-      <p class="muted small">Intensité relative (répétitions totales) par compartiment sur la période choisie — le gainage et les mollets, presque toujours au poids du corps, comptent ici comme les autres.</p>
+      <p class="muted small">Intensité relative (nombre de séries) par compartiment sur la période choisie — le gainage et les mollets, presque toujours au poids du corps, comptent ici comme les autres.</p>
     </section>`;
 }
 
@@ -2715,10 +2740,15 @@ function blankExercise() {
 
 /** A chained member added to an existing block (station of an AMRAP/EMOM/
  * Circuit, or an added superset partner) — same shape as `blankExercise`
- * but pre-chained; `format` is set by the caller to match the block. */
+ * but pre-chained; `format` is set by the caller to match the block. A
+ * non-standard station starts with an empty name (shows the "Nouvel
+ * exercice" placeholder greyed out, see stationRowHTML) rather than that
+ * text as a real value — a superset partner (format "standard", rendered
+ * as a full card like any other standard exercise) keeps the literal
+ * default text instead, unaffected by this. */
 function blankStationExercise(format) {
   return {
-    name: "Nouvel exercice",
+    name: format === "standard" ? "Nouvel exercice" : "",
     format,
     planned: { sets: null, reps: null, load: null },
     executed: { sets: null, reps: null, load: null },
@@ -2832,6 +2862,82 @@ async function renderSession(token) {
   renderSessionContent();
 }
 
+// ---------- Timer de séance ("Lancer"/"Terminer") ----------
+// localStorage uniquement — un pur confort de ce navigateur, jamais relu
+// par le coach ni par un autre appareil (voir la note sur le stockage
+// navigateur) : l'instant de départ n'a besoin de survivre qu'à un
+// verrouillage/passage en arrière-plan du téléphone pendant la séance,
+// pas de se synchroniser où que ce soit. Une seule séance à la fois par
+// date suffit largement en pratique.
+function getSessionTimerStart(date) {
+  try { return localStorage.getItem(`coach_session_timer_${date}`); } catch (_) { return null; }
+}
+function setSessionTimerStart(date, iso) {
+  try {
+    if (iso) localStorage.setItem(`coach_session_timer_${date}`, iso);
+    else localStorage.removeItem(`coach_session_timer_${date}`);
+  } catch (_) { /* stockage indisponible — le timer tourne quand même pour ce rendu, juste pas persistant */ }
+}
+
+function formatElapsed(startedAtIso) {
+  const totalSec = Math.max(0, Math.floor((Date.now() - new Date(startedAtIso).getTime()) / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const mm = String(m).padStart(2, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+/** "Lancer la séance" démarre un timer visible en permanence (sticky en
+ * haut, même en défilant) qui remplit automatiquement `session_duration_
+ * min` à "Terminer la séance" — la durée exacte plutôt qu'estimée après
+ * coup, avec confirmation pour éviter de perdre le temps en cours sur un
+ * appui accidentel. La saisie manuelle du champ durée plus bas
+ * (workloadSectionHTML) reste toujours possible en parallèle — oubli
+ * d'arrêt du timer, ou simplement ne pas s'en servir du tout. */
+function timerBarHTML(date) {
+  const startedAt = getSessionTimerStart(date);
+  if (!startedAt) {
+    return `
+      <section class="card timer-card">
+        <button type="button" id="start-timer" class="primary-button">▶️ Lancer la séance</button>
+      </section>`;
+  }
+  return `
+    <section class="card timer-card timer-running" id="timer-bar">
+      <div class="timer-running-info">
+        <div class="timer-label">Séance en cours</div>
+        <div class="timer-display" id="timer-display">${formatElapsed(startedAt)}</div>
+      </div>
+      <button type="button" id="stop-timer" class="timer-stop-button">⏹ Terminer</button>
+    </section>`;
+}
+
+let sessionTimerIntervalId = null;
+
+/** Redémarré à chaque rendu de la séance (`renderSessionContent` tourne
+ * souvent — ajout d'exercice, changement de format...) : plus simple et
+ * plus sûr que d'essayer de faire survivre un seul intervalle à travers
+ * des re-rendus qui remplacent le DOM sous ses pieds. */
+function startTimerDisplayInterval() {
+  if (sessionTimerIntervalId) {
+    clearInterval(sessionTimerIntervalId);
+    sessionTimerIntervalId = null;
+  }
+  const startedAt = getSessionTimerStart(sessionWorking.date);
+  if (!startedAt || !document.getElementById("timer-display")) return;
+  sessionTimerIntervalId = setInterval(() => {
+    const displayEl = document.getElementById("timer-display");
+    if (!displayEl) {
+      clearInterval(sessionTimerIntervalId);
+      sessionTimerIntervalId = null;
+      return;
+    }
+    displayEl.textContent = formatElapsed(startedAt);
+  }, 1000);
+}
+
 function renderSessionContent() {
   const el = document.getElementById("session-content");
   const { session, date } = sessionWorking;
@@ -2863,6 +2969,7 @@ function renderSessionContent() {
       <label>Nom de la séance</label>
       <input id="session-name-input" value="${escapeAttr(session.name || "Séance")}">
     </section>
+    ${timerBarHTML(date)}
     ${type === "musculation" ? musculationBodyHTML(session) : ""}
     <section class="card">
       <label>${notesLabelFor(type)}</label>
@@ -2874,6 +2981,7 @@ function renderSessionContent() {
     <p id="session-status" class="muted small"></p>`;
 
   bindSessionContentEvents();
+  startTimerDisplayInterval();
 }
 
 function notesLabelFor(type) {
@@ -2974,16 +3082,22 @@ function blockCardHTML(indices, exercises) {
     </div>`;
 }
 
-/** A compact station row — name + one "reps/tâche" field — for a member
- * of an AMRAP/EMOM/Circuit/For Time/Autre block: these formats don't have
- * a per-station planned/executed/RIR grid, the whole block's outcome is
- * one shared result field (see `blockCardHTML`'s `resultHTML`). */
+/** A compact station row — name + reps/tâche + charge (optionnelle) — for
+ * a member of an AMRAP/EMOM/Circuit/For Time/Autre block: these formats
+ * don't have a per-station planned/executed/RIR grid, the whole block's
+ * outcome is one shared result field (see `blockCardHTML`'s
+ * `resultHTML`). The charge field lets a mixed block log a station with
+ * a real load (ex. "Strict Press, 12 reps, 12kg/main") right next to one
+ * without (ex. "Rameur, 300m") — never fed into `coach.tonnage` though,
+ * same as the rest of this format family (no reliable rounds-completed
+ * count to multiply it by, see docs/adr/0036's amendement). */
 function stationRowHTML(ex, idx, format, total) {
   const planned = ex.planned || {};
   return `
     <div class="exercise-row station-row" data-idx="${idx}">
-      <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Exercice">
+      <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Nouvel exercice">
       <input type="text" class="f-station-reps" value="${escapeAttr(planned.reps ?? "")}" placeholder="reps / tâche">
+      <input type="text" class="f-station-load" value="${escapeAttr(planned.load ?? "")}" placeholder="charge (option.)">
       <div class="reorder-buttons">
         <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
         <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
@@ -3081,7 +3195,12 @@ function syncFormIntoSession() {
 
     const stationReps = row.querySelector(".f-station-reps");
     if (stationReps) {
-      ex.planned = { sets: null, reps: stationReps.value.trim() || null, load: null };
+      const stationLoad = row.querySelector(".f-station-load");
+      ex.planned = {
+        sets: null,
+        reps: stationReps.value.trim() || null,
+        load: stationLoad ? (stationLoad.value.trim() || null) : null,
+      };
       return;
     }
 
@@ -3173,8 +3292,8 @@ function bindSessionContentEvents() {
     } else if (kind === "superset") {
       exercises.push(blankExercise(), blankStationExercise("standard"));
     } else {
-      const leader = blankExercise();
-      leader.format = kind;
+      const leader = blankStationExercise(kind);
+      leader.superset_with_previous = false;
       leader.block_meta = defaultBlockMeta(kind);
       exercises.push(leader);
     }
@@ -3247,6 +3366,23 @@ function bindSessionContentEvents() {
       box.hidden = true;
       renderSessionContent();
     }));
+  });
+
+  const startTimerBtn = document.getElementById("start-timer");
+  if (startTimerBtn) startTimerBtn.addEventListener("click", () => {
+    setSessionTimerStart(sessionWorking.date, new Date().toISOString());
+    renderSessionContent();
+  });
+  const stopTimerBtn = document.getElementById("stop-timer");
+  if (stopTimerBtn) stopTimerBtn.addEventListener("click", () => {
+    if (!confirm("Terminer la séance ? La durée sera remplie automatiquement (encore modifiable ensuite).")) return;
+    const startedAt = getSessionTimerStart(sessionWorking.date);
+    syncFormIntoSession(); // garde les autres champs déjà tapés (RPE, notes...) avant d'écraser la durée
+    if (startedAt) {
+      sessionWorking.session.session_duration_min = Math.max(1, Math.round((Date.now() - new Date(startedAt).getTime()) / 60000));
+    }
+    setSessionTimerStart(sessionWorking.date, null);
+    renderSessionContent();
   });
 
   document.getElementById("save-session").addEventListener("click", async (e) => {
