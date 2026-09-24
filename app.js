@@ -1479,10 +1479,13 @@ async function loadActiveAlerts(token) {
   if (file) { try { alerts = JSON.parse(file.content); } catch (_) { alerts = []; } }
   if (!Array.isArray(alerts) || alerts.length === 0) { box.innerHTML = ""; return; }
 
+  // <details> rather than a plain <section> — collapsed by default, the
+  // full message/advice/button only render once opened (direct request:
+  // "trop verbeuses à l'écran", especially with several alerts stacked).
   box.innerHTML = alerts
     .map((a) => `
-      <section class="card alert-card" data-alert-id="${escapeAttr(a.id || "")}">
-        <h2>⚠️ ${ALERT_CATEGORY_LABELS[a.category] || "Alerte"}</h2>
+      <details class="card alert-card" data-alert-id="${escapeAttr(a.id || "")}">
+        <summary>⚠️ ${ALERT_CATEGORY_LABELS[a.category] || "Alerte"}</summary>
         <p>${escapeHtmlText(a.message || "")}</p>
         ${Array.isArray(a.advice) && a.advice.length ? `<ul class="alert-advice">${a.advice.map((adv) => `<li>${escapeHtmlText(adv)}</li>`).join("")}</ul>` : ""}
         ${a.resolution === "manual_or_note"
@@ -1491,7 +1494,7 @@ async function loadActiveAlerts(token) {
             </div>
             <p class="muted small alert-status"></p>`
           : `<p class="muted small">Se lève automatiquement une fois la situation revenue à la normale.</p>`}
-      </section>`)
+      </details>`)
     .join("");
 
   box.querySelectorAll(".alert-dismiss").forEach((btn) => {
