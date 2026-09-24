@@ -397,17 +397,34 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .exercise-log-grid label { margin: 0 0 3px; }
 .exercise-saved-badge { color: var(--green-light); font-size: 0.82rem; margin-top: 6px; }
 
-/* ---------- Fait : une ligne par série plutôt qu'un texte à tirets ---------- */
+/* ---------- Fait : une ligne par série (charge/reps/RIR ensemble)
+   plutôt qu'un texte à tirets ---------- */
 .exec-set-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.set-row { display: flex; align-items: center; gap: 8px; }
-.set-row-num {
-  flex-shrink: 0;
-  width: 64px;
-  font-size: 0.78rem;
+.set-row {
+  display: grid;
+  grid-template-columns: 34px 1fr 1fr 1fr 30px;
+  gap: 6px;
+  align-items: center;
+}
+.set-row-head {
+  font-size: 0.66rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
   color: var(--muted);
 }
-.set-row .f-exec-set-reps { flex: 1; margin: 0; }
-.exec-set-rows .add-exec-set { margin: 2px 0 0; width: 100%; }
+.set-row-num {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+.set-row input {
+  margin: 0;
+  padding: 8px 4px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+.exec-set-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.exec-set-actions button { margin: 0; width: 100%; }
 
 /* ---------- Blocs d'exercices : AMRAP/EMOM/Circuit/superset ---------- */
 .exercise-block-card {

@@ -3260,13 +3260,7 @@ function blockCardHTML(indices, exercises) {
   const isChain = indices.length > 1;
 
   if (format === "standard" && !isChain) {
-    // Chaîner cet exercice à celui juste au-dessus (superset) n'a de sens
-    // que si ce précédent est lui-même de format standard — un exercice
-    // "standard" chaîné après un leader AMRAP/EMOM/Circuit produirait un
-    // bloc mixte que blockCardHTML ne sait pas rendre (ses stations
-    // partagent toutes le format du leader).
-    const canChainToPrevious = leaderIdx > 0 && (exercises[leaderIdx - 1].format || "standard") === "standard";
-    return exerciseCardHTML(leader, leaderIdx, exercises.length, true, canChainToPrevious);
+    return exerciseCardHTML(leader, leaderIdx, exercises.length, true);
   }
 
   const timingFields = BLOCK_TIMING_FIELDS[format] || [];
@@ -3365,68 +3359,147 @@ function stationRowHTML(ex, idx, format, total) {
     </div>`;
 }
 
-// ---------- Fait : reps par série, sans les taper à la main avec des
-// tirets ----------
-// `coach.tonnage._total_reps` (voir son docstring) accepte déjà un texte
-// à tirets par série ("10-8-8-6") en plus d'une valeur unique — cette
-// convention de stockage ne change pas, seule la façon de la remplir
-// change : une ligne par série plutôt qu'un seul champ texte à composer à
-// la main. `executed.load` en revanche reste toujours une valeur unique
-// (la charge ne varie pas série par série dans ce modèle, voir
-// `_load_kg` côté Python), donc seul reps devient un widget par ligne.
+// ---------- Fait : charge + reps/temps + RIR par série, sans les taper
+// à la main avec des tirets ----------
+// `coach.tonnage._total_reps` et le RIR (voir `coaching-guidelines.md`,
+// "RIR structuré") acceptent déjà un texte à tirets par série
+// ("10-8-8-6") en plus d'une valeur unique — cette convention de
+// stockage ne change pas, seule la façon de la remplir change : une
+// ligne par série avec ses trois valeurs ensemble plutôt que des champs
+// texte séparés à composer à la main. La charge, elle, n'est pas encore
+// supportée à tirets côté Python (`_load_kg` n'accepte qu'une valeur
+// unique) — un poids identique sur toutes les séries (le cas courant) se
+// simplifie donc en une valeur simple exploitable pour le tonnage ; une
+// charge réellement variable reste stockée à tirets mais sort du calcul
+// de tonnage tant que `_load_kg` ne le supporte pas (même principe que
+// le reste du module : refuser plutôt que deviner).
 
-/** Reconstruit les lignes du widget à partir de ce qui est stocké — une
+/** Reconstruit un seul champ (reps, charge ou RIR) en lignes — une
  * chaîne à tirets impose son propre découpage (la source la plus précise
  * possible) ; sinon `sets` donne le nombre de lignes, chacune préremplie
  * avec la valeur unique partagée (le cas le plus courant : "4 séries de
  * 10"). */
-function hydrateSetRows(setsRaw, repsRaw) {
-  if (repsRaw != null && String(repsRaw).includes("-")) {
-    return String(repsRaw).split("-");
+function hydrateSetRows(setsRaw, valueRaw) {
+  if (valueRaw != null && String(valueRaw).includes("-")) {
+    return String(valueRaw).split("-");
   }
   const setsCount = parseInt(setsRaw, 10);
   if (Number.isFinite(setsCount) && setsCount > 0) {
-    return Array.from({ length: setsCount }, () => (repsRaw != null ? String(repsRaw) : ""));
+    return Array.from({ length: setsCount }, () => (valueRaw != null ? String(valueRaw) : ""));
   }
-  return repsRaw != null && repsRaw !== "" ? [String(repsRaw)] : [];
+  return valueRaw != null && valueRaw !== "" ? [String(valueRaw)] : [];
 }
 
-/** L'inverse de hydrateSetRows — `{sets, reps}` prêt à stocker, `null`/
- * `null` si aucune ligne n'a de valeur (pas encore vraiment "fait", voir
- * sessionHasExecuted). Une valeur identique sur toutes les lignes se
- * simplifie en un texte simple plutôt que "10-10-10-10" — plus lisible
- * partout ailleurs (tableau Séances, digest...) ; hydrateSetRows
- * reconstruit exactement le même nombre de lignes à partir de `sets` de
- * toute façon, donc rien n'est perdu au rendu suivant. */
-function serializeSetRows(values) {
-  const trimmed = values.map((v) => (v || "").trim());
-  if (trimmed.every((v) => v === "")) return { sets: null, reps: null };
-  const allSame = trimmed.every((v) => v === trimmed[0]);
-  return { sets: String(trimmed.length), reps: allSame ? trimmed[0] : trimmed.join("-") };
+/** `[{reps, load, rir}, ...]`, une entrée par série — les trois champs
+ * peuvent avoir des découpages différents une fois hydratés isolément
+ * (ex. reps à tirets mais charge en valeur unique) ; le nombre de lignes
+ * suit le plus précis des trois, les autres sont complétés (valeur
+ * répétée si elle était unique, vide sinon) pour rester alignés ligne à
+ * ligne. */
+function hydrateExecRows(executed, rir) {
+  const repsRows = hydrateSetRows(executed.sets, executed.reps);
+  const loadRows = hydrateSetRows(executed.sets, executed.load);
+  const rirRows = hydrateSetRows(executed.sets, rir);
+  const n = Math.max(repsRows.length, loadRows.length, rirRows.length);
+  const pad = (arr) => {
+    if (arr.length >= n) return arr;
+    const fill = arr.length === 1 ? arr[0] : "";
+    return Array.from({ length: n }, (_, i) => (i < arr.length ? arr[i] : fill));
+  };
+  const reps = pad(repsRows);
+  const load = pad(loadRows);
+  const rirs = pad(rirRows);
+  return Array.from({ length: n }, (_, i) => ({ reps: reps[i], load: load[i], rir: rirs[i] }));
 }
 
-function setRowsHTML(rows) {
-  const rowsHTML = rows
-    .map(
-      (v, i) => `
-      <div class="set-row">
-        <span class="set-row-num">Série ${i + 1}</span>
-        <input type="text" inputmode="numeric" class="f-exec-set-reps" value="${escapeAttr(v)}" placeholder="reps">
-        <button type="button" class="icon-button small danger remove-exec-set" title="Retirer cette série" aria-label="Retirer cette série">✕</button>
-      </div>`
-    )
-    .join("");
+/** L'inverse de hydrateExecRows — `{sets, reps, load, rir}` prêts à
+ * stocker à partir des trois tableaux de lignes (même longueur, un
+ * élément par série). `sets` est `null` si les trois champs sont
+ * entièrement vides (pas encore vraiment "fait", voir
+ * sessionHasExecuted) ; chaque champ se simplifie individuellement en
+ * valeur simple s'il est identique sur toutes les lignes, ou se joint à
+ * tirets sinon — hydrateExecRows reconstruit fidèlement dans les deux
+ * cas au rendu suivant. */
+function serializeExecRows(repsVals, loadVals, rirVals) {
+  const allEmpty = [repsVals, loadVals, rirVals].every((arr) => arr.every((v) => !(v || "").trim()));
+  if (allEmpty) return { sets: null, reps: null, load: null, rir: null };
+  const joinField = (values) => {
+    const trimmed = values.map((v) => (v || "").trim());
+    if (trimmed.every((v) => v === "")) return null;
+    const allSame = trimmed.every((v) => v === trimmed[0]);
+    return allSame ? trimmed[0] : trimmed.join("-");
+  };
+  return {
+    sets: String(repsVals.length),
+    reps: joinField(repsVals),
+    load: joinField(loadVals),
+    rir: joinField(rirVals),
+  };
+}
+
+function execSetRowHeadHTML() {
+  return `<div class="set-row set-row-head"><span></span><span>Charge</span><span>Reps/temps</span><span>RIR</span><span></span></div>`;
+}
+
+function execSetRowHTML(r, i) {
+  return `
+    <div class="set-row">
+      <span class="set-row-num">Série ${i + 1}</span>
+      <input type="text" inputmode="decimal" class="f-exec-set-load" value="${escapeAttr(r.load)}" placeholder="charge">
+      <input type="text" inputmode="numeric" class="f-exec-set-reps" value="${escapeAttr(r.reps)}" placeholder="reps">
+      <input type="text" inputmode="numeric" class="f-exec-set-rir" value="${escapeAttr(r.rir)}" placeholder="RIR">
+      <button type="button" class="icon-button small danger remove-exec-set" title="Retirer cette série" aria-label="Retirer cette série">✕</button>
+    </div>`;
+}
+
+function execRowsHTML(rows) {
+  const rowsHTML = rows.map((r, i) => execSetRowHTML(r, i)).join("");
   return `
     <div class="exec-set-rows">
+      ${rows.length ? execSetRowHeadHTML() : ""}
       ${rowsHTML}
-      <button type="button" class="primary-button ghost small add-exec-set">+ Série faite</button>
+      <div class="exec-set-actions">
+        <button type="button" class="primary-button ghost small add-exec-set">+ Série faite</button>
+        <button type="button" class="primary-button ghost small duplicate-exec-set"${rows.length < 2 ? " hidden" : ""}>🔁 Dupliquer la 1ʳᵉ série partout</button>
+      </div>
     </div>`;
+}
+
+/** Ajoute une ligne en DOM pur (pas de mutation du modèle de données, pas
+ * de re-rendu complet — voir bindRemoveExecSetRow) — préremplie avec les
+ * valeurs actuelles de la dernière ligne plutôt que vide : le cas
+ * courant est "même charge/reps/RIR sur toutes les séries", retaper la
+ * même chose à chaque appui sur "+ Série faite" n'a pas de sens ("Si
+ * toutes les séries sont au même poids et reps, je dois avoir une
+ * solution pour ne pas avoir à taper toutes les séries"). Reste un champ
+ * texte normal ensuite — modifiable dès que cette série diffère. */
+function addExecSetRow(container) {
+  const rows = container.querySelectorAll(".set-row:not(.set-row-head)");
+  const rowCount = rows.length;
+  const last = rows[rows.length - 1];
+  const lastLoad = last ? last.querySelector(".f-exec-set-load").value : "";
+  const lastReps = last ? last.querySelector(".f-exec-set-reps").value : "";
+  const lastRir = last ? last.querySelector(".f-exec-set-rir").value : "";
+  const actions = container.querySelector(".exec-set-actions");
+  if (rowCount === 0) {
+    const headWrap = document.createElement("div");
+    headWrap.innerHTML = execSetRowHeadHTML();
+    container.insertBefore(headWrap.firstElementChild, actions);
+  }
+  const rowWrap = document.createElement("div");
+  rowWrap.innerHTML = execSetRowHTML({ load: lastLoad, reps: lastReps, rir: lastRir }, rowCount);
+  const rowEl = rowWrap.firstElementChild;
+  container.insertBefore(rowEl, actions);
+  bindRemoveExecSetRow(rowEl.querySelector(".remove-exec-set"));
+  rowEl.querySelector(".f-exec-set-reps").focus();
+  const dupBtn = container.querySelector(".duplicate-exec-set");
+  if (dupBtn) dupBtn.hidden = container.querySelectorAll(".set-row:not(.set-row-head)").length < 2;
 }
 
 /** Add/remove a set row purely in the DOM (no data-model mutation, no
  * full re-render) — a full re-render here would go through
- * syncFormIntoSession/serializeSetRows first, which collapses an empty
- * row right back to nothing (see serializeSetRows's docstring), so a
+ * syncFormIntoSession/serializeExecRows first, which collapses an empty
+ * row right back to nothing (see serializeExecRows's docstring), so a
  * freshly-added blank row would visually vanish before the user gets to
  * type anything into it. The row's value only becomes real stored data
  * once syncFormIntoSession reads it — on any structural change elsewhere,
@@ -3435,7 +3508,14 @@ function bindRemoveExecSetRow(btn) {
   btn.addEventListener("click", () => {
     const container = btn.closest(".exec-set-rows");
     btn.closest(".set-row").remove();
-    container.querySelectorAll(".set-row .set-row-num").forEach((el, i) => { el.textContent = `Série ${i + 1}`; });
+    const remaining = container.querySelectorAll(".set-row:not(.set-row-head)");
+    remaining.forEach((row, i) => { row.querySelector(".set-row-num").textContent = `Série ${i + 1}`; });
+    if (remaining.length === 0) {
+      const head = container.querySelector(".set-row-head");
+      if (head) head.remove();
+    }
+    const dupBtn = container.querySelector(".duplicate-exec-set");
+    if (dupBtn) dupBtn.hidden = remaining.length < 2;
   });
 }
 
@@ -3445,15 +3525,15 @@ function bindRemoveExecSetRow(btn) {
  * into a superset/AMRAP/EMOM/..." — see the shared `.f-block-format`
  * handler in bindSessionContentEvents): a superset member's format is
  * fixed to the block's ("standard"), so it doesn't need its own select.
- * `canChainToPrevious` adds one more option, "chaîner au précédent" — a
- * sentinel value (`__chain_previous`), never a real `format`, handled
- * separately by the change handler (sets `superset_with_previous`
- * instead): a real "superset" format value was deliberately removed from
- * `EXERCISE_FORMATS` (superset pairing and an exercise's own format are
- * independent axes — see EXERCISE_FORMATS' docstring), this restores an
- * easy way to reach it from the same dropdown without reintroducing that
- * conflation. */
-function exerciseCardHTML(ex, idx, total, showFormatControls, canChainToPrevious) {
+ * The "Superset" option is a sentinel (`superset`), never written as a
+ * real `format` (superset pairing and an exercise's own format are
+ * independent axes — see EXERCISE_FORMATS' docstring, this select never
+ * literally stores that conflated value): its change handler instead
+ * inserts a second blank standard exercise chained right after this one
+ * — "concatène deux exercices dans le même bloc", the same result as the
+ * bottom "+ Superset" button, just reachable in place on an existing
+ * exercise instead of only when starting a brand new pair. */
+function exerciseCardHTML(ex, idx, total, showFormatControls) {
   const planned = ex.planned || {};
   const executed = ex.executed || {};
   return `
@@ -3468,8 +3548,9 @@ function exerciseCardHTML(ex, idx, total, showFormatControls, canChainToPrevious
       </div>
       ${showFormatControls
         ? `<select class="f-block-format" data-leader-idx="${idx}">
-        ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${(ex.format || "standard") === key ? " selected" : ""}>${label}</option>`).join("")}
-        ${canChainToPrevious ? `<option value="__chain_previous">🔗 Superset (avec le précédent)</option>` : ""}
+        <option value="standard"${(ex.format || "standard") === "standard" ? " selected" : ""}>Standard</option>
+        <option value="superset">Superset</option>
+        ${Object.entries(EXERCISE_FORMATS).filter(([key]) => key !== "standard").map(([key, label]) => `<option value="${key}"${(ex.format || "standard") === key ? " selected" : ""}>${label}</option>`).join("")}
       </select>`
         : ""}
       <div class="field-row-label">Prévu</div>
@@ -3483,15 +3564,8 @@ function exerciseCardHTML(ex, idx, total, showFormatControls, canChainToPrevious
         </div>
       </div>
       <div class="field-row-label">Fait</div>
-      ${setRowsHTML(hydrateSetRows(executed.sets, executed.reps))}
-      <div class="exercise-log-grid">
-        <div>
-          <label>Charge</label>
-          <input type="text" class="f-load" value="${escapeAttr(executed.load ?? "")}">
-          <label class="per-hand-toggle"><input type="checkbox" class="f-load-per-hand"${executed.load_per_hand ? " checked" : ""}> Par main</label>
-        </div>
-        <div><label>RIR</label><input type="text" class="f-rir" value="${escapeAttr(ex.rir ?? "")}"></div>
-      </div>
+      ${execRowsHTML(hydrateExecRows(executed, ex.rir))}
+      <label class="per-hand-toggle"><input type="checkbox" class="f-load-per-hand"${executed.load_per_hand ? " checked" : ""}> Charge par main</label>
     </div>`;
 }
 
@@ -3566,15 +3640,18 @@ function syncFormIntoSession() {
     }
     const execRowsContainer = row.querySelector(".exec-set-rows");
     if (execRowsContainer) {
-      const repsVals = Array.from(execRowsContainer.querySelectorAll(".f-exec-set-reps")).map((el) => el.value);
-      const { sets, reps } = serializeSetRows(repsVals);
+      const setRows = Array.from(execRowsContainer.querySelectorAll(".set-row:not(.set-row-head)"));
+      const repsVals = setRows.map((r) => r.querySelector(".f-exec-set-reps").value);
+      const loadVals = setRows.map((r) => r.querySelector(".f-exec-set-load").value);
+      const rirVals = setRows.map((r) => r.querySelector(".f-exec-set-rir").value);
+      const serialized = serializeExecRows(repsVals, loadVals, rirVals);
       ex.executed = {
-        sets,
-        reps,
-        load: row.querySelector(".f-load").value || null,
+        sets: serialized.sets,
+        reps: serialized.reps,
+        load: serialized.load,
         load_per_hand: row.querySelector(".f-load-per-hand").checked,
       };
-      ex.rir = row.querySelector(".f-rir").value || null;
+      ex.rir = serialized.rir;
     }
   });
 
@@ -3629,12 +3706,14 @@ function bindSessionContentEvents() {
     syncFormIntoSession();
     const leaderIdx = +sel.dataset.leaderIdx;
     const exercises = sessionWorking.session.exercises;
-    if (sel.value === "__chain_previous") {
-      // Chaîne cet exercice à celui juste au-dessus — voir
-      // exerciseCardHTML's `canChainToPrevious`. Le format reste
-      // "standard" (déjà le cas ici, cette option n'existe que sur un
-      // exercice solo), seul `superset_with_previous` change.
-      exercises[leaderIdx].superset_with_previous = true;
+    if (sel.value === "superset") {
+      // Concatène : insère un deuxième exercice standard juste après,
+      // chaîné à celui-ci — même résultat que le bouton "+ Superset" du
+      // bas, mais depuis un exercice déjà existant. Le format de
+      // l'exercice actuel reste "standard" (jamais "superset" — voir la
+      // note sur EXERCISE_FORMATS), seul superset_with_previous change,
+      // sur le nouvel exercice inséré.
+      exercises.splice(leaderIdx + 1, 0, blankStationExercise("standard"));
       renderSessionContent();
       return;
     }
@@ -3762,17 +3841,22 @@ function bindSessionContentEvents() {
   // re-render comme le reste de ce formulaire.
   document.querySelectorAll(".remove-exec-set").forEach(bindRemoveExecSetRow);
   document.querySelectorAll(".add-exec-set").forEach((btn) => btn.addEventListener("click", () => {
+    addExecSetRow(btn.closest(".exec-set-rows"));
+  }));
+  document.querySelectorAll(".duplicate-exec-set").forEach((btn) => btn.addEventListener("click", () => {
     const container = btn.closest(".exec-set-rows");
-    const rowCount = container.querySelectorAll(".set-row").length;
-    const rowEl = document.createElement("div");
-    rowEl.className = "set-row";
-    rowEl.innerHTML = `
-      <span class="set-row-num">Série ${rowCount + 1}</span>
-      <input type="text" inputmode="numeric" class="f-exec-set-reps" placeholder="reps">
-      <button type="button" class="icon-button small danger remove-exec-set" title="Retirer cette série" aria-label="Retirer cette série">✕</button>`;
-    container.insertBefore(rowEl, btn);
-    bindRemoveExecSetRow(rowEl.querySelector(".remove-exec-set"));
-    rowEl.querySelector(".f-exec-set-reps").focus();
+    const rows = container.querySelectorAll(".set-row:not(.set-row-head)");
+    if (rows.length < 2) return;
+    const first = rows[0];
+    const load = first.querySelector(".f-exec-set-load").value;
+    const reps = first.querySelector(".f-exec-set-reps").value;
+    const rir = first.querySelector(".f-exec-set-rir").value;
+    rows.forEach((r, i) => {
+      if (i === 0) return;
+      r.querySelector(".f-exec-set-load").value = load;
+      r.querySelector(".f-exec-set-reps").value = reps;
+      r.querySelector(".f-exec-set-rir").value = rir;
+    });
   }));
 
   bindBlockReferenceToggle(document.getElementById("toggle-block-ref"), document.getElementById("block-ref-content"));
