@@ -6,15 +6,41 @@
 // byte-comparing this file against the installed one, so if this file's
 // bytes don't change, no update is ever detected and clients stay on the
 // old cached shell indefinitely, however much app.js/style.css changed.
-const CACHE_NAME = "coach-shell-v40";
+const CACHE_NAME = "coach-shell-v41";
 const SHELL_FILES = [
   "./",
   "./index.html",
   "./style.css",
-  "./app.js",
   "./manifest.json",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
+  "./js/main.js",
+  "./js/nav.js",
+  "./js/github-api.js",
+  "./js/markdown.js",
+  "./js/voice-input.js",
+  "./js/date-utils.js",
+  "./js/plan-overview.js",
+  "./js/training-index.js",
+  "./js/session-types.js",
+  "./js/credo.js",
+  "./js/sync-status.js",
+  "./js/push-notifications.js",
+  "./js/views/today.js",
+  "./js/views/week.js",
+  "./js/views/forge.js",
+  "./js/views/data.js",
+  "./js/views/data-viz.js",
+  "./js/views/calendar.js",
+  "./js/views/chat.js",
+  "./js/views/write-note.js",
+  "./js/views/adjust-week.js",
+  "./js/session/session-state.js",
+  "./js/session/session-model.js",
+  "./js/session/session-render.js",
+  "./js/session/session-timer.js",
+  "./js/session/session-exec.js",
+  "./js/session/session-form.js",
 ];
 
 self.addEventListener("install", (event) => {
