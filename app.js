@@ -2057,33 +2057,85 @@ function readinessScoreHTML(readiness) {
     </section>`;
 }
 
+// Quelques repères concrets pour donner un sens au tonnage total (tous
+// exercices confondus) — croissants, on prend le plus grand qui tient
+// dedans plutôt qu'un multiple absurde du plus petit. Purement ludique,
+// aucune valeur scientifique.
+const TONNAGE_EQUIVALENCE_REFS = [
+  { label: "un pilier de rugby (120 kg)", kg: 120 },
+  { label: "une voiture citadine (1,2 t)", kg: 1200 },
+  { label: "un bus (12 t)", kg: 12000 },
+  { label: "un camion de pompier (20 t)", kg: 20000 },
+  { label: "une baleine bleue (150 t)", kg: 150000 },
+  { label: "la Tour Eiffel (10 100 t)", kg: 10100000 },
+];
+
+function tonnageEquivalenceLabel(totalKg) {
+  const candidates = TONNAGE_EQUIVALENCE_REFS.filter((r) => totalKg >= r.kg);
+  if (!candidates.length) return null;
+  const ref = candidates[candidates.length - 1];
+  const multiplier = totalKg / ref.kg;
+  const formatted = multiplier.toLocaleString("fr-FR", { maximumFractionDigits: multiplier < 10 ? 1 : 0 });
+  return `≈ ${formatted} × ${ref.label}`;
+}
+
+/** true seulement à partir de la 2e fois qu'un palier est vu pour ce lift
+ * dans ce navigateur — jamais au tout premier affichage (rien à "monter
+ * depuis", juste la première mesure) — pour déclencher une petite mise en
+ * valeur ("🎉 nouveau palier") sans backend ni état partagé, un pur
+ * confort local à ce navigateur (jamais relu par le coach ni un autre
+ * appareil). */
+function tierJustLeveledUp(lift, tierIndex) {
+  if (!tierIndex) return false;
+  try {
+    const key = `coach_seen_tier_${lift}`;
+    const seen = parseInt(localStorage.getItem(key) || "0", 10);
+    if (tierIndex > seen) {
+      localStorage.setItem(key, String(tierIndex));
+      return seen > 0;
+    }
+  } catch (_) { /* stockage indisponible (navigation privée...) — pas de flourish, pas grave */ }
+  return false;
+}
+
 /** "Tonnage soulevé" (Data tab) — un chiffre motivant, pas un signal de
- * programmation (voir docs/adr/0034), donc traité visuellement à part :
- * carte dorée façon podium plutôt qu'une ligne discrète noyée dans une
- * autre section, pour que ça se remarque vraiment. Complétée par des
- * paliers gamifiés et la série d'assiduité (voir docs/adr/0035) — motive
- * sans jamais devenir un signal que l'IA utiliserait pour programmer. */
+ * programmation (voir docs/adr/0034), donc traité visuellement à part.
+ * Paliers/streak/tonnage total (voir docs/adr/0035 et son amendement)
+ * n'apparaissent que si `tonnage.lift_milestones` a bien été calculé côté
+ * export — un `data/app/summary.json` pas encore régénéré depuis l'ajout
+ * de cette fonctionnalité ne doit jamais laisser croire à un "palier
+ * maximum atteint" par défaut (bug observé : `undefined` traité comme
+ * "pas de palier suivant" plutôt que comme "pas encore de données"). */
 function tonnageMilestoneHTML(tonnage, liftLabels) {
   const lifetimeKg = tonnage.lifetime_main_lifts_kg || {};
+  const milestonesAvailable = tonnage.lift_milestones != null;
   const milestones = tonnage.lift_milestones || {};
   const streak = tonnage.training_streak_weeks || 0;
+  const equivalence = tonnage.lifetime_total_kg ? tonnageEquivalenceLabel(tonnage.lifetime_total_kg) : null;
 
   const tiles = Object.entries(liftLabels)
-    .map(([key, label]) => ({ label, kg: lifetimeKg[key], m: milestones[key] || {} }))
+    .map(([key, label]) => ({ key, label, kg: lifetimeKg[key], m: milestones[key] || {} }))
     .filter((t) => t.kg > 0)
     .map((t) => {
       const tonnes = (t.kg / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
-      const progressPct = t.m.progress_to_next != null ? Math.round(t.m.progress_to_next * 100) : 100;
-      const next = t.m.next_tier_tonnes != null
-        ? `${(t.m.next_tier_tonnes - t.m.tonnes).toFixed(1)} t avant le palier suivant`
-        : "Palier maximum atteint";
+      const leveledUp = milestonesAvailable && tierJustLeveledUp(t.key, t.m.tier_index);
+      let milestoneBlock = "";
+      if (milestonesAvailable) {
+        const progressPct = t.m.progress_to_next != null ? Math.round(t.m.progress_to_next * 100) : 100;
+        const next = t.m.next_tier_tonnes != null
+          ? `${(t.m.next_tier_tonnes - t.m.tonnes).toFixed(1)} t avant le palier suivant`
+          : "Palier maximum atteint";
+        milestoneBlock = `
+          ${t.m.tier_label ? `<div class="tonnage-milestone-tier">${t.m.tier_icon || "🏅"} ${t.m.tier_label}</div>` : ""}
+          <div class="tonnage-milestone-progress-track"><div class="tonnage-milestone-progress-fill" style="width:${progressPct}%"></div></div>
+          <div class="tonnage-milestone-next">${next}</div>`;
+      }
       return `
-        <div class="tonnage-milestone-tile">
+        <div class="tonnage-milestone-tile${leveledUp ? " just-leveled-up" : ""}">
+          ${leveledUp ? `<div class="tonnage-milestone-levelup">🎉 Nouveau palier !</div>` : ""}
           <div class="tonnage-milestone-value">${tonnes}<span class="tonnage-milestone-unit">t</span></div>
           <div class="tonnage-milestone-label">${t.label}</div>
-          ${t.m.tier_label ? `<div class="tonnage-milestone-tier">🏅 ${t.m.tier_label}</div>` : ""}
-          <div class="tonnage-milestone-progress-track"><div class="tonnage-milestone-progress-fill" style="width:${progressPct}%"></div></div>
-          <div class="tonnage-milestone-next">${next}</div>
+          ${milestoneBlock}
         </div>`;
     })
     .join("");
@@ -2093,6 +2145,7 @@ function tonnageMilestoneHTML(tonnage, liftLabels) {
       <h2>🏋️ Tonnage soulevé</h2>
       ${streak > 0 ? `<div class="tonnage-streak-banner">🔥 ${streak} semaine${streak > 1 ? "s" : ""} d'affilée avec au moins une séance</div>` : ""}
       <div class="tonnage-milestone-grid">${tiles}</div>
+      ${equivalence ? `<p class="tonnage-milestone-equivalence">🌍 ${(tonnage.lifetime_total_kg / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} t soulevées au total, tous exercices confondus — ${equivalence}</p>` : ""}
       <p class="tonnage-milestone-caption">Cumulé depuis le retour à l'entraînement (18/05/2026)</p>
     </section>`;
 }
