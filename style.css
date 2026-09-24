@@ -328,9 +328,6 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   background: var(--gold);
   box-shadow: 0 0 0 1.5px var(--card-bg);
 }
-.segment.has-alert::after {
-  background: var(--danger);
-}
 
 /* ---------- Markdown rendering ---------- */
 .markdown-body h1 { font-size: 1.3rem; }
@@ -1037,11 +1034,6 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   border: 2px solid var(--gold);
   background: var(--gold-pale);
 }
-.pending-proposal-card.is-alert {
-  border-color: var(--danger);
-  background: var(--danger-pale);
-}
-.pending-proposal-card.is-alert h2 { color: var(--danger); }
 .pending-proposal-card .markdown-body {
   max-height: 320px;
   overflow-y: auto;
@@ -1050,6 +1042,20 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 }
 .proposal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .proposal-actions .primary-button { flex: 1; }
+
+/* ---------- Semaine : alertes persistantes (docs/adr/0045) ---------- */
+#week-active-alerts { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.alert-card {
+  border: 2px solid var(--danger);
+  background: var(--danger-pale);
+}
+.alert-card h2 { color: var(--danger); }
+.alert-advice {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 0.88rem;
+}
+.alert-advice li { margin-bottom: 4px; }
 
 /* ---------- Forge : squelette IA en attente ---------- */
 .forge-pending-list {

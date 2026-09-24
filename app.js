@@ -1318,6 +1318,8 @@ async function renderWeek(token) {
 
   document.getElementById("pending-proposal").innerHTML = "";
   loadPendingProposal(token).catch(() => {});
+  loadActiveAlerts(token).catch(() => {});
+  loadPendingSessionAdjustments(token).catch(() => {});
   renderWeekPlanning(token).catch(() => {});
 
   const blockContentEl = blockPanel.querySelector(".markdown-body");
@@ -1381,21 +1383,14 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
   });
 }
 
-// A pending proposal written by the coach on its own initiative (daily
-// re-evaluation of a red flag, see coaching-guidelines.md "Règle générale"
-// and docs/adr/0044) carries this marker as its first line, stripped
-// before rendering — same file format/mechanism as a user-requested
-// adjustment otherwise, just styled to stand out since the user didn't
-// ask for it.
-const ALERT_PROPOSAL_MARKER = "<!-- source: coach-alert -->";
-
-/** A plan adjustment requested from the app (chat or "Ajuster ma semaine"),
- * or proposed on the coach's own initiative after a daily re-evaluation
- * (see ALERT_PROPOSAL_MARKER), is never applied directly — it's written to
- * data/plans/pending/<lundi>.md and shown here for an explicit
- * Valider/Refuser, per prompts/weekly-plan.md's app-triggered branch and
- * docs/adr/0018/0019. Only the oldest pending file is shown at a time
- * (there should never realistically be more than one). */
+/** A plan adjustment requested from the app (chat or "Ajuster ma semaine")
+ * is never applied directly — it's written to data/plans/pending/<lundi>.md
+ * and shown here for an explicit Valider/Refuser, per
+ * prompts/weekly-plan.md's app-triggered branch and docs/adr/0018/0019.
+ * Only the oldest pending file is shown at a time (there should never
+ * realistically be more than one). Coach-initiated alerts are a separate
+ * mechanism (see loadActiveAlerts, docs/adr/0045) — this proposal flow is
+ * user-requested only. */
 async function loadPendingProposal(token) {
   const box = document.getElementById("pending-proposal");
   // Surfaced as a badge on the Planning tab too — a pending proposal must
@@ -1405,24 +1400,20 @@ async function loadPendingProposal(token) {
   const entries = await ghListDir("data/plans/pending");
   if (stale(token)) return;
   const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".md")).sort((a, b) => a.name.localeCompare(b.name));
-  if (files.length === 0) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending", "has-alert"); return; }
+  if (files.length === 0) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
 
   const target = files[0];
   const file = await ghGetFile(target.path);
   if (stale(token)) return;
-  if (!file) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending", "has-alert"); return; }
-
-  const isAlert = file.content.trimStart().startsWith(ALERT_PROPOSAL_MARKER);
-  const displayContent = isAlert ? file.content.replace(ALERT_PROPOSAL_MARKER, "").trimStart() : file.content;
-  if (planningTab) planningTab.classList.toggle("has-alert", isAlert);
-  if (planningTab) planningTab.classList.toggle("has-pending", !isAlert);
+  if (!file) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
+  if (planningTab) planningTab.classList.add("has-pending");
 
   const monday = target.name.slice(0, -3);
   box.innerHTML = `
-    <section class="card pending-proposal-card${isAlert ? " is-alert" : ""}">
-      <h2>${isAlert ? "⚠️ Alerte du coach — à valider" : "🗒️ Proposition du coach — à valider"}</h2>
+    <section class="card pending-proposal-card">
+      <h2>🗒️ Proposition du coach — à valider</h2>
       <p class="muted small">Semaine du ${monday}</p>
-      <div class="markdown-body">${renderMarkdown(displayContent)}</div>
+      <div class="markdown-body">${renderMarkdown(file.content)}</div>
       <div class="proposal-actions">
         <button type="button" id="proposal-reject" class="primary-button ghost small">❌ Refuser</button>
         <button type="button" id="proposal-accept" class="primary-button small">✅ Valider</button>
@@ -1438,7 +1429,7 @@ async function loadPendingProposal(token) {
     try {
       const targetPath = `data/plans/${target.name}`;
       const targetCurrent = await ghGetFile(targetPath);
-      await ghPutFile(targetPath, displayContent, `Planning semaine du ${monday} (validé depuis l'app)`, targetCurrent ? targetCurrent.sha : null);
+      await ghPutFile(targetPath, file.content, `Planning semaine du ${monday} (validé depuis l'app)`, targetCurrent ? targetCurrent.sha : null);
       await ghDeleteFile(target.path, `Proposition validée : ${target.name}`, file.sha);
       statusEl.textContent = "Validé ✓";
       renderWeek(renderToken);
@@ -1455,6 +1446,146 @@ async function loadPendingProposal(token) {
     statusEl.textContent = "Suppression…";
     try {
       await ghDeleteFile(target.path, `Proposition refusée : ${target.name}`, file.sha);
+      box.innerHTML = "";
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
+    }
+  });
+}
+
+const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge" };
+
+/** Persistent alert cards, visible in the Semaine tab regardless of which
+ * sub-tab is active (see docs/adr/0045) — distinct from a plan-adjustment
+ * proposal: an alert stays up until the underlying situation is actually
+ * resolved, not until a single Valider/Refuser choice (direct request:
+ * "j'ai besoin qu'elles soient présentes... enlevées au cas par cas").
+ * `resolution: "auto"` entries (sleep, weight, workload) are entirely
+ * managed by `coach.alerts.sync_active_alerts` and disappear on their own
+ * once the signal clears — no dismiss button needed for those, and
+ * clicking one wouldn't stick anyway since the next sync would re-add it
+ * while the signal stays true. `resolution: "manual_or_note"` entries
+ * (coach-judged, e.g. an injury) can also be cleared by the coach itself
+ * from a voice note, but always get a manual dismiss button too, since the
+ * coach might not always catch the resolution on its own. */
+async function loadActiveAlerts(token) {
+  const box = document.getElementById("week-active-alerts");
+  const file = await ghGetFile("data/alerts/active.json");
+  if (stale(token)) return;
+  let alerts = [];
+  if (file) { try { alerts = JSON.parse(file.content); } catch (_) { alerts = []; } }
+  if (!Array.isArray(alerts) || alerts.length === 0) { box.innerHTML = ""; return; }
+
+  box.innerHTML = alerts
+    .map((a) => `
+      <section class="card alert-card" data-alert-id="${escapeAttr(a.id || "")}">
+        <h2>⚠️ ${ALERT_CATEGORY_LABELS[a.category] || "Alerte"}</h2>
+        <p>${escapeHtmlText(a.message || "")}</p>
+        ${Array.isArray(a.advice) && a.advice.length ? `<ul class="alert-advice">${a.advice.map((adv) => `<li>${escapeHtmlText(adv)}</li>`).join("")}</ul>` : ""}
+        ${a.resolution === "manual_or_note"
+          ? `<div class="proposal-actions">
+              <button type="button" class="primary-button ghost small alert-dismiss">✅ Marquer comme résolu</button>
+            </div>
+            <p class="muted small alert-status"></p>`
+          : `<p class="muted small">Se lève automatiquement une fois la situation revenue à la normale.</p>`}
+      </section>`)
+    .join("");
+
+  box.querySelectorAll(".alert-dismiss").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const card = btn.closest(".alert-card");
+      const alertId = card.dataset.alertId;
+      const statusEl = card.querySelector(".alert-status");
+      btn.disabled = true;
+      statusEl.textContent = "Mise à jour…";
+      try {
+        await ghPutJSON("data/alerts/active.json", [], "Alerte levée depuis l'app", (current) => {
+          const list = Array.isArray(current) ? current : [];
+          return list.filter((entry) => entry.id !== alertId);
+        });
+        loadActiveAlerts(renderToken).catch(() => {});
+      } catch (err) {
+        statusEl.textContent = `Échec : ${err.message}`;
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+/** A single-session adjustment proposal (see
+ * prompts/session-adjustment.md, docs/adr/0045) — narrower than the
+ * whole-week "Ajuster ma semaine" (loadPendingProposal): written to
+ * data/training/app-log/pending/adjust-<date>.json, holding the session's
+ * full new content, and validating it touches only that one date's file
+ * (via saveSession) — nothing else in the week (direct request: "la modif
+ * ne devrait impacter que la séance"). The "adjust-" filename prefix keeps
+ * these apart from the whole-week Forge skeleton proposals living in the
+ * same directory (loadForgePendingSkeleton, named `<lundi>.json`). */
+async function loadPendingSessionAdjustments(token) {
+  const box = document.getElementById("week-pending-session-adjustments");
+  const entries = await ghListDir("data/training/app-log/pending");
+  if (stale(token)) return;
+  const files = entries
+    .filter((e) => e.type === "file" && e.name.startsWith("adjust-") && e.name.endsWith(".json"))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  if (files.length === 0) { box.innerHTML = ""; return; }
+
+  const target = files[0];
+  const file = await ghGetFile(target.path);
+  if (stale(token)) return;
+  let proposal = null;
+  try { proposal = file ? JSON.parse(file.content) : null; } catch (_) { proposal = null; }
+  if (!file || !proposal || !proposal.session) { box.innerHTML = ""; return; }
+
+  const date = proposal.date;
+  const session = proposal.session;
+  const rows = (session.exercises || [])
+    .map((ex) => {
+      const p = ex.planned || {};
+      const detail = [p.sets, p.reps, p.load].filter((v) => v != null && v !== "").join(" × ");
+      return `<li>${escapeHtmlText(ex.name || "")}${detail ? ` — ${escapeHtmlText(String(detail))}` : ""}</li>`;
+    })
+    .join("");
+
+  box.innerHTML = `
+    <section class="card pending-proposal-card">
+      <h2>📝 Ajustement de séance proposé — à valider</h2>
+      <p class="muted small">${formatFrDate(date)} — ${escapeHtmlText(session.name || "")}</p>
+      ${proposal.rationale ? `<p class="small">${escapeHtmlText(proposal.rationale)}</p>` : ""}
+      <ul class="forge-pending-list">${rows || "<li class='muted small'>Aucun exercice.</li>"}</ul>
+      <div class="proposal-actions">
+        <button type="button" id="session-adjust-reject" class="primary-button ghost small">❌ Refuser</button>
+        <button type="button" id="session-adjust-accept" class="primary-button small">✅ Valider</button>
+      </div>
+      <p id="session-adjust-status" class="muted small"></p>
+    </section>`;
+
+  document.getElementById("session-adjust-accept").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("session-adjust-status");
+    btn.disabled = true;
+    statusEl.textContent = "Application…";
+    try {
+      const found = await findSessionForDate(date);
+      await saveSession(found.weekLabel || "app", date, session);
+      await ghDeleteFile(target.path, `Ajustement de séance validé : ${target.name}`, file.sha);
+      statusEl.textContent = "Validé ✓";
+      box.innerHTML = "";
+      renderWeekPlanning(renderToken).catch(() => {});
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById("session-adjust-reject").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const statusEl = document.getElementById("session-adjust-status");
+    btn.disabled = true;
+    statusEl.textContent = "Suppression…";
+    try {
+      await ghDeleteFile(target.path, `Ajustement de séance refusé : ${target.name}`, file.sha);
       box.innerHTML = "";
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
@@ -1766,7 +1897,10 @@ async function loadForgePendingSkeleton(token) {
   const statusEl = document.getElementById("forge-skeleton-status");
   const entries = await ghListDir("data/training/app-log/pending");
   if (stale(token)) return;
-  const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".json")).sort((a, b) => a.name.localeCompare(b.name));
+  // Excludes "adjust-*.json" — single-session adjustment proposals living
+  // in the same directory (see loadPendingSessionAdjustments), a different
+  // schema entirely ({date, rationale, session}, not {monday, days}).
+  const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".json") && !e.name.startsWith("adjust-")).sort((a, b) => a.name.localeCompare(b.name));
   if (files.length === 0) {
     box.innerHTML = "";
     const waiting = await hasUnansweredForgeRequest();
