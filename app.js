@@ -443,9 +443,19 @@ async function renderWeekOverview(dayStripEl, highlightsEl, markdown, todayISOSt
 /** `{sets, reps, load}` (planned or executed) as one compact string, same
  * join convention as the accessory tags in renderData — "" when there's
  * nothing usable rather than a row of bare dashes. */
+/** A charge value plus its "par main" flag as one clean display string
+ * ("12" -> "12 (par main)") — the annotation lives in its own checkbox
+ * next to the charge field (see stationRowHTML/exerciseCardHTML), never
+ * typed into the number itself ("12/main" was hard to read back and
+ * inconsistent from one entry to the next). */
+function formatLoadText(load, perHand) {
+  if (load == null || load === "") return null;
+  return perHand ? `${load} (par main)` : String(load);
+}
+
 function formatSetsRepsLoad(obj) {
   if (!obj) return "";
-  return [obj.sets, obj.reps, obj.load].filter((v) => v != null && v !== "").join(" × ");
+  return [obj.sets, obj.reps, formatLoadText(obj.load, obj.load_per_hand)].filter((v) => v != null && v !== "").join(" × ");
 }
 
 /** A compact "12min AMRAP" / "EMOM 60s ×10" / "Circuit 3 tours, repos 60s"
@@ -464,6 +474,22 @@ function blockMetaSummaryFr(format, meta) {
   }
   if (format === "for_time" && meta.duration_min) return `Cap ${meta.duration_min}min`;
   return "";
+}
+
+/** A block's leader `executed.reps` result, formatted by what it actually
+ * means for that format instead of raw undifferentiated text — mainly
+ * For Time, where the same field means either "finished in this time" or
+ * "cap reached, this many rounds/reps" (see `leader.capped`, the block
+ * editor's toggle) and showing it unlabelled made it impossible to tell
+ * which from the day overview alone. `null` when there's nothing to show
+ * (caller falls back to "—"). */
+function blockResultDisplay(format, leader) {
+  const raw = leader.executed && leader.executed.reps;
+  if (!raw) return null;
+  if (format === "for_time") {
+    return leader.capped ? `🚩 Cap atteint — ${raw}` : `⏱️ Terminé en ${raw}`;
+  }
+  return raw;
 }
 
 /** Inline read-only overview for a day tapped in Planning's day-strip —
@@ -513,9 +539,11 @@ async function showDayOverviewPanel(token, date) {
           if (format !== "standard") {
             const isLeader = !ex.superset_with_previous;
             const summary = isLeader ? blockMetaSummaryFr(format, ex.block_meta) : "";
-            const plannedCell = [ex.planned && ex.planned.reps, summary].filter(Boolean).join(" — ") || "—";
+            const stationLoad = ex.planned && formatLoadText(ex.planned.load, ex.planned.load_per_hand);
+            const plannedCell = [ex.planned && ex.planned.reps, stationLoad, summary].filter(Boolean).join(" — ") || "—";
             const durationSuffix = isLeader && ex.executed_duration_min != null ? ` (${ex.executed_duration_min}min réalisées)` : "";
-            const doneCell = (isLeader && ex.executed && ex.executed.reps ? ex.executed.reps : "—") + durationSuffix;
+            const resultText = isLeader ? blockResultDisplay(format, ex) : null;
+            const doneCell = (resultText || "—") + durationSuffix;
             return `
               <tr>
                 <td>${nameCell} <span class="format-tag">${escapeHtmlText(EXERCISE_FORMATS[format] || format)}</span></td>
@@ -715,9 +743,16 @@ function sessionHasExecuted(session) {
   // pre-fills notes with a pre-session vigilance point on a proposed rugby
   // day (e.g. "reprise du contact, prudence"), and a planning note like
   // that would otherwise mark a session "Fait" before it's even happened.
+  const hasWorkload = session.session_rpe != null || session.session_duration_min != null;
   if (session.type && session.type !== "musculation") {
-    return session.session_rpe != null || session.session_duration_min != null;
+    return hasWorkload;
   }
+  // A musculation session needs the same RPE/durée wrap-up too, not just
+  // real numbers on an exercise — otherwise the new session auto-save
+  // (see docs/adr/0039), which silently persists whatever's typed mid-
+  // session, would already flip the day to "Fait" before the session is
+  // actually over and the "comment ça s'est passé" fields are filled in.
+  if (!hasWorkload) return false;
   return (session.exercises || []).some((ex) => ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load));
 }
 
@@ -2760,8 +2795,8 @@ function blankExercise() {
   return {
     name: "Nouvel exercice",
     format: "standard",
-    planned: { sets: null, reps: null, load: null },
-    executed: { sets: null, reps: null, load: null },
+    planned: { sets: null, reps: null, load: null, load_per_hand: false },
+    executed: { sets: null, reps: null, load: null, load_per_hand: false },
     rir: null,
     notes: null,
     superset_with_previous: false,
@@ -2780,8 +2815,8 @@ function blankStationExercise(format) {
   return {
     name: format === "standard" ? "Nouvel exercice" : "",
     format,
-    planned: { sets: null, reps: null, load: null },
-    executed: { sets: null, reps: null, load: null },
+    planned: { sets: null, reps: null, load: null, load_per_hand: false },
+    executed: { sets: null, reps: null, load: null, load_per_hand: false },
     rir: null,
     notes: null,
     superset_with_previous: true,
@@ -3217,8 +3252,19 @@ function blockCardHTML(indices, exercises) {
     ? indices.map((idx) => exerciseCardHTML(exercises[idx], idx, exercises.length, false)).join("")
     : indices.map((idx) => stationRowHTML(exercises[idx], idx, format, exercises.length)).join("");
 
+  // For Time : si le cap chronométré est atteint sans finir, le résultat
+  // n'est plus un temps mais un nombre de tours/reps réalisés — même champ
+  // de stockage (`executed.reps`, texte libre), juste un libellé qui suit
+  // ce qui a réellement été réalisable ce jour-là plutôt que de forcer un
+  // format "temps" qui n'a pas de sens quand le cap a coupé la séance.
+  const cappedToggleHTML = format === "for_time"
+    ? `<label class="capped-toggle"><input type="checkbox" class="f-block-capped"${leader.capped ? " checked" : ""}> Cap atteint (non terminé)</label>`
+    : "";
+  const resultLabel = format === "for_time" && leader.capped
+    ? "Tours/reps atteints au cap (ex. 3 tours + 8 reps)"
+    : (BLOCK_RESULT_LABELS[format] || "Résultat");
   const resultHTML = format !== "standard"
-    ? `<div class="exercise-block-result"><label>${BLOCK_RESULT_LABELS[format] || "Résultat"}</label><input type="text" class="f-block-result" value="${escapeAttr((leader.executed && leader.executed.reps) ?? "")}"></div>`
+    ? `<div class="exercise-block-result"><label>${resultLabel}</label><input type="text" class="f-block-result" value="${escapeAttr((leader.executed && leader.executed.reps) ?? "")}"></div>`
     : "";
 
   // Circuit only, and separate from the free-text result above — a real
@@ -3248,6 +3294,7 @@ function blockCardHTML(indices, exercises) {
       ${splitTimerCardHTML}
       <div class="exercise-block-stations">${stationsHTML}</div>
       <button type="button" class="primary-button ghost small add-station-button" data-leader-idx="${leaderIdx}">+ Ajouter ${format === "standard" ? "au superset" : "une station"}</button>
+      ${cappedToggleHTML}
       ${resultHTML}
       ${durationHTML}
       <div class="exercise-block-notes"><label>Notes (optionnel)</label><textarea class="f-block-notes" rows="2" placeholder="Détail libre si besoin">${escapeHtmlText(leader.notes || "")}</textarea></div>
@@ -3266,16 +3313,98 @@ function blockCardHTML(indices, exercises) {
 function stationRowHTML(ex, idx, format, total) {
   const planned = ex.planned || {};
   return `
-    <div class="exercise-row station-row" data-idx="${idx}">
-      <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Nouvel exercice">
-      <input type="text" class="f-station-reps" value="${escapeAttr(planned.reps ?? "")}" placeholder="reps / tâche">
-      <input type="text" class="f-station-load" value="${escapeAttr(planned.load ?? "")}" placeholder="charge (option.)">
-      <div class="reorder-buttons">
-        <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
-        <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
-        <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
+    <div class="exercise-row station-row exercise-log-card" data-idx="${idx}">
+      <div class="exercise-log-head">
+        <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Nouvel exercice">
+        <div class="reorder-buttons">
+          <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
+          <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
+          <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
+        </div>
+      </div>
+      <div class="exercise-log-grid">
+        <div><label>Reps / tâche</label><input type="text" class="f-station-reps" value="${escapeAttr(planned.reps ?? "")}" placeholder="ex. 12 ou 300m"></div>
+        <div>
+          <label>Charge (optionnelle)</label>
+          <input type="text" class="f-station-load" value="${escapeAttr(planned.load ?? "")}" placeholder="ex. 12">
+          <label class="per-hand-toggle"><input type="checkbox" class="f-station-load-per-hand"${planned.load_per_hand ? " checked" : ""}> Par main</label>
+        </div>
       </div>
     </div>`;
+}
+
+// ---------- Fait : reps par série, sans les taper à la main avec des
+// tirets ----------
+// `coach.tonnage._total_reps` (voir son docstring) accepte déjà un texte
+// à tirets par série ("10-8-8-6") en plus d'une valeur unique — cette
+// convention de stockage ne change pas, seule la façon de la remplir
+// change : une ligne par série plutôt qu'un seul champ texte à composer à
+// la main. `executed.load` en revanche reste toujours une valeur unique
+// (la charge ne varie pas série par série dans ce modèle, voir
+// `_load_kg` côté Python), donc seul reps devient un widget par ligne.
+
+/** Reconstruit les lignes du widget à partir de ce qui est stocké — une
+ * chaîne à tirets impose son propre découpage (la source la plus précise
+ * possible) ; sinon `sets` donne le nombre de lignes, chacune préremplie
+ * avec la valeur unique partagée (le cas le plus courant : "4 séries de
+ * 10"). */
+function hydrateSetRows(setsRaw, repsRaw) {
+  if (repsRaw != null && String(repsRaw).includes("-")) {
+    return String(repsRaw).split("-");
+  }
+  const setsCount = parseInt(setsRaw, 10);
+  if (Number.isFinite(setsCount) && setsCount > 0) {
+    return Array.from({ length: setsCount }, () => (repsRaw != null ? String(repsRaw) : ""));
+  }
+  return repsRaw != null && repsRaw !== "" ? [String(repsRaw)] : [];
+}
+
+/** L'inverse de hydrateSetRows — `{sets, reps}` prêt à stocker, `null`/
+ * `null` si aucune ligne n'a de valeur (pas encore vraiment "fait", voir
+ * sessionHasExecuted). Une valeur identique sur toutes les lignes se
+ * simplifie en un texte simple plutôt que "10-10-10-10" — plus lisible
+ * partout ailleurs (tableau Séances, digest...) ; hydrateSetRows
+ * reconstruit exactement le même nombre de lignes à partir de `sets` de
+ * toute façon, donc rien n'est perdu au rendu suivant. */
+function serializeSetRows(values) {
+  const trimmed = values.map((v) => (v || "").trim());
+  if (trimmed.every((v) => v === "")) return { sets: null, reps: null };
+  const allSame = trimmed.every((v) => v === trimmed[0]);
+  return { sets: String(trimmed.length), reps: allSame ? trimmed[0] : trimmed.join("-") };
+}
+
+function setRowsHTML(rows) {
+  const rowsHTML = rows
+    .map(
+      (v, i) => `
+      <div class="set-row">
+        <span class="set-row-num">Série ${i + 1}</span>
+        <input type="text" inputmode="numeric" class="f-exec-set-reps" value="${escapeAttr(v)}" placeholder="reps">
+        <button type="button" class="icon-button small danger remove-exec-set" title="Retirer cette série" aria-label="Retirer cette série">✕</button>
+      </div>`
+    )
+    .join("");
+  return `
+    <div class="exec-set-rows">
+      ${rowsHTML}
+      <button type="button" class="primary-button ghost small add-exec-set">+ Série faite</button>
+    </div>`;
+}
+
+/** Add/remove a set row purely in the DOM (no data-model mutation, no
+ * full re-render) — a full re-render here would go through
+ * syncFormIntoSession/serializeSetRows first, which collapses an empty
+ * row right back to nothing (see serializeSetRows's docstring), so a
+ * freshly-added blank row would visually vanish before the user gets to
+ * type anything into it. The row's value only becomes real stored data
+ * once syncFormIntoSession reads it — on any structural change elsewhere,
+ * or on save. */
+function bindRemoveExecSetRow(btn) {
+  btn.addEventListener("click", () => {
+    const container = btn.closest(".exec-set-rows");
+    btn.closest(".set-row").remove();
+    container.querySelectorAll(".set-row .set-row-num").forEach((el, i) => { el.textContent = `Série ${i + 1}`; });
+  });
 }
 
 /** The full planned/executed/RIR card — a solo standard exercise, or one
@@ -3306,13 +3435,20 @@ function exerciseCardHTML(ex, idx, total, showFormatControls) {
       <div class="exercise-log-grid">
         <div><label>Séries</label><input type="text" class="f-planned-sets" value="${escapeAttr(planned.sets ?? "")}"></div>
         <div><label>Reps/temps</label><input type="text" class="f-planned-reps" value="${escapeAttr(planned.reps ?? "")}"></div>
-        <div><label>Charge</label><input type="text" class="f-planned-load" value="${escapeAttr(planned.load ?? "")}"></div>
+        <div>
+          <label>Charge</label>
+          <input type="text" class="f-planned-load" value="${escapeAttr(planned.load ?? "")}">
+          <label class="per-hand-toggle"><input type="checkbox" class="f-planned-load-per-hand"${planned.load_per_hand ? " checked" : ""}> Par main</label>
+        </div>
       </div>
       <div class="field-row-label">Fait</div>
+      ${setRowsHTML(hydrateSetRows(executed.sets, executed.reps))}
       <div class="exercise-log-grid">
-        <div><label>Séries</label><input type="text" class="f-sets" value="${escapeAttr(executed.sets ?? "")}"></div>
-        <div><label>Reps/temps</label><input type="text" class="f-reps" value="${escapeAttr(executed.reps ?? "")}"></div>
-        <div><label>Charge</label><input type="text" class="f-load" value="${escapeAttr(executed.load ?? "")}"></div>
+        <div>
+          <label>Charge</label>
+          <input type="text" class="f-load" value="${escapeAttr(executed.load ?? "")}">
+          <label class="per-hand-toggle"><input type="checkbox" class="f-load-per-hand"${executed.load_per_hand ? " checked" : ""}> Par main</label>
+        </div>
         <div><label>RIR</label><input type="text" class="f-rir" value="${escapeAttr(ex.rir ?? "")}"></div>
       </div>
     </div>`;
@@ -3368,10 +3504,12 @@ function syncFormIntoSession() {
     const stationReps = row.querySelector(".f-station-reps");
     if (stationReps) {
       const stationLoad = row.querySelector(".f-station-load");
+      const stationLoadPerHand = row.querySelector(".f-station-load-per-hand");
       ex.planned = {
         sets: null,
         reps: stationReps.value.trim() || null,
         load: stationLoad ? (stationLoad.value.trim() || null) : null,
+        load_per_hand: stationLoadPerHand ? stationLoadPerHand.checked : false,
       };
       return;
     }
@@ -3382,14 +3520,18 @@ function syncFormIntoSession() {
         sets: plannedSets.value || null,
         reps: row.querySelector(".f-planned-reps").value || null,
         load: row.querySelector(".f-planned-load").value || null,
+        load_per_hand: row.querySelector(".f-planned-load-per-hand").checked,
       };
     }
-    const sets = row.querySelector(".f-sets");
-    if (sets) {
+    const execRowsContainer = row.querySelector(".exec-set-rows");
+    if (execRowsContainer) {
+      const repsVals = Array.from(execRowsContainer.querySelectorAll(".f-exec-set-reps")).map((el) => el.value);
+      const { sets, reps } = serializeSetRows(repsVals);
       ex.executed = {
-        sets: sets.value || null,
-        reps: row.querySelector(".f-reps").value || null,
+        sets,
+        reps,
         load: row.querySelector(".f-load").value || null,
+        load_per_hand: row.querySelector(".f-load-per-hand").checked,
       };
       ex.rir = row.querySelector(".f-rir").value || null;
     }
@@ -3411,6 +3553,9 @@ function syncFormIntoSession() {
       });
       leader.block_meta = meta;
     }
+
+    const cappedInput = card.querySelector(".f-block-capped");
+    if (cappedInput) leader.capped = cappedInput.checked;
 
     const resultInput = card.querySelector(".f-block-result");
     if (resultInput) {
@@ -3448,6 +3593,17 @@ function bindSessionContentEvents() {
     for (let i = leaderIdx; i < end; i++) exercises[i].format = newFormat;
     const leader = exercises[leaderIdx];
     leader.block_meta = newFormat === "standard" ? undefined : (leader.block_meta || defaultBlockMeta(newFormat));
+    renderSessionContent();
+  }));
+
+  // For Time : bascule le libellé du résultat entre "temps réalisé" et
+  // "tours/reps atteints au cap" — re-rendu nécessaire pour que le
+  // libellé suive, syncFormIntoSession garde ce qui est déjà tapé partout
+  // ailleurs (y compris dans le champ résultat lui-même) avant ça.
+  document.querySelectorAll(".f-block-capped").forEach((cb) => cb.addEventListener("change", () => {
+    syncFormIntoSession();
+    const leaderIdx = +cb.closest(".exercise-block-card").dataset.leaderIdx;
+    sessionWorking.session.exercises[leaderIdx].capped = cb.checked;
     renderSessionContent();
   }));
 
@@ -3549,6 +3705,24 @@ function bindSessionContentEvents() {
     }
     exercises.splice(idx, 1);
     renderSessionContent();
+  }));
+
+  // Fait : ajouter/retirer une ligne "série" — voir bindRemoveExecSetRow
+  // pour pourquoi ceci reste du DOM pur plutôt qu'un cycle sync+mutate+
+  // re-render comme le reste de ce formulaire.
+  document.querySelectorAll(".remove-exec-set").forEach(bindRemoveExecSetRow);
+  document.querySelectorAll(".add-exec-set").forEach((btn) => btn.addEventListener("click", () => {
+    const container = btn.closest(".exec-set-rows");
+    const rowCount = container.querySelectorAll(".set-row").length;
+    const rowEl = document.createElement("div");
+    rowEl.className = "set-row";
+    rowEl.innerHTML = `
+      <span class="set-row-num">Série ${rowCount + 1}</span>
+      <input type="text" inputmode="numeric" class="f-exec-set-reps" placeholder="reps">
+      <button type="button" class="icon-button small danger remove-exec-set" title="Retirer cette série" aria-label="Retirer cette série">✕</button>`;
+    container.insertBefore(rowEl, btn);
+    bindRemoveExecSetRow(rowEl.querySelector(".remove-exec-set"));
+    rowEl.querySelector(".f-exec-set-reps").focus();
   }));
 
   bindBlockReferenceToggle(document.getElementById("toggle-block-ref"), document.getElementById("block-ref-content"));

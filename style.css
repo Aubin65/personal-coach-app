@@ -397,6 +397,18 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .exercise-log-grid label { margin: 0 0 3px; }
 .exercise-saved-badge { color: var(--green-light); font-size: 0.82rem; margin-top: 6px; }
 
+/* ---------- Fait : une ligne par série plutôt qu'un texte à tirets ---------- */
+.exec-set-rows { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.set-row { display: flex; align-items: center; gap: 8px; }
+.set-row-num {
+  flex-shrink: 0;
+  width: 64px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+.set-row .f-exec-set-reps { flex: 1; margin: 0; }
+.exec-set-rows .add-exec-set { margin: 2px 0 0; width: 100%; }
+
 /* ---------- Blocs d'exercices : AMRAP/EMOM/Circuit/superset ---------- */
 .exercise-block-card {
   border: 1px solid var(--gold);
@@ -428,16 +440,6 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .exercise-block-timing label { margin: 0 0 3px; }
 .exercise-block-stations { display: flex; flex-direction: column; gap: 8px; }
 .exercise-block-stations .exercise-log-card { background: var(--card-bg); margin-bottom: 0; }
-.station-row {
-  display: grid;
-  grid-template-columns: 1.1fr 0.8fr 0.8fr auto;
-  gap: 8px;
-  align-items: center;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
-}
 /* Placeholder greyed out explicitly rather than relying on each browser's
    own default shade (inconsistent, especially in dark mode) — the "Nouvel
    exercice" placeholder needs to read clearly as "not filled in yet". */
@@ -526,6 +528,24 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   font-size: 0.78rem;
   color: var(--muted);
 }
+.capped-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: var(--text);
+  margin-top: 8px;
+}
+.capped-toggle input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; }
+.per-hand-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-top: 6px;
+}
+.per-hand-toggle input[type="checkbox"] { width: 16px; height: 16px; flex-shrink: 0; }
 .exercise-block-result { margin-top: 4px; }
 .exercise-block-result label,
 .exercise-block-notes label { margin: 0 0 3px; }
