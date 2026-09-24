@@ -3459,10 +3459,39 @@ function execRowsHTML(rows) {
       ${rows.length ? execSetRowHeadHTML() : ""}
       ${rowsHTML}
       <div class="exec-set-actions">
+        <button type="button" class="primary-button ghost small as-planned-exec">📋 Comme planifié</button>
         <button type="button" class="primary-button ghost small add-exec-set">+ Série faite</button>
         <button type="button" class="primary-button ghost small duplicate-exec-set"${rows.length < 2 ? " hidden" : ""}>🔁 Dupliquer la 1ʳᵉ série partout</button>
       </div>
     </div>`;
+}
+
+/** Vide les lignes actuelles et les reconstruit à partir de "Prévu" — la
+ * séance s'est souvent déroulée exactement comme prévu, retaper
+ * série par série ce qui est déjà écrit juste au-dessus n'a pas de sens.
+ * Le RIR reste vide (rien de "prévu" côté ressenti) ; la charge est
+ * reprise telle quelle sur toutes les lignes (elle-même toujours une
+ * valeur unique côté Prévu, voir stationRowHTML/exerciseCardHTML). Reste
+ * un point de départ éditable, pas un verrou — une série qui a
+ * finalement différé (coupée court, charge ajustée) se corrige ensuite
+ * ligne par ligne comme n'importe quelle valeur tapée à la main. */
+function fillExecRowsAsPlanned(container, plannedSets, plannedReps, plannedLoad) {
+  const reps = hydrateSetRows(plannedSets, plannedReps);
+  if (!reps.length) return; // rien de prévu à reprendre
+  container.querySelectorAll(".set-row").forEach((el) => el.remove());
+  const actions = container.querySelector(".exec-set-actions");
+  const headWrap = document.createElement("div");
+  headWrap.innerHTML = execSetRowHeadHTML();
+  container.insertBefore(headWrap.firstElementChild, actions);
+  reps.forEach((repVal, i) => {
+    const rowWrap = document.createElement("div");
+    rowWrap.innerHTML = execSetRowHTML({ load: plannedLoad || "", reps: repVal, rir: "" }, i);
+    const rowEl = rowWrap.firstElementChild;
+    container.insertBefore(rowEl, actions);
+    bindRemoveExecSetRow(rowEl.querySelector(".remove-exec-set"));
+  });
+  const dupBtn = container.querySelector(".duplicate-exec-set");
+  if (dupBtn) dupBtn.hidden = reps.length < 2;
 }
 
 /** Ajoute une ligne en DOM pur (pas de mutation du modèle de données, pas
@@ -3842,6 +3871,14 @@ function bindSessionContentEvents() {
   document.querySelectorAll(".remove-exec-set").forEach(bindRemoveExecSetRow);
   document.querySelectorAll(".add-exec-set").forEach((btn) => btn.addEventListener("click", () => {
     addExecSetRow(btn.closest(".exec-set-rows"));
+  }));
+  document.querySelectorAll(".as-planned-exec").forEach((btn) => btn.addEventListener("click", () => {
+    const card = btn.closest(".exercise-row");
+    const container = btn.closest(".exec-set-rows");
+    const plannedSets = card.querySelector(".f-planned-sets").value;
+    const plannedReps = card.querySelector(".f-planned-reps").value;
+    const plannedLoad = card.querySelector(".f-planned-load").value;
+    fillExecRowsAsPlanned(container, plannedSets, plannedReps, plannedLoad);
   }));
   document.querySelectorAll(".duplicate-exec-set").forEach((btn) => btn.addEventListener("click", () => {
     const container = btn.closest(".exec-set-rows");
