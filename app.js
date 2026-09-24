@@ -1456,11 +1456,13 @@ async function loadPendingProposal(token) {
 
 const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge" };
 
-/** Persistent alert cards, visible in the Semaine tab regardless of which
- * sub-tab is active (see docs/adr/0045) — distinct from a plan-adjustment
- * proposal: an alert stays up until the underlying situation is actually
- * resolved, not until a single Valider/Refuser choice (direct request:
- * "j'ai besoin qu'elles soient présentes... enlevées au cas par cas").
+/** Persistent alert cards, shown in the Planning sub-tab of Semaine —
+ * between the day strip/day-overview panel and "objectifs clés" (direct
+ * placement request, see docs/adr/0045 amendment) — distinct from a
+ * plan-adjustment proposal: an alert stays up until the underlying
+ * situation is actually resolved, not until a single Valider/Refuser
+ * choice (direct request: "j'ai besoin qu'elles soient présentes...
+ * enlevées au cas par cas").
  * `resolution: "auto"` entries (sleep, weight, workload) are entirely
  * managed by `coach.alerts.sync_active_alerts` and disappear on their own
  * once the signal clears — no dismiss button needed for those, and
