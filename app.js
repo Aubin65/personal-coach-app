@@ -386,10 +386,22 @@ function normalizeDM(str) {
  * appears right under the day-strip and above "Objectifs clés de la
  * semaine", not buried below both ("au dessus des objectifs, pour que ce
  * soit plus ergonomique"). */
-function renderWeekOverview(dayStripEl, highlightsEl, markdown, todayISOStr, mondayISO) {
+async function renderWeekOverview(dayStripEl, highlightsEl, markdown, todayISOStr, mondayISO, token) {
   const { days, highlights } = parseWeekOverview(markdown);
   const [, tm, td] = todayISOStr.split("-");
   const todayDM = normalizeDM(`${parseInt(td, 10)}/${parseInt(tm, 10)}`);
+
+  // The plan's title/icon is only a forecast, written before the week even
+  // starts ("Repos" as a default guess for Saturday, say). Once a real
+  // session exists for that date — created or edited from the session
+  // editor, possibly with a different type than planned (e.g. a "rando"
+  // logged on a day the plan called "Repos") — that real session is the
+  // truth and must override the frozen plan text here too, not just in the
+  // "Séances" table below.
+  const daySummaries = mondayISO
+    ? await Promise.all(Array.from({ length: 7 }, (_, i) => lookupDaySummary(addDaysISO(mondayISO, i))))
+    : [];
+  if (token !== undefined && stale(token)) return;
 
   let stripHTML = "";
   if (days.length) {
@@ -398,12 +410,17 @@ function renderWeekOverview(dayStripEl, highlightsEl, markdown, todayISOStr, mon
       const isToday = normalizeDM(d.date) === todayDM;
       const dayIdx = DAY_NAMES.indexOf(d.day);
       const iso = mondayISO && dayIdx !== -1 ? addDaysISO(mondayISO, dayIdx) : null;
+      const summary = dayIdx !== -1 ? daySummaries[dayIdx] : null;
+      const icon = summary && summary.hasSession && summary.type && SESSION_TYPES[summary.type]
+        ? SESSION_TYPES[summary.type].icon
+        : dayIconFor(d.title);
+      const title = summary && summary.hasSession && summary.name ? summary.name : d.title;
       stripHTML += `
         <button type="button" class="day-card${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <div class="day-name">${d.day.slice(0, 3)}</div>
           <div class="day-date">${d.date}</div>
-          <div class="day-icon">${dayIconFor(d.title)}</div>
-          <div class="day-title">${d.title.slice(0, 28)}</div>
+          <div class="day-icon">${icon}</div>
+          <div class="day-title">${title.slice(0, 28)}</div>
         </button>`;
     }
     stripHTML += "</div>";
@@ -936,9 +953,21 @@ function showView(name, params = {}) {
   // The session view's live timer interval targets #timer-display by id —
   // about to be wiped from the DOM below along with the rest of #content,
   // so it must stop now rather than keep ticking against a detached node.
+  // The auto-save interval doesn't touch the DOM, but it must stop too —
+  // it reads `sessionWorking`, which the next view's render is about to
+  // reassign/ignore, so a leaked tick would silently keep re-saving a
+  // session the user has already navigated away from.
   if (typeof sessionTimerIntervalId !== "undefined" && sessionTimerIntervalId) {
     clearInterval(sessionTimerIntervalId);
     sessionTimerIntervalId = null;
+  }
+  if (typeof sessionAutoSaveIntervalId !== "undefined" && sessionAutoSaveIntervalId) {
+    clearInterval(sessionAutoSaveIntervalId);
+    sessionAutoSaveIntervalId = null;
+  }
+  if (typeof blockTimerIntervalIds !== "undefined") {
+    Object.values(blockTimerIntervalIds).forEach((id) => clearInterval(id));
+    blockTimerIntervalIds = {};
   }
   state.view = name;
   if (params.date) state.sessionDate = params.date;
@@ -1220,8 +1249,9 @@ async function renderWeek(token) {
       document.getElementById("week-highlights"),
       plan.content,
       todayISO(),
-      plan.date
-    );
+      plan.date,
+      token
+    ).catch(() => {});
     planDays = parseWeekOverview(plan.content).days;
   } else {
     document.getElementById("week-day-strip").innerHTML = "<p class='muted'>Pas de planning disponible.</p>";
@@ -2879,14 +2909,18 @@ function setSessionTimerStart(date, iso) {
   } catch (_) { /* stockage indisponible — le timer tourne quand même pour ce rendu, juste pas persistant */ }
 }
 
-function formatElapsed(startedAtIso) {
-  const totalSec = Math.max(0, Math.floor((Date.now() - new Date(startedAtIso).getTime()) / 1000));
+function formatDurationMs(ms) {
+  const totalSec = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
   const mm = String(m).padStart(2, "0");
   const ss = String(s).padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function formatElapsed(startedAtIso) {
+  return formatDurationMs(Date.now() - new Date(startedAtIso).getTime());
 }
 
 /** "Lancer la séance" démarre un timer visible en permanence (sticky en
@@ -2938,6 +2972,134 @@ function startTimerDisplayInterval() {
   }, 1000);
 }
 
+// ---------- Sauvegarde automatique pendant la séance ----------
+// Filet de sécurité pour la durée de la séance chronométrée : un
+// verrouillage de téléphone prolongé, un crash de l'onglet ou un simple
+// oubli d'appuyer sur "Enregistrer" avant de partir ne doivent pas faire
+// perdre tout le log en cours. Se déclenche silencieusement en tâche de
+// fond tant que le timer tourne ; le bouton "Enregistrer la séance"
+// manuel reste le mécanisme principal, celui-ci ne fait que réduire la
+// fenêtre de perte possible.
+const SESSION_AUTOSAVE_INTERVAL_MS = 3 * 60 * 1000;
+let sessionAutoSaveIntervalId = null;
+let sessionSaveInFlight = false;
+
+/** Redémarré à chaque rendu, même logique que startTimerDisplayInterval —
+ * s'arrête tout seul (et ne redémarre pas) dès que le timer n'est plus en
+ * cours pour cette date, donc un simple appel après chaque
+ * renderSessionContent suffit à suivre l'état démarré/arrêté sans logique
+ * séparée. */
+function startSessionAutoSave() {
+  if (sessionAutoSaveIntervalId) {
+    clearInterval(sessionAutoSaveIntervalId);
+    sessionAutoSaveIntervalId = null;
+  }
+  if (!getSessionTimerStart(sessionWorking.date)) return;
+  sessionAutoSaveIntervalId = setInterval(async () => {
+    // Ne rentre jamais en conflit avec une sauvegarde manuelle déjà en
+    // cours (double écriture concurrente sur le même fichier) — retentera
+    // simplement au prochain intervalle.
+    if (sessionSaveInFlight) return;
+    if (!getSessionTimerStart(sessionWorking.date)) return; // séance terminée entre-temps
+    syncFormIntoSession();
+    sessionSaveInFlight = true;
+    try {
+      await saveSession(sessionWorking.weekLabel, sessionWorking.date, sessionWorking.session);
+      const statusEl = document.getElementById("session-status");
+      if (statusEl) {
+        const hhmm = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+        statusEl.textContent = `Sauvegarde auto ✓ ${hhmm}`;
+      }
+    } catch (_) {
+      // Échec silencieux — pas d'alerte intrusive pendant une séance en
+      // cours, le prochain intervalle retentera de lui-même ; "Enregistrer
+      // la séance" reste disponible à tout moment en filet de secours.
+    } finally {
+      sessionSaveInFlight = false;
+    }
+  }, SESSION_AUTOSAVE_INTERVAL_MS);
+}
+
+// ---------- Chrono par tour (blocs EMOM/Circuit) ----------
+// Un chrono secondaire optionnel, par bloc — le timer de séance ci-dessus
+// ne donne qu'un total, pas le détail utile pour un EMOM/circuit ("le
+// 3e tour a traîné, pas le 1er"). localStorage uniquement, même
+// convention que le timer de séance ; clé par date+leaderIdx puisque
+// plusieurs blocs EMOM/circuit peuvent coexister dans une même séance.
+// À l'arrêt, un résumé texte des tours est ajouté aux notes du bloc
+// (jamais dans coach.tonnage — même principe que le reste de ce format de
+// bloc, voir docs/adr/0036/0038 : rien d'assez fiable ici pour en faire
+// une donnée de suivi chiffrée, mais utile à relire pour voir si ça
+// s'améliore d'une séance à l'autre).
+function blockTimerKey(date, leaderIdx) {
+  return `coach_block_timer_${date}_${leaderIdx}`;
+}
+function getBlockTimerState(date, leaderIdx) {
+  try {
+    const raw = localStorage.getItem(blockTimerKey(date, leaderIdx));
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) { return null; }
+}
+function setBlockTimerState(date, leaderIdx, stateObj) {
+  try {
+    const key = blockTimerKey(date, leaderIdx);
+    if (stateObj) localStorage.setItem(key, JSON.stringify(stateObj));
+    else localStorage.removeItem(key);
+  } catch (_) { /* stockage indisponible — le bouton reste utilisable, juste pas persistant */ }
+}
+
+function splitTimerHTML(leaderIdx, date) {
+  const bt = getBlockTimerState(date, leaderIdx);
+  if (!bt) {
+    return `
+      <div class="split-timer-card">
+        <button type="button" class="primary-button ghost small split-timer-start" data-leader-idx="${leaderIdx}">⏱️ Chrono par tour</button>
+      </div>`;
+  }
+  const lapsHTML = bt.laps.length
+    ? `<div class="split-timer-laps">${bt.laps.map((ms, i) => `<span>Tour ${i + 1} : ${formatDurationMs(ms)}</span>`).join("")}</div>`
+    : "";
+  return `
+    <div class="split-timer-card split-timer-running">
+      <div class="split-timer-row">
+        <div class="split-timer-current">
+          Tour ${bt.laps.length + 1} en cours
+          <span class="split-timer-display" data-leader-idx="${leaderIdx}">${formatElapsed(bt.lastLapAt)}</span>
+        </div>
+        <div class="split-timer-buttons">
+          <button type="button" class="primary-button small split-timer-lap" data-leader-idx="${leaderIdx}">✓ Tour terminé</button>
+          <button type="button" class="icon-button small danger split-timer-stop" data-leader-idx="${leaderIdx}" title="Arrêter le chrono par tour" aria-label="Arrêter le chrono par tour">⏹</button>
+        </div>
+      </div>
+      ${lapsHTML}
+    </div>`;
+}
+
+let blockTimerIntervalIds = {};
+
+/** Un intervalle par bloc dont le chrono-tours tourne, redémarré à chaque
+ * rendu — même logique que startTimerDisplayInterval/startSessionAutoSave
+ * (plus simple que de faire survivre des intervalles à travers des
+ * re-rendus qui remplacent le DOM sous leurs pieds). */
+function startBlockTimerIntervals() {
+  Object.values(blockTimerIntervalIds).forEach((id) => clearInterval(id));
+  blockTimerIntervalIds = {};
+  document.querySelectorAll(".split-timer-display[data-leader-idx]").forEach((displayEl) => {
+    const leaderIdx = displayEl.dataset.leaderIdx;
+    const bt = getBlockTimerState(sessionWorking.date, +leaderIdx);
+    if (!bt) return;
+    blockTimerIntervalIds[leaderIdx] = setInterval(() => {
+      const el = document.querySelector(`.split-timer-display[data-leader-idx="${leaderIdx}"]`);
+      if (!el) {
+        clearInterval(blockTimerIntervalIds[leaderIdx]);
+        delete blockTimerIntervalIds[leaderIdx];
+        return;
+      }
+      el.textContent = formatElapsed(bt.lastLapAt);
+    }, 1000);
+  });
+}
+
 function renderSessionContent() {
   const el = document.getElementById("session-content");
   const { session, date } = sessionWorking;
@@ -2982,6 +3144,8 @@ function renderSessionContent() {
 
   bindSessionContentEvents();
   startTimerDisplayInterval();
+  startSessionAutoSave();
+  startBlockTimerIntervals();
 }
 
 function notesLabelFor(type) {
@@ -3065,6 +3229,13 @@ function blockCardHTML(indices, exercises) {
     ? `<div class="exercise-block-result"><label>Durée réalisée (min) — pour suivre la progression</label><input type="number" min="0" step="0.5" class="f-block-duration" value="${leader.executed_duration_min ?? ""}"></div>`
     : "";
 
+  // Chrono par tour : utile surtout pour un EMOM (rythme tenu tour après
+  // tour) ou un circuit (où le tour traîne-t-il vraiment) — un AMRAP/for
+  // time/superset se lit déjà entièrement via le timer de séance global.
+  const splitTimerCardHTML = (format === "emom" || format === "circuit")
+    ? splitTimerHTML(leaderIdx, sessionWorking.date)
+    : "";
+
   return `
     <div class="exercise-block-card" data-leader-idx="${leaderIdx}">
       <div class="exercise-block-header">
@@ -3074,6 +3245,7 @@ function blockCardHTML(indices, exercises) {
         </select>
       </div>
       ${timingHTML}
+      ${splitTimerCardHTML}
       <div class="exercise-block-stations">${stationsHTML}</div>
       <button type="button" class="primary-button ghost small add-station-button" data-leader-idx="${leaderIdx}">+ Ajouter ${format === "standard" ? "au superset" : "une station"}</button>
       ${resultHTML}
@@ -3311,6 +3483,41 @@ function bindSessionContentEvents() {
     renderSessionContent();
   }));
 
+  // Chrono par tour (EMOM/Circuit) — voir "Chrono par tour (blocs
+  // EMOM/Circuit)" plus haut pour la logique de stockage.
+  document.querySelectorAll(".split-timer-start").forEach((btn) => btn.addEventListener("click", () => {
+    const leaderIdx = +btn.dataset.leaderIdx;
+    const now = new Date().toISOString();
+    setBlockTimerState(sessionWorking.date, leaderIdx, { startedAt: now, lastLapAt: now, laps: [] });
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".split-timer-lap").forEach((btn) => btn.addEventListener("click", () => {
+    const leaderIdx = +btn.dataset.leaderIdx;
+    const bt = getBlockTimerState(sessionWorking.date, leaderIdx);
+    if (!bt) return;
+    const now = new Date();
+    bt.laps.push(now.getTime() - new Date(bt.lastLapAt).getTime());
+    bt.lastLapAt = now.toISOString();
+    setBlockTimerState(sessionWorking.date, leaderIdx, bt);
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".split-timer-stop").forEach((btn) => btn.addEventListener("click", () => {
+    const leaderIdx = +btn.dataset.leaderIdx;
+    const bt = getBlockTimerState(sessionWorking.date, leaderIdx);
+    if (!bt) return;
+    // Garde tout ce qui a déjà été tapé (notes incluses) avant d'y ajouter
+    // le résumé des tours — un "Arrêter" ne doit jamais écraser une note
+    // en cours de frappe dans le même bloc.
+    syncFormIntoSession();
+    const leader = sessionWorking.session.exercises[leaderIdx];
+    if (leader && bt.laps.length) {
+      const summary = `Tours : ${bt.laps.map((ms) => formatDurationMs(ms)).join(", ")}`;
+      leader.notes = leader.notes ? `${leader.notes}\n${summary}` : summary;
+    }
+    setBlockTimerState(sessionWorking.date, leaderIdx, null);
+    renderSessionContent();
+  }));
+
   document.querySelectorAll(".move-up").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
     const idx = +btn.closest(".exercise-row").dataset.idx;
@@ -3389,7 +3596,9 @@ function bindSessionContentEvents() {
     syncFormIntoSession();
     const btn = e.currentTarget;
     const statusEl = document.getElementById("session-status");
+    if (sessionSaveInFlight) { statusEl.textContent = "Sauvegarde déjà en cours…"; return; }
     btn.disabled = true;
+    sessionSaveInFlight = true;
     statusEl.textContent = "Enregistrement…";
     try {
       await saveSession(sessionWorking.weekLabel, sessionWorking.date, sessionWorking.session);
@@ -3398,6 +3607,7 @@ function bindSessionContentEvents() {
       statusEl.textContent = `Échec : ${err.message}`;
     } finally {
       btn.disabled = false;
+      sessionSaveInFlight = false;
     }
   });
 }

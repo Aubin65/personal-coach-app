@@ -488,6 +488,44 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   cursor: pointer;
 }
 .timer-stop-button:active { background: var(--danger); border-color: var(--danger); }
+
+/* ---------- Chrono par tour (blocs EMOM/Circuit) ---------- */
+.split-timer-card { margin-bottom: 10px; }
+.split-timer-card .split-timer-start { width: 100%; margin: 0; }
+.split-timer-card.split-timer-running {
+  background: var(--card-bg);
+  border: 1px solid var(--green);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+}
+.split-timer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.split-timer-current {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.split-timer-display {
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+.split-timer-buttons { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.split-timer-buttons .split-timer-lap { margin: 0; white-space: nowrap; }
+.split-timer-laps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 0.78rem;
+  color: var(--muted);
+}
 .exercise-block-result { margin-top: 4px; }
 .exercise-block-result label,
 .exercise-block-notes label { margin: 0 0 3px; }
