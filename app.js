@@ -431,6 +431,24 @@ function formatSetsRepsLoad(obj) {
   return [obj.sets, obj.reps, obj.load].filter((v) => v != null && v !== "").join(" × ");
 }
 
+/** A compact "12min AMRAP" / "EMOM 60s ×10" / "Circuit 3 tours, repos 60s"
+ * summary of a block's `block_meta` (leader only) — same fields as
+ * BLOCK_TIMING_FIELDS in the editor, read back out for the day overview. */
+function blockMetaSummaryFr(format, meta) {
+  if (!meta) return "";
+  if (format === "amrap") return meta.duration_min ? `${meta.duration_min}min AMRAP` : "AMRAP";
+  if (format === "emom") {
+    const parts = [meta.round_seconds ? `${meta.round_seconds}s` : null, meta.rounds ? `×${meta.rounds}` : null].filter(Boolean);
+    return parts.length ? `EMOM ${parts.join(" ")}` : "";
+  }
+  if (format === "circuit") {
+    const parts = [meta.rounds ? `${meta.rounds} tours` : null, meta.rest_seconds ? `repos ${meta.rest_seconds}s` : null].filter(Boolean);
+    return parts.length ? `Circuit ${parts.join(", ")}` : "";
+  }
+  if (format === "for_time" && meta.duration_min) return `Cap ${meta.duration_min}min`;
+  return "";
+}
+
 /** Inline read-only overview for a day tapped in Planning's day-strip —
  * a table for musculation (one row per exercise, prévu/fait side by
  * side), the free-text description for rugby/autre/repos, and an
@@ -468,15 +486,24 @@ async function showDayOverviewPanel(token, date) {
         .map((ex) => {
           const format = ex.format || "standard";
           const nameCell = `${escapeHtmlText(ex.name || "")}${ex.superset_with_previous ? ' <span class="format-tag">🔗</span>' : ""}`;
-          // A freeform format (AMRAP/EMOM/For Time/Circuit/Autre) has no
-          // planned/executed sets×reps×load — its prescription lives in
-          // `notes` instead (see exerciseCardHTML) — showing "—/—" for it
-          // silently hid the actual content of the session.
+          // A non-standard format (AMRAP/EMOM/For Time/Circuit/Autre) has
+          // no per-exercise sets×reps×load — its station task lives in
+          // `planned.reps` and, on the block's leader only (see
+          // groupExercisesIntoBlocks/blockCardHTML), the block's timing
+          // (`block_meta`) and its final result (`executed.reps`) — a
+          // chained station's own "Fait" cell stays "—", the result is
+          // reported once for the whole block, not per station.
           if (format !== "standard") {
+            const isLeader = !ex.superset_with_previous;
+            const summary = isLeader ? blockMetaSummaryFr(format, ex.block_meta) : "";
+            const plannedCell = [ex.planned && ex.planned.reps, summary].filter(Boolean).join(" — ") || "—";
+            const durationSuffix = isLeader && ex.executed_duration_min != null ? ` (${ex.executed_duration_min}min réalisées)` : "";
+            const doneCell = (isLeader && ex.executed && ex.executed.reps ? ex.executed.reps : "—") + durationSuffix;
             return `
               <tr>
                 <td>${nameCell} <span class="format-tag">${escapeHtmlText(EXERCISE_FORMATS[format] || format)}</span></td>
-                <td colspan="2">${escapeHtmlText(ex.notes || "") || "—"}</td>
+                <td>${escapeHtmlText(plannedCell)}</td>
+                <td>${isFuture ? "—" : escapeHtmlText(doneCell)}</td>
               </tr>`;
           }
           return `
@@ -940,7 +967,15 @@ document.getElementById("refresh-button").addEventListener("click", (e) => {
 // rugby/return-from-injury/discipline theme, rotating one per day so it
 // stays a little alive without any moving parts. Kept short deliberately:
 // popular "inspirational quotes" are frequently misattributed online, so
-// this list only has ones with a real, checkable source.
+// this list only has ones with a real, checkable source — a majority
+// pulled from la philosophie stoïcienne (Marc Aurèle, Épictète, Sénèque)
+// depuis que son thème central (ce qui dépend de nous / ce qui n'en
+// dépend pas, l'obstacle qui devient le chemin) transfère directement à
+// une reprise après blessure. Écarte volontairement le fameux "Nous
+// sommes ce que nous répétons..." souvent crédité à Aristote — cette
+// formulation est en réalité une paraphrase de Will Durant de l'Éthique à
+// Nicomaque, pas une phrase qu'Aristote a réellement écrite, exactement
+// le genre de mésattribution que cette liste évite.
 // ============================================================================
 const CREDO_QUOTES = [
   {
@@ -960,6 +995,51 @@ const CREDO_QUOTES = [
   {
     text: "La discipline est le pont entre les objectifs et leur accomplissement.",
     author: "Jim Rohn",
+  },
+  {
+    text: "Tu as pouvoir sur ton esprit, non sur les événements extérieurs. Comprends cela, et tu trouveras la force.",
+    author: "Marc Aurèle",
+    source: "Pensées pour moi-même, Livre II",
+  },
+  {
+    text: "Ce qui fait obstacle à l'action favorise l'action. Ce qui se met en travers du chemin devient le chemin.",
+    author: "Marc Aurèle",
+    source: "Pensées pour moi-même, Livre V",
+  },
+  {
+    text: "La meilleure façon de se venger est de ne pas imiter celui qui a fait le mal.",
+    author: "Marc Aurèle",
+    source: "Pensées pour moi-même, Livre VI",
+  },
+  {
+    text: "Ce ne sont pas les choses qui troublent les hommes, mais les opinions qu'ils en ont.",
+    author: "Épictète",
+    source: "Manuel, chapitre V",
+  },
+  {
+    text: "Ne demande pas que les choses arrivent comme tu le souhaites, mais souhaite qu'elles arrivent comme elles arrivent, et ta vie s'écoulera paisiblement.",
+    author: "Épictète",
+    source: "Manuel, chapitre VIII",
+  },
+  {
+    text: "Le feu éprouve l'or, l'adversité éprouve les hommes forts.",
+    author: "Sénèque",
+    source: "De la Providence",
+  },
+  {
+    text: "Vivre, Lucilius, c'est combattre.",
+    author: "Sénèque",
+    source: "Lettres à Lucilius, Lettre 96",
+  },
+  {
+    text: "Il n'y a pas de vent favorable pour celui qui ne sait pas vers quel port il navigue.",
+    author: "Sénèque",
+    source: "Lettres à Lucilius, Lettre 71",
+  },
+  {
+    text: "Le caractère de l'homme est son destin.",
+    author: "Héraclite",
+    source: "Fragment 119",
   },
 ];
 
@@ -997,10 +1077,26 @@ async function ghDispatchWorkflow(fileName, ref = "main") {
     body: JSON.stringify({ ref }),
   });
   if (!res.ok) {
-    if (res.status === 403 || res.status === 404) {
-      throw new Error("Le token n'a pas la permission Actions — voir docs/app-deploy.md.");
+    // GitHub's own message (e.g. "Resource not accessible by personal
+    // access token", "Not Found") is always more precise than a guess —
+    // a 403/404 here doesn't *only* mean "missing Actions permission"
+    // (previously the only diagnosis shown, even when the real cause was
+    // something else entirely, e.g. an expired token or a typo'd workflow
+    // filename) — surfacing it lets a genuinely different cause actually
+    // be seen instead of always pointing at the same likely-but-not-
+    // certain explanation.
+    let detail = "";
+    try { detail = (await res.json()).message || ""; } catch (_) { /* body not JSON */ }
+    if (res.status === 401) {
+      throw new Error(`Token invalide ou expiré (401)${detail ? ` — ${detail}` : ""}.`);
     }
-    throw new Error(`GitHub ${res.status} en déclenchant ${fileName}`);
+    if (res.status === 403 || res.status === 404) {
+      throw new Error(
+        `Le token n'a probablement pas la permission Actions (HTTP ${res.status}${detail ? ` — ${detail}` : ""}) — voir docs/app-deploy.md. ` +
+        "Si tu l'as déjà ajoutée : vérifie que c'est bien sur ce token précis (pas sur APP_REPO_TOKEN, un secret différent) et laisse quelques minutes — GitHub met parfois du temps à propager un changement de permission sur un token existant."
+      );
+    }
+    throw new Error(`GitHub ${res.status} en déclenchant ${fileName}${detail ? ` — ${detail}` : ""}`);
   }
 }
 
@@ -2151,10 +2247,12 @@ function tonnageMilestoneHTML(tonnage, liftLabels) {
 }
 
 const TONNAGE_CATEGORY_LABELS = {
-  jambes: "Jambes",
+  quadriceps: "Quadriceps",
+  ischios_jambiers: "Ischios-jambiers",
+  fessiers: "Fessiers",
+  mollets: "Mollets",
   poussee: "Poussée",
   tirage: "Tirage",
-  mollets: "Mollets",
   bras: "Bras",
   gainage: "Gainage",
   explosivite_puissance: "Explosivité / puissance",
@@ -2186,7 +2284,7 @@ function tonnageSectionHTML(tonnage) {
 
   let bars = "";
   for (const [key, label] of Object.entries(TONNAGE_CATEGORY_LABELS)) {
-    const cat = categories[key] || { tonnage_kg: 0, sets: 0 };
+    const cat = categories[key] || { tonnage_kg: 0, sets: 0, reps: 0 };
     if (!cat.sets) continue;
     const prior = priorCategories[key] || { tonnage_kg: 0 };
     const delta = cat.tonnage_kg - prior.tonnage_kg;
@@ -2196,7 +2294,7 @@ function tonnageSectionHTML(tonnage) {
         <div class="tonnage-row-label">${label}</div>
         <div class="tonnage-row-bar-track"><div class="tonnage-row-bar" style="width:${widthPct}%"></div></div>
         <div class="tonnage-row-value">
-          ${cat.tonnage_kg > 0 ? `${Math.round(cat.tonnage_kg)} kg` : `${cat.sets} série${cat.sets > 1 ? "s" : ""}`}
+          ${cat.tonnage_kg > 0 ? `${Math.round(cat.tonnage_kg)} kg` : `${cat.reps} rep.`}
           ${cat.tonnage_kg > 0 && Math.abs(delta) >= 1 ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${Math.round(delta)}</span>` : ""}
         </div>
       </div>`;
@@ -2209,29 +2307,38 @@ function tonnageSectionHTML(tonnage) {
         ${Math.abs(totalDelta) >= 1 ? `<span class="${totalDelta >= 0 ? "trend-up" : "trend-down"} small">${totalDelta >= 0 ? "+" : ""}${Math.round(totalDelta)} kg vs semaine dernière</span>` : ""}
       </p>
       <div class="tonnage-bars">${bars}</div>
-      <p class="muted small">Séries × répétitions × charge, par compartiment — seules les séries avec une charge en kg connue comptent dans le tonnage ; le gainage et les exercices au poids du corps s'affichent en nombre de séries.</p>
+      <p class="muted small">Séries × répétitions × charge, par compartiment — seules les séries avec une charge en kg connue comptent dans le tonnage ; le gainage et les exercices au poids du corps s'affichent en répétitions totales (plus fiable que le nombre de séries, qui varie selon la façon dont une série longue est découpée).</p>
     </section>`;
 }
 
 const TONNAGE_HEATMAP_PERIOD_LABELS = { "1": "Semaine", "3": "3 sem.", "6": "6 sem." };
 
-// Rectangles approximant une silhouette humaine stylisée (vue de face),
-// un par compartiment colorable — le tirage (haut du dos/trapèzes) est la
-// seule concession : représenté comme une bande étroite près du cou,
-// visible même de face, plutôt que d'exiger une seconde silhouette de dos
-// pour un seul compartiment. explosivite_puissance/cardio n'ont pas
-// d'équivalent anatomique honnête (sprint, vélo...) : affichés à part en
-// badges plutôt que plaqués sur un endroit du corps arbitraire.
+// Silhouette humaine stylisée (vue de face) — un peu plus de finesse que
+// de simples rectangles (torse en trapèze épaules→taille, bras en deux
+// segments pour un vague galbe) sans viser un rendu anatomique réaliste.
+// Le tirage (haut du dos/trapèzes) est la seule concession : représenté
+// comme une bande étroite près du cou, visible même de face, plutôt que
+// d'exiger une seconde silhouette de dos pour un seul compartiment. Les
+// fessiers occupent la bande de hanches (auparavant neutre) ; les
+// ischios-jambiers, pas vraiment visibles de face, sont suggérés par une
+// fine bande sur le bord externe de chaque cuisse plutôt qu'omis —
+// explosivite_puissance/cardio n'ont eux aucun équivalent anatomique
+// honnête (sprint, vélo...) : affichés à part en badges.
 const HEATMAP_BODY_ZONES = [
-  { cat: "tirage", x: 28, y: 27, width: 44, height: 9, rx: 4 },
-  { cat: "poussee", x: 21, y: 35, width: 58, height: 28, rx: 12 },
-  { cat: "bras", x: 7, y: 37, width: 13, height: 48, rx: 6 },
-  { cat: "bras", x: 80, y: 37, width: 13, height: 48, rx: 6 },
-  { cat: "gainage", x: 31, y: 64, width: 38, height: 30, rx: 6 },
-  { cat: "jambes", x: 27, y: 104, width: 19, height: 54, rx: 8 },
-  { cat: "jambes", x: 54, y: 104, width: 19, height: 54, rx: 8 },
-  { cat: "mollets", x: 28, y: 160, width: 17, height: 44, rx: 6 },
-  { cat: "mollets", x: 55, y: 160, width: 17, height: 44, rx: 6 },
+  { cat: "tirage", shape: "rect", x: 28, y: 27, width: 44, height: 9, rx: 4 },
+  { cat: "poussee", shape: "path", d: "M21,34 Q21,32 24,32 L76,32 Q79,32 79,34 L73,64 L27,64 Z" },
+  { cat: "bras", shape: "rect", x: 6, y: 36, width: 13, height: 27, rx: 6 },
+  { cat: "bras", shape: "rect", x: 8, y: 61, width: 10, height: 25, rx: 5 },
+  { cat: "bras", shape: "rect", x: 81, y: 36, width: 13, height: 27, rx: 6 },
+  { cat: "bras", shape: "rect", x: 82, y: 61, width: 10, height: 25, rx: 5 },
+  { cat: "gainage", shape: "rect", x: 30, y: 66, width: 40, height: 26, rx: 8 },
+  { cat: "fessiers", shape: "rect", x: 28, y: 94, width: 44, height: 15, rx: 8 },
+  { cat: "ischios_jambiers", shape: "rect", x: 19, y: 114, width: 7, height: 44, rx: 3 },
+  { cat: "quadriceps", shape: "rect", x: 27, y: 110, width: 20, height: 50, rx: 9 },
+  { cat: "quadriceps", shape: "rect", x: 53, y: 110, width: 20, height: 50, rx: 9 },
+  { cat: "ischios_jambiers", shape: "rect", x: 74, y: 114, width: 7, height: 44, rx: 3 },
+  { cat: "mollets", shape: "rect", x: 28, y: 163, width: 17, height: 42, rx: 7 },
+  { cat: "mollets", shape: "rect", x: 55, y: 163, width: 17, height: 42, rx: 7 },
 ];
 
 /** rgba() interpolée entre un fond quasi invisible (rien fait sur la
@@ -2243,18 +2350,25 @@ function heatFill(fraction) {
   return `rgba(30, 122, 77, ${alpha.toFixed(2)})`;
 }
 
-function bodyHeatmapSVG(categories, maxSets) {
+/** `metric` : nombre de répétitions totales par compartiment — pas le
+ * nombre de séries, voir `tonnageSectionHTML`'s note sur le même sujet :
+ * une série isométrique découpée en beaucoup de courtes séries (ex. 30
+ * séries de 6 secondes) gonflerait sinon le gainage/les mollets bien
+ * au-delà de ce que la séance représente vraiment. */
+function bodyHeatmapSVG(categories, maxReps) {
   const shapes = HEATMAP_BODY_ZONES.map((zone) => {
-    const sets = (categories[zone.cat] && categories[zone.cat].sets) || 0;
-    const fill = heatFill(maxSets ? sets / maxSets : 0);
-    return `<rect x="${zone.x}" y="${zone.y}" width="${zone.width}" height="${zone.height}" rx="${zone.rx}" fill="${fill}" stroke="var(--border)" stroke-width="1" />`;
+    const reps = (categories[zone.cat] && categories[zone.cat].reps) || 0;
+    const fill = heatFill(maxReps ? reps / maxReps : 0);
+    const common = `fill="${fill}" stroke="var(--border)" stroke-width="1"`;
+    return zone.shape === "path"
+      ? `<path d="${zone.d}" ${common} />`
+      : `<rect x="${zone.x}" y="${zone.y}" width="${zone.width}" height="${zone.height}" rx="${zone.rx}" ${common} />`;
   }).join("");
   return `
     <svg viewBox="0 0 100 210" class="heatmap-body-svg" role="img" aria-label="Silhouette colorée par compartiment travaillé">
       <circle cx="50" cy="14" r="10" fill="var(--border)" />
       <rect x="45" y="22" width="10" height="7" fill="var(--border)" />
       ${shapes}
-      <rect x="30" y="94" width="40" height="10" rx="5" fill="var(--border)" />
     </svg>`;
 }
 
@@ -2263,10 +2377,12 @@ function bodyHeatmapSVG(categories, maxSets) {
  * docs/adr/0035) — complète les barres de "Tonnage de la semaine"
  * au-dessus (précises mais limitées à la semaine en cours) avec une
  * lecture visuelle qui lisse le bruit d'une semaine à l'autre. Toujours en
- * nombre de séries (`sets`), jamais en tonnage kg — seule mesure commune
- * aux compartiments à charge (jambes, poussée...) et à ceux presque
- * toujours au poids du corps (gainage, mollets), même principe que
- * `tonnageSectionHTML`. Le switch de période est un pur radio/label CSS
+ * répétitions totales (`reps`), jamais en tonnage kg ni en nombre de
+ * séries — seule mesure commune aux compartiments à charge (quadriceps,
+ * poussée...) et à ceux presque toujours au poids du corps (gainage,
+ * mollets) qui reste proportionnée quelle que soit la façon dont une
+ * série est découpée, même principe que `tonnageSectionHTML`. Le switch
+ * de période est un pur radio/label CSS
  * (voir style.css), même esprit zéro-JS que les `<details>` du
  * Calendrier — pas de re-fetch, les 3 fenêtres sont déjà dans
  * `s.tonnage.periods`. */
@@ -2277,30 +2393,30 @@ function tonnageHeatmapHTML(periods) {
       const period = periods[key];
       if (!period) return "";
       const categories = period.categories || {};
-      const maxSets = Math.max(1, ...Object.values(categories).map((c) => c.sets));
+      const maxReps = Math.max(1, ...Object.values(categories).map((c) => c.reps));
       const badges = ["explosivite_puissance", "cardio"]
         .map((cat) => {
-          const sets = (categories[cat] && categories[cat].sets) || 0;
+          const reps = (categories[cat] && categories[cat].reps) || 0;
           const icon = cat === "cardio" ? "🫀" : "⚡";
-          return `<div class="heatmap-badge" style="background:${heatFill(sets / maxSets)}">${icon} ${TONNAGE_CATEGORY_LABELS[cat]} <strong>${sets}</strong></div>`;
+          return `<div class="heatmap-badge" style="background:${heatFill(reps / maxReps)}">${icon} ${TONNAGE_CATEGORY_LABELS[cat]} <strong>${reps}</strong></div>`;
         })
         .join("");
       const legend = Object.entries(TONNAGE_CATEGORY_LABELS)
         .filter(([cat]) => cat !== "explosivite_puissance" && cat !== "cardio")
         .map(([cat, label]) => {
-          const sets = (categories[cat] && categories[cat].sets) || 0;
+          const reps = (categories[cat] && categories[cat].reps) || 0;
           return `
             <div class="heatmap-legend-row">
-              <span class="heatmap-legend-swatch" style="background:${heatFill(sets / maxSets)}"></span>
+              <span class="heatmap-legend-swatch" style="background:${heatFill(reps / maxReps)}"></span>
               <span class="heatmap-legend-label">${label}</span>
-              <span class="heatmap-legend-value">${sets} série${sets > 1 ? "s" : ""}</span>
+              <span class="heatmap-legend-value">${reps} rep.</span>
             </div>`;
         })
         .join("");
       return `
         <div class="heatmap-panel" data-panel="${key}">
           ${period.total_sets
-            ? `<div class="heatmap-body-wrap">${bodyHeatmapSVG(categories, maxSets)}</div>
+            ? `<div class="heatmap-body-wrap">${bodyHeatmapSVG(categories, maxReps)}</div>
                <div class="heatmap-badges">${badges}</div>
                <div class="heatmap-legend">${legend}</div>`
             : `<p class="muted small">Pas de séance de musculation loguée sur cette période.</p>`}
@@ -2322,7 +2438,7 @@ function tonnageHeatmapHTML(periods) {
         </div>
         ${panels}
       </div>
-      <p class="muted small">Intensité relative (nombre de séries) par compartiment sur la période choisie — le gainage et les mollets, presque toujours au poids du corps, comptent ici comme les autres.</p>
+      <p class="muted small">Intensité relative (répétitions totales) par compartiment sur la période choisie — le gainage et les mollets, presque toujours au poids du corps, comptent ici comme les autres.</p>
     </section>`;
 }
 
@@ -2577,6 +2693,14 @@ const EXERCISE_FORMATS = {
   other: "Autre format",
 };
 
+/** `ex.superset_with_previous` doubles as the generic "chained into the
+ * same physical block as the previous exercise" flag — a "block" (see
+ * groupExercisesIntoBlocks) is one leader (superset_with_previous falsy)
+ * followed by zero or more chained members. A superset is simply a block
+ * whose format is "standard"; AMRAP/EMOM/Circuit/For Time/Autre blocks
+ * use the exact same chaining mechanism, just with block-level timing
+ * (`block_meta`, leader only) and lightweight per-station rows instead of
+ * a full planned/executed grid on every member — see docs/adr/0036. */
 function blankExercise() {
   return {
     name: "Nouvel exercice",
@@ -2587,6 +2711,77 @@ function blankExercise() {
     notes: null,
     superset_with_previous: false,
   };
+}
+
+/** A chained member added to an existing block (station of an AMRAP/EMOM/
+ * Circuit, or an added superset partner) — same shape as `blankExercise`
+ * but pre-chained; `format` is set by the caller to match the block. */
+function blankStationExercise(format) {
+  return {
+    name: "Nouvel exercice",
+    format,
+    planned: { sets: null, reps: null, load: null },
+    executed: { sets: null, reps: null, load: null },
+    rir: null,
+    notes: null,
+    superset_with_previous: true,
+  };
+}
+
+function blankBlockMeta() {
+  return { duration_min: null, round_seconds: null, rounds: null, rest_seconds: null };
+}
+
+/** Sensible starting values so a freshly-added AMRAP/EMOM/Circuit block
+ * isn't blank fields the user has to fill in from nothing — a genuine
+ * common-case default (12min AMRAP, 60s×10 EMOM, 3 tours de circuit),
+ * always editable afterwards. */
+function defaultBlockMeta(format) {
+  const meta = blankBlockMeta();
+  if (format === "amrap") meta.duration_min = 12;
+  else if (format === "emom") { meta.round_seconds = 60; meta.rounds = 10; }
+  else if (format === "circuit") { meta.rounds = 3; meta.rest_seconds = 60; }
+  return meta;
+}
+
+// Which `block_meta` fields a format's block header exposes, and how —
+// "standard" (superset) and "other" show none, a plain chained list is
+// self-explanatory enough on its own. Field keys match `blankBlockMeta`.
+const BLOCK_TIMING_FIELDS = {
+  amrap: [{ key: "duration_min", label: "Durée totale (min)", placeholder: "12" }],
+  emom: [
+    { key: "round_seconds", label: "Secondes par tour", placeholder: "60" },
+    { key: "rounds", label: "Nombre de tours", placeholder: "10" },
+  ],
+  circuit: [
+    { key: "rounds", label: "Nombre de tours", placeholder: "3" },
+    { key: "rest_seconds", label: "Repos entre tours (sec)", placeholder: "60" },
+  ],
+  for_time: [{ key: "duration_min", label: "Cap (min, optionnel)", placeholder: "15" }],
+};
+
+// The single free-text "how did it go" result field shown once per block
+// (on the leader, via `executed.reps`) for any non-standard format — a
+// circuit/AMRAP/EMOM result is a property of the whole block (total tours,
+// temps réalisé...), never of one station in particular.
+const BLOCK_RESULT_LABELS = {
+  amrap: "Résultat (ex. 6 tours + 4 reps)",
+  emom: "Résultat (ex. tous les tours tenus)",
+  circuit: "Résultat (ex. 3 tours en 14min)",
+  for_time: "Temps réalisé (ex. 9:24)",
+  other: "Résultat",
+};
+
+/** [[idx, idx, ...], ...] — one array of flat-`exercises` indices per
+ * block: a leader (`superset_with_previous` falsy, or idx 0) followed by
+ * its chained members. */
+function groupExercisesIntoBlocks(exercises) {
+  const blocks = [];
+  exercises.forEach((ex, idx) => {
+    if (idx === 0 || !ex.superset_with_previous) blocks.push([idx]);
+    else blocks[blocks.length - 1].push(idx);
+  });
+  return blocks;
 }
 
 /** A rugby session placed on a Saturday/Sunday is always a match, never
@@ -2696,6 +2891,7 @@ function notesPlaceholderFor(type) {
 
 function musculationBodyHTML(session) {
   const exercises = session.exercises || [];
+  const blocks = groupExercisesIntoBlocks(exercises);
   return `
     <section class="card">
       <button type="button" id="toggle-block-ref" class="details-toggle">🎯 Objectifs du bloc en cours</button>
@@ -2705,17 +2901,108 @@ function musculationBodyHTML(session) {
       <button type="button" id="prefill-button" class="primary-button ghost small">🔁 Dupliquer une séance récente</button>
       <div id="prefill-picker" hidden></div>
     </section>
-    <div id="exercise-list">${exercises.map((ex, idx) => exerciseCardHTML(ex, idx, exercises.length)).join("")}</div>
-    <button type="button" id="add-exercise" class="primary-button ghost small" style="margin-bottom:14px">+ Ajouter un exercice</button>`;
+    <div id="exercise-list">${blocks.map((indices) => blockCardHTML(indices, exercises)).join("")}</div>
+    <div class="add-block-row">
+      <button type="button" class="primary-button ghost small add-block-button" data-add-format="standard">+ Exercice</button>
+      <button type="button" class="primary-button ghost small add-block-button" data-add-format="superset">+ Superset</button>
+      <button type="button" class="primary-button ghost small add-block-button" data-add-format="amrap">+ AMRAP</button>
+      <button type="button" class="primary-button ghost small add-block-button" data-add-format="emom">+ EMOM</button>
+      <button type="button" class="primary-button ghost small add-block-button" data-add-format="circuit">+ Circuit</button>
+    </div>`;
 }
 
-function exerciseCardHTML(ex, idx, total) {
-  const format = ex.format || "standard";
-  const isFreeform = format !== "standard";
+/** One block = one leader exercise (`indices[0]`) plus its chained
+ * members (see `groupExercisesIntoBlocks`). A solo standard exercise
+ * renders exactly as before (no block chrome at all — the common case
+ * stays visually unchanged); anything else — a superset (≥2 standard
+ * members) or an AMRAP/EMOM/Circuit/For Time/Autre block, chained or
+ * solo — gets a shared header (format switch + block-level timing, see
+ * `BLOCK_TIMING_FIELDS`) wrapping its station rows, a single result field
+ * for the whole block (`BLOCK_RESULT_LABELS`, leader's `executed.reps`),
+ * and one "+ Ajouter une station" to extend it — see docs/adr/0036. */
+function blockCardHTML(indices, exercises) {
+  const leaderIdx = indices[0];
+  const leader = exercises[leaderIdx];
+  const format = leader.format || "standard";
+  const isChain = indices.length > 1;
+
+  if (format === "standard" && !isChain) {
+    return exerciseCardHTML(leader, leaderIdx, exercises.length, true);
+  }
+
+  const timingFields = BLOCK_TIMING_FIELDS[format] || [];
+  const meta = leader.block_meta || {};
+  const timingHTML = timingFields.length
+    ? `<div class="exercise-block-timing">${timingFields
+        .map(
+          (f) => `
+        <div><label>${f.label}</label><input type="number" min="0" class="f-block-meta" data-key="${f.key}" placeholder="${f.placeholder}" value="${meta[f.key] ?? ""}"></div>`
+        )
+        .join("")}</div>`
+    : "";
+
+  const stationsHTML = format === "standard"
+    ? indices.map((idx) => exerciseCardHTML(exercises[idx], idx, exercises.length, false)).join("")
+    : indices.map((idx) => stationRowHTML(exercises[idx], idx, format, exercises.length)).join("");
+
+  const resultHTML = format !== "standard"
+    ? `<div class="exercise-block-result"><label>${BLOCK_RESULT_LABELS[format] || "Résultat"}</label><input type="text" class="f-block-result" value="${escapeAttr((leader.executed && leader.executed.reps) ?? "")}"></div>`
+    : "";
+
+  // Circuit only, and separate from the free-text result above — a real
+  // number (minutes) rather than something embedded in prose, so it can
+  // actually be compared session to session to see whether it's getting
+  // faster (see docs/adr/0036's amendement, "durée réalisée").
+  const durationHTML = format === "circuit"
+    ? `<div class="exercise-block-result"><label>Durée réalisée (min) — pour suivre la progression</label><input type="number" min="0" step="0.5" class="f-block-duration" value="${leader.executed_duration_min ?? ""}"></div>`
+    : "";
+
+  return `
+    <div class="exercise-block-card" data-leader-idx="${leaderIdx}">
+      <div class="exercise-block-header">
+        <span class="exercise-block-format-tag">${format === "standard" ? "🔗 Superset" : (EXERCISE_FORMATS[format] || format)}</span>
+        <select class="f-block-format" data-leader-idx="${leaderIdx}">
+          ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${format === key ? " selected" : ""}>${label}</option>`).join("")}
+        </select>
+      </div>
+      ${timingHTML}
+      <div class="exercise-block-stations">${stationsHTML}</div>
+      <button type="button" class="primary-button ghost small add-station-button" data-leader-idx="${leaderIdx}">+ Ajouter ${format === "standard" ? "au superset" : "une station"}</button>
+      ${resultHTML}
+      ${durationHTML}
+      <div class="exercise-block-notes"><label>Notes (optionnel)</label><textarea class="f-block-notes" rows="2" placeholder="Détail libre si besoin">${escapeHtmlText(leader.notes || "")}</textarea></div>
+    </div>`;
+}
+
+/** A compact station row — name + one "reps/tâche" field — for a member
+ * of an AMRAP/EMOM/Circuit/For Time/Autre block: these formats don't have
+ * a per-station planned/executed/RIR grid, the whole block's outcome is
+ * one shared result field (see `blockCardHTML`'s `resultHTML`). */
+function stationRowHTML(ex, idx, format, total) {
+  const planned = ex.planned || {};
+  return `
+    <div class="exercise-row station-row" data-idx="${idx}">
+      <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Exercice">
+      <input type="text" class="f-station-reps" value="${escapeAttr(planned.reps ?? "")}" placeholder="reps / tâche">
+      <div class="reorder-buttons">
+        <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
+        <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
+        <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
+      </div>
+    </div>`;
+}
+
+/** The full planned/executed/RIR card — a solo standard exercise, or one
+ * member of a pure-standard superset block. `showFormatControls` is only
+ * true for a solo exercise (where the format select doubles as "turn this
+ * into a superset/AMRAP/EMOM/..." — see the shared `.f-block-format`
+ * handler in bindSessionContentEvents): a superset member's format is
+ * fixed to the block's ("standard"), so it doesn't need its own select. */
+function exerciseCardHTML(ex, idx, total, showFormatControls) {
   const planned = ex.planned || {};
   const executed = ex.executed || {};
   return `
-    <div class="exercise-log-card" data-idx="${idx}">
+    <div class="exercise-row exercise-log-card" data-idx="${idx}">
       <div class="exercise-log-head">
         <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}">
         <div class="reorder-buttons">
@@ -2724,29 +3011,24 @@ function exerciseCardHTML(ex, idx, total) {
           <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
         </div>
       </div>
-      <select class="f-format">
-        ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${format === key ? " selected" : ""}>${label}</option>`).join("")}
-      </select>
-      ${idx > 0
-        ? `<label class="superset-toggle"><input type="checkbox" class="f-superset"${ex.superset_with_previous ? " checked" : ""}> 🔗 Superset avec l'exercice précédent</label>`
+      ${showFormatControls
+        ? `<select class="f-block-format" data-leader-idx="${idx}">
+        ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${(ex.format || "standard") === key ? " selected" : ""}>${label}</option>`).join("")}
+      </select>`
         : ""}
-      ${isFreeform
-        ? `<textarea class="f-format-detail" rows="2" placeholder="Détail du format (ex. 15min : 10 burpees, 15 swings, 20 squats)">${escapeHtmlText(ex.notes || "")}</textarea>`
-        : `
-        <div class="field-row-label">Prévu</div>
-        <div class="exercise-log-grid">
-          <div><label>Séries</label><input type="text" class="f-planned-sets" value="${escapeAttr(planned.sets ?? "")}"></div>
-          <div><label>Reps/temps</label><input type="text" class="f-planned-reps" value="${escapeAttr(planned.reps ?? "")}"></div>
-          <div><label>Charge</label><input type="text" class="f-planned-load" value="${escapeAttr(planned.load ?? "")}"></div>
-        </div>
-        <div class="field-row-label">Fait</div>
-        <div class="exercise-log-grid">
-          <div><label>Séries</label><input type="text" class="f-sets" value="${escapeAttr(executed.sets ?? "")}"></div>
-          <div><label>Reps/temps</label><input type="text" class="f-reps" value="${escapeAttr(executed.reps ?? "")}"></div>
-          <div><label>Charge</label><input type="text" class="f-load" value="${escapeAttr(executed.load ?? "")}"></div>
-          <div><label>RIR</label><input type="text" class="f-rir" value="${escapeAttr(ex.rir ?? "")}"></div>
-        </div>`
-      }
+      <div class="field-row-label">Prévu</div>
+      <div class="exercise-log-grid">
+        <div><label>Séries</label><input type="text" class="f-planned-sets" value="${escapeAttr(planned.sets ?? "")}"></div>
+        <div><label>Reps/temps</label><input type="text" class="f-planned-reps" value="${escapeAttr(planned.reps ?? "")}"></div>
+        <div><label>Charge</label><input type="text" class="f-planned-load" value="${escapeAttr(planned.load ?? "")}"></div>
+      </div>
+      <div class="field-row-label">Fait</div>
+      <div class="exercise-log-grid">
+        <div><label>Séries</label><input type="text" class="f-sets" value="${escapeAttr(executed.sets ?? "")}"></div>
+        <div><label>Reps/temps</label><input type="text" class="f-reps" value="${escapeAttr(executed.reps ?? "")}"></div>
+        <div><label>Charge</label><input type="text" class="f-load" value="${escapeAttr(executed.load ?? "")}"></div>
+        <div><label>RIR</label><input type="text" class="f-rir" value="${escapeAttr(ex.rir ?? "")}"></div>
+      </div>
     </div>`;
 }
 
@@ -2783,71 +3065,163 @@ function syncFormIntoSession() {
   const durationInput = document.getElementById("session-duration");
   if (durationInput) session.session_duration_min = durationInput.value !== "" ? Number(durationInput.value) : null;
 
-  document.querySelectorAll("#exercise-list .exercise-log-card").forEach((card) => {
-    const idx = +card.dataset.idx;
+  // Individual exercise rows — a full standard card (solo exercise, or a
+  // superset member) or a compact station row (AMRAP/EMOM/Circuit/For
+  // Time/Autre member). `format`/`superset_with_previous` are NOT read
+  // here — they're structural (which block an exercise belongs to, and
+  // what kind), set directly by the block-format switch and the add/
+  // remove-station handlers in bindSessionContentEvents, not by a form
+  // field re-read on every sync.
+  document.querySelectorAll("#exercise-list .exercise-row").forEach((row) => {
+    const idx = +row.dataset.idx;
     const ex = session.exercises[idx];
     if (!ex) return;
-    ex.name = card.querySelector(".f-name").value.trim() || ex.name;
-    ex.format = card.querySelector(".f-format").value;
-    const supersetCheckbox = card.querySelector(".f-superset");
-    ex.superset_with_previous = supersetCheckbox ? supersetCheckbox.checked : false;
+    const nameInput = row.querySelector(".f-name");
+    if (nameInput) ex.name = nameInput.value.trim() || ex.name;
 
-    const detailEl = card.querySelector(".f-format-detail");
-    if (detailEl) {
-      ex.notes = detailEl.value.trim() || null;
-    } else {
-      const plannedSets = card.querySelector(".f-planned-sets");
-      if (plannedSets) {
-        ex.planned = {
-          sets: plannedSets.value || null,
-          reps: card.querySelector(".f-planned-reps").value || null,
-          load: card.querySelector(".f-planned-load").value || null,
-        };
-      }
-      const sets = card.querySelector(".f-sets");
-      if (sets) {
-        ex.executed = {
-          sets: sets.value || null,
-          reps: card.querySelector(".f-reps").value || null,
-          load: card.querySelector(".f-load").value || null,
-        };
-        ex.rir = card.querySelector(".f-rir").value || null;
-      }
+    const stationReps = row.querySelector(".f-station-reps");
+    if (stationReps) {
+      ex.planned = { sets: null, reps: stationReps.value.trim() || null, load: null };
+      return;
     }
+
+    const plannedSets = row.querySelector(".f-planned-sets");
+    if (plannedSets) {
+      ex.planned = {
+        sets: plannedSets.value || null,
+        reps: row.querySelector(".f-planned-reps").value || null,
+        load: row.querySelector(".f-planned-load").value || null,
+      };
+    }
+    const sets = row.querySelector(".f-sets");
+    if (sets) {
+      ex.executed = {
+        sets: sets.value || null,
+        reps: row.querySelector(".f-reps").value || null,
+        load: row.querySelector(".f-load").value || null,
+      };
+      ex.rir = row.querySelector(".f-rir").value || null;
+    }
+  });
+
+  // Block-level fields — timing (leader only), the whole block's result,
+  // and its shared notes (see blockCardHTML). Absent entirely for a solo
+  // standard exercise (no `.exercise-block-card` wrapper in that case).
+  document.querySelectorAll("#exercise-list .exercise-block-card").forEach((card) => {
+    const leaderIdx = +card.dataset.leaderIdx;
+    const leader = session.exercises[leaderIdx];
+    if (!leader) return;
+
+    const metaInputs = card.querySelectorAll(".f-block-meta");
+    if (metaInputs.length) {
+      const meta = leader.block_meta || blankBlockMeta();
+      metaInputs.forEach((input) => {
+        meta[input.dataset.key] = input.value !== "" ? Number(input.value) : null;
+      });
+      leader.block_meta = meta;
+    }
+
+    const resultInput = card.querySelector(".f-block-result");
+    if (resultInput) {
+      leader.executed = leader.executed || { sets: null, reps: null, load: null };
+      leader.executed.reps = resultInput.value.trim() || null;
+    }
+
+    const durationInput = card.querySelector(".f-block-duration");
+    if (durationInput) leader.executed_duration_min = durationInput.value !== "" ? Number(durationInput.value) : null;
+
+    const notesInput = card.querySelector(".f-block-notes");
+    if (notesInput) leader.notes = notesInput.value.trim() || null;
   });
 }
 
+/** End (exclusive) of the block starting at `leaderIdx` — the leader plus
+ * every following exercise chained to it (`superset_with_previous`). */
+function blockEndIndex(exercises, leaderIdx) {
+  let end = leaderIdx + 1;
+  while (end < exercises.length && exercises[end].superset_with_previous) end++;
+  return end;
+}
+
 function bindSessionContentEvents() {
-  document.querySelectorAll(".f-format").forEach((sel) => sel.addEventListener("change", () => {
+  // Format select — shared by a solo exercise's own select (doubles as
+  // "turn this into a superset/AMRAP/EMOM/...") and a block header's
+  // select (applies to every member at once): both use `.f-block-format`
+  // with `data-leader-idx`, see exerciseCardHTML/blockCardHTML.
+  document.querySelectorAll(".f-block-format").forEach((sel) => sel.addEventListener("change", () => {
     syncFormIntoSession();
+    const leaderIdx = +sel.dataset.leaderIdx;
+    const exercises = sessionWorking.session.exercises;
+    const end = blockEndIndex(exercises, leaderIdx);
+    const newFormat = sel.value;
+    for (let i = leaderIdx; i < end; i++) exercises[i].format = newFormat;
+    const leader = exercises[leaderIdx];
+    leader.block_meta = newFormat === "standard" ? undefined : (leader.block_meta || defaultBlockMeta(newFormat));
     renderSessionContent();
   }));
 
-  const addBtn = document.getElementById("add-exercise");
-  if (addBtn) addBtn.addEventListener("click", () => {
+  // Bottom quick-add row — starts a fresh block of the given kind. A
+  // superset needs ≥2 exercises to mean anything, so "+ Superset" adds
+  // its first pair directly rather than a lone standard exercise the user
+  // would then have to somehow chain by hand.
+  document.querySelectorAll(".add-block-button").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
-    sessionWorking.session.exercises.push(blankExercise());
+    const exercises = sessionWorking.session.exercises;
+    const kind = btn.dataset.addFormat;
+    if (kind === "standard") {
+      exercises.push(blankExercise());
+    } else if (kind === "superset") {
+      exercises.push(blankExercise(), blankStationExercise("standard"));
+    } else {
+      const leader = blankExercise();
+      leader.format = kind;
+      leader.block_meta = defaultBlockMeta(kind);
+      exercises.push(leader);
+    }
     renderSessionContent();
-  });
+  }));
+
+  // Extends an existing block with one more chained member, right after
+  // its current last one — same format as the block, station-empty.
+  document.querySelectorAll(".add-station-button").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const exercises = sessionWorking.session.exercises;
+    const leaderIdx = +btn.dataset.leaderIdx;
+    const insertAt = blockEndIndex(exercises, leaderIdx);
+    exercises.splice(insertAt, 0, blankStationExercise(exercises[leaderIdx].format || "standard"));
+    renderSessionContent();
+  }));
 
   document.querySelectorAll(".move-up").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
-    const idx = +btn.closest(".exercise-log-card").dataset.idx;
+    const idx = +btn.closest(".exercise-row").dataset.idx;
     const arr = sessionWorking.session.exercises;
     [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
     renderSessionContent();
   }));
   document.querySelectorAll(".move-down").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
-    const idx = +btn.closest(".exercise-log-card").dataset.idx;
+    const idx = +btn.closest(".exercise-row").dataset.idx;
     const arr = sessionWorking.session.exercises;
     [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
     renderSessionContent();
   }));
   document.querySelectorAll(".remove-exercise").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
-    const idx = +btn.closest(".exercise-log-card").dataset.idx;
-    sessionWorking.session.exercises.splice(idx, 1);
+    const idx = +btn.closest(".exercise-row").dataset.idx;
+    const exercises = sessionWorking.session.exercises;
+    const removed = exercises[idx];
+    // Removing a block leader that still has chained members: promote the
+    // next member to leader so the block's timing/result/notes survive
+    // rather than silently vanishing with the exercise that carried them.
+    if (!removed.superset_with_previous && exercises[idx + 1] && exercises[idx + 1].superset_with_previous) {
+      const promoted = exercises[idx + 1];
+      promoted.block_meta = removed.block_meta;
+      promoted.notes = removed.notes;
+      if (removed.executed) promoted.executed = removed.executed;
+      promoted.superset_with_previous = false;
+    }
+    exercises.splice(idx, 1);
     renderSessionContent();
   }));
 

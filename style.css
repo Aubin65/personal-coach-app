@@ -397,6 +397,56 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .exercise-log-grid label { margin: 0 0 3px; }
 .exercise-saved-badge { color: var(--green-light); font-size: 0.82rem; margin-top: 6px; }
 
+/* ---------- Blocs d'exercices : AMRAP/EMOM/Circuit/superset ---------- */
+.exercise-block-card {
+  border: 1px solid var(--gold);
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+  background: var(--gold-pale);
+}
+.exercise-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.exercise-block-format-tag {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: #8A5F1E;
+  white-space: nowrap;
+}
+.exercise-block-header select.f-block-format { flex: 1; font-size: 0.85rem; padding: 8px 10px; }
+.exercise-block-timing {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.exercise-block-timing label { margin: 0 0 3px; }
+.exercise-block-stations { display: flex; flex-direction: column; gap: 8px; }
+.exercise-block-stations .exercise-log-card { background: var(--card-bg); margin-bottom: 0; }
+.station-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr auto;
+  gap: 8px;
+  align-items: center;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+}
+.add-station-button { margin: 10px 0; }
+.exercise-block-result { margin-top: 4px; }
+.exercise-block-result label,
+.exercise-block-notes label { margin: 0 0 3px; }
+.exercise-block-notes { margin-top: 8px; }
+.exercise-block-notes textarea { margin-bottom: 0; }
+.add-block-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.add-block-row .add-block-button { margin: 0; }
+
 /* ---------- Chat ---------- */
 .chat-log {
   display: flex;
@@ -792,21 +842,11 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   color: var(--muted);
   margin: 8px 0 4px;
 }
-.exercise-log-card select.f-format {
+.exercise-log-card select.f-block-format {
   margin-bottom: 8px;
   font-size: 0.85rem;
   padding: 9px 10px;
 }
-.exercise-log-card textarea.f-format-detail { margin-bottom: 0; }
-.superset-toggle {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.82rem;
-  color: var(--muted);
-  margin: 2px 0 8px;
-}
-.superset-toggle input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--gold); }
 
 .session-type-badge {
   display: inline-block;
