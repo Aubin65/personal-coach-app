@@ -1387,13 +1387,29 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
     })
     .join("");
 
+  // Same week-nav pattern/state as Planning's arrows (state.planningMonday)
+  // — direct request: this table was stuck on whatever week Planning
+  // happened to be on, no way to move it from here.
   el.innerHTML = `
+    <div class="forge-week-nav">
+      <button type="button" id="sessions-prev-week" class="icon-button small" aria-label="Semaine précédente">◀</button>
+      <span class="forge-week-label">Semaine du ${formatFrDate(mondayISO)}</span>
+      <button type="button" id="sessions-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
+    </div>
     <table class="week-sessions-table">
       <thead><tr><th>Jour</th><th>Prévu</th><th>Statut</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>`;
   el.querySelectorAll(".week-table-row").forEach((tr) => {
     tr.addEventListener("click", () => showView("session", { date: tr.dataset.date }));
+  });
+  document.getElementById("sessions-prev-week").addEventListener("click", () => {
+    state.planningMonday = addDaysISO(state.planningMonday, -7);
+    renderWeekPlanning(renderToken).catch(() => {});
+  });
+  document.getElementById("sessions-next-week").addEventListener("click", () => {
+    state.planningMonday = addDaysISO(state.planningMonday, 7);
+    renderWeekPlanning(renderToken).catch(() => {});
   });
 }
 
