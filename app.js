@@ -1847,6 +1847,8 @@ async function renderData(token) {
   const s = JSON.parse(file.content);
   let html = "";
 
+  html += readinessScoreHTML(s.readiness);
+
   let tiles = "";
   if (s.bodyweight_progress) {
     const bp = s.bodyweight_progress;
@@ -1869,7 +1871,7 @@ async function renderData(token) {
   }
   if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
 
-  html += tonnageMilestoneHTML((s.tonnage && s.tonnage.lifetime_main_lifts_kg) || {}, liftLabels);
+  html += tonnageMilestoneHTML(s.tonnage || {}, liftLabels);
 
   const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || []; // weekly averages, ~3 mois
   if (bw.length > 1) {
@@ -2005,23 +2007,83 @@ async function renderData(token) {
 
   html += tonnageSectionHTML(s.tonnage);
 
+  html += tonnageHeatmapHTML(s.tonnage && s.tonnage.periods);
+
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
+}
+
+const READINESS_LEVEL_LABELS = {
+  pret: "Prêt à pousser",
+  bonne_forme: "Bonne forme",
+  vigilance: "Vigilance",
+  repos_recommande: "Repos recommandé",
+};
+const READINESS_COMPONENT_LABELS = { charge: "Charge", sommeil: "Sommeil", recuperation: "Récupération" };
+
+/** "Indice de forme" (Data tab, tout en haut) — croise charge aiguë:
+ * chronique, sommeil et récupération en un seul chiffre 0-100 (voir
+ * `coach.readiness` et docs/adr/0035) : un repère rapide pour savoir si la
+ * semaine est plutôt à pousser ou à lever le pied, sans recroiser
+ * soi-même trois cartes séparées. Affiche seulement les composantes
+ * disponibles (`components[].available`) — jamais un chiffre inventé pour
+ * celle qui manque encore d'historique. */
+function readinessScoreHTML(readiness) {
+  if (!readiness) {
+    return `
+      <section class="card readiness-card">
+        <h2>🧭 Indice de forme</h2>
+        <p class="muted small">Pas encore assez d'historique (charge, sommeil, récupération) pour calculer un indice fiable.</p>
+      </section>`;
+  }
+  const rows = Object.entries(readiness.components)
+    .filter(([, c]) => c.available)
+    .map(
+      ([key, c]) => `
+        <div class="readiness-component">
+          <span class="readiness-component-label">${READINESS_COMPONENT_LABELS[key]}</span>
+          <div class="readiness-component-track"><div class="readiness-component-fill" style="width:${c.score}%"></div></div>
+        </div>`
+    )
+    .join("");
+  return `
+    <section class="card readiness-card level-${readiness.level}">
+      <h2>🧭 Indice de forme</h2>
+      <div class="readiness-score-row">
+        <div class="readiness-score-value">${readiness.score}</div>
+        <div class="readiness-score-label">${READINESS_LEVEL_LABELS[readiness.level] || readiness.level}</div>
+      </div>
+      <div class="readiness-components">${rows}</div>
+      <p class="muted small">Charge aiguë:chronique, sommeil récent et signaux de récupération (FC repos/HRV) — un repère, pas une vérité absolue.</p>
+    </section>`;
 }
 
 /** "Tonnage soulevé" (Data tab) — un chiffre motivant, pas un signal de
  * programmation (voir docs/adr/0034), donc traité visuellement à part :
  * carte dorée façon podium plutôt qu'une ligne discrète noyée dans une
- * autre section, pour que ça se remarque vraiment. */
-function tonnageMilestoneHTML(lifetimeKg, liftLabels) {
+ * autre section, pour que ça se remarque vraiment. Complétée par des
+ * paliers gamifiés et la série d'assiduité (voir docs/adr/0035) — motive
+ * sans jamais devenir un signal que l'IA utiliserait pour programmer. */
+function tonnageMilestoneHTML(tonnage, liftLabels) {
+  const lifetimeKg = tonnage.lifetime_main_lifts_kg || {};
+  const milestones = tonnage.lift_milestones || {};
+  const streak = tonnage.training_streak_weeks || 0;
+
   const tiles = Object.entries(liftLabels)
-    .map(([key, label]) => ({ label, kg: lifetimeKg[key] }))
+    .map(([key, label]) => ({ label, kg: lifetimeKg[key], m: milestones[key] || {} }))
     .filter((t) => t.kg > 0)
     .map((t) => {
       const tonnes = (t.kg / 1000).toLocaleString("fr-FR", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      const progressPct = t.m.progress_to_next != null ? Math.round(t.m.progress_to_next * 100) : 100;
+      const next = t.m.next_tier_tonnes != null
+        ? `${(t.m.next_tier_tonnes - t.m.tonnes).toFixed(1)} t avant le palier suivant`
+        : "Palier maximum atteint";
       return `
         <div class="tonnage-milestone-tile">
           <div class="tonnage-milestone-value">${tonnes}<span class="tonnage-milestone-unit">t</span></div>
           <div class="tonnage-milestone-label">${t.label}</div>
+          ${t.m.tier_label ? `<div class="tonnage-milestone-tier">🏅 ${t.m.tier_label}</div>` : ""}
+          <div class="tonnage-milestone-progress-track"><div class="tonnage-milestone-progress-fill" style="width:${progressPct}%"></div></div>
+          <div class="tonnage-milestone-next">${next}</div>
         </div>`;
     })
     .join("");
@@ -2029,6 +2091,7 @@ function tonnageMilestoneHTML(lifetimeKg, liftLabels) {
   return `
     <section class="card tonnage-milestone-card">
       <h2>🏋️ Tonnage soulevé</h2>
+      ${streak > 0 ? `<div class="tonnage-streak-banner">🔥 ${streak} semaine${streak > 1 ? "s" : ""} d'affilée avec au moins une séance</div>` : ""}
       <div class="tonnage-milestone-grid">${tiles}</div>
       <p class="tonnage-milestone-caption">Cumulé depuis le retour à l'entraînement (18/05/2026)</p>
     </section>`;
@@ -2094,6 +2157,119 @@ function tonnageSectionHTML(tonnage) {
       </p>
       <div class="tonnage-bars">${bars}</div>
       <p class="muted small">Séries × répétitions × charge, par compartiment — seules les séries avec une charge en kg connue comptent dans le tonnage ; le gainage et les exercices au poids du corps s'affichent en nombre de séries.</p>
+    </section>`;
+}
+
+const TONNAGE_HEATMAP_PERIOD_LABELS = { "1": "Semaine", "3": "3 sem.", "6": "6 sem." };
+
+// Rectangles approximant une silhouette humaine stylisée (vue de face),
+// un par compartiment colorable — le tirage (haut du dos/trapèzes) est la
+// seule concession : représenté comme une bande étroite près du cou,
+// visible même de face, plutôt que d'exiger une seconde silhouette de dos
+// pour un seul compartiment. explosivite_puissance/cardio n'ont pas
+// d'équivalent anatomique honnête (sprint, vélo...) : affichés à part en
+// badges plutôt que plaqués sur un endroit du corps arbitraire.
+const HEATMAP_BODY_ZONES = [
+  { cat: "tirage", x: 28, y: 27, width: 44, height: 9, rx: 4 },
+  { cat: "poussee", x: 21, y: 35, width: 58, height: 28, rx: 12 },
+  { cat: "bras", x: 7, y: 37, width: 13, height: 48, rx: 6 },
+  { cat: "bras", x: 80, y: 37, width: 13, height: 48, rx: 6 },
+  { cat: "gainage", x: 31, y: 64, width: 38, height: 30, rx: 6 },
+  { cat: "jambes", x: 27, y: 104, width: 19, height: 54, rx: 8 },
+  { cat: "jambes", x: 54, y: 104, width: 19, height: 54, rx: 8 },
+  { cat: "mollets", x: 28, y: 160, width: 17, height: 44, rx: 6 },
+  { cat: "mollets", x: 55, y: 160, width: 17, height: 44, rx: 6 },
+];
+
+/** rgba() interpolée entre un fond quasi invisible (rien fait sur la
+ * période) et une intensité pleine (compartiment le plus travaillé) —
+ * même vert que le reste de l'UI tonnage, une seule teinte plutôt qu'une
+ * échelle multicolore pour rester lisible pareil en clair et en sombre. */
+function heatFill(fraction) {
+  const alpha = 0.1 + Math.max(0, Math.min(1, fraction)) * 0.85;
+  return `rgba(30, 122, 77, ${alpha.toFixed(2)})`;
+}
+
+function bodyHeatmapSVG(categories, maxSets) {
+  const shapes = HEATMAP_BODY_ZONES.map((zone) => {
+    const sets = (categories[zone.cat] && categories[zone.cat].sets) || 0;
+    const fill = heatFill(maxSets ? sets / maxSets : 0);
+    return `<rect x="${zone.x}" y="${zone.y}" width="${zone.width}" height="${zone.height}" rx="${zone.rx}" fill="${fill}" stroke="var(--border)" stroke-width="1" />`;
+  }).join("");
+  return `
+    <svg viewBox="0 0 100 210" class="heatmap-body-svg" role="img" aria-label="Silhouette colorée par compartiment travaillé">
+      <circle cx="50" cy="14" r="10" fill="var(--border)" />
+      <rect x="45" y="22" width="10" height="7" fill="var(--border)" />
+      ${shapes}
+      <rect x="30" y="94" width="40" height="10" rx="5" fill="var(--border)" />
+    </svg>`;
+}
+
+/** "Où le corps a-t-il vraiment été sollicité", en un coup d'œil, sur 1/3/6
+ * semaines au choix (voir `coach.tonnage.breakdown_over_weeks` et
+ * docs/adr/0035) — complète les barres de "Tonnage de la semaine"
+ * au-dessus (précises mais limitées à la semaine en cours) avec une
+ * lecture visuelle qui lisse le bruit d'une semaine à l'autre. Toujours en
+ * nombre de séries (`sets`), jamais en tonnage kg — seule mesure commune
+ * aux compartiments à charge (jambes, poussée...) et à ceux presque
+ * toujours au poids du corps (gainage, mollets), même principe que
+ * `tonnageSectionHTML`. Le switch de période est un pur radio/label CSS
+ * (voir style.css), même esprit zéro-JS que les `<details>` du
+ * Calendrier — pas de re-fetch, les 3 fenêtres sont déjà dans
+ * `s.tonnage.periods`. */
+function tonnageHeatmapHTML(periods) {
+  if (!periods) return "";
+  const panels = Object.entries(TONNAGE_HEATMAP_PERIOD_LABELS)
+    .map(([key]) => {
+      const period = periods[key];
+      if (!period) return "";
+      const categories = period.categories || {};
+      const maxSets = Math.max(1, ...Object.values(categories).map((c) => c.sets));
+      const badges = ["explosivite_puissance", "cardio"]
+        .map((cat) => {
+          const sets = (categories[cat] && categories[cat].sets) || 0;
+          const icon = cat === "cardio" ? "🫀" : "⚡";
+          return `<div class="heatmap-badge" style="background:${heatFill(sets / maxSets)}">${icon} ${TONNAGE_CATEGORY_LABELS[cat]} <strong>${sets}</strong></div>`;
+        })
+        .join("");
+      const legend = Object.entries(TONNAGE_CATEGORY_LABELS)
+        .filter(([cat]) => cat !== "explosivite_puissance" && cat !== "cardio")
+        .map(([cat, label]) => {
+          const sets = (categories[cat] && categories[cat].sets) || 0;
+          return `
+            <div class="heatmap-legend-row">
+              <span class="heatmap-legend-swatch" style="background:${heatFill(sets / maxSets)}"></span>
+              <span class="heatmap-legend-label">${label}</span>
+              <span class="heatmap-legend-value">${sets} série${sets > 1 ? "s" : ""}</span>
+            </div>`;
+        })
+        .join("");
+      return `
+        <div class="heatmap-panel" data-panel="${key}">
+          ${period.total_sets
+            ? `<div class="heatmap-body-wrap">${bodyHeatmapSVG(categories, maxSets)}</div>
+               <div class="heatmap-badges">${badges}</div>
+               <div class="heatmap-legend">${legend}</div>`
+            : `<p class="muted small">Pas de séance de musculation loguée sur cette période.</p>`}
+        </div>`;
+    })
+    .join("");
+
+  return `
+    <section class="card">
+      <h2>🧍 Heatmap corporelle</h2>
+      <div class="heatmap-period-switch">
+        <input type="radio" name="heatmap-period" id="hm-period-1" checked>
+        <input type="radio" name="heatmap-period" id="hm-period-3">
+        <input type="radio" name="heatmap-period" id="hm-period-6">
+        <div class="heatmap-period-labels">
+          <label for="hm-period-1">Semaine</label>
+          <label for="hm-period-3">3 sem.</label>
+          <label for="hm-period-6">6 sem.</label>
+        </div>
+        ${panels}
+      </div>
+      <p class="muted small">Intensité relative (nombre de séries) par compartiment sur la période choisie — le gainage et les mollets, presque toujours au poids du corps, comptent ici comme les autres.</p>
     </section>`;
 }
 
