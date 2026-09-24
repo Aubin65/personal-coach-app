@@ -1060,6 +1060,14 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .proposal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .proposal-actions .primary-button { flex: 1; }
 
+/* ---------- Aujourd'hui : zone de blessure (docs/adr/0052) ---------- */
+/* Toujours dépliée (pas de <details>) — priorité de visibilité sur
+   Semaine, où les mêmes catégories d'alerte restent repliées par
+   défaut. */
+#injury-zone { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.injury-zone-card h2 { color: var(--danger); }
+.injury-zone-card p:first-of-type { margin-top: 0; }
+
 /* ---------- Semaine : alertes persistantes (docs/adr/0045) ---------- */
 #week-active-alerts { display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
 .alert-card {
