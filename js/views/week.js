@@ -1,7 +1,7 @@
-import { ghListDir, ghGetFile, ghPutFile, ghDeleteFile, ghPutJSON } from "../github-api.js";
+import { ghListDir, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js";
 import { state, stale, showView } from "../nav.js";
 import { todayISO, mondayOfWeek, addDaysISO, formatFrDate, sessionDayStatus } from "../date-utils.js";
-import { skeletonHTML, escapeHtmlText, escapeAttr, renderMarkdown } from "../markdown.js";
+import { skeletonHTML, escapeHtmlText, renderMarkdown } from "../markdown.js";
 import { renderWeekOverview, parseWeekOverview, splitBlockMarkdown, splitBlockIntro, DAY_NAMES } from "../plan-overview.js";
 import { currentBlockLabel, lookupDaySummary, findSessionForDate } from "../training-index.js";
 import { SESSION_TYPES } from "../session-types.js";
@@ -96,7 +96,6 @@ export async function renderWeek(token) {
 
   document.getElementById("pending-proposal").innerHTML = "";
   loadPendingProposal(token).catch(() => {});
-  loadActiveAlerts(token).catch(() => {});
   loadPendingSessionAdjustments(token).catch(() => {});
   renderWeekPlanning(token).catch(() => {});
 
@@ -183,7 +182,8 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
  * prompts/weekly-plan.md's app-triggered branch and docs/adr/0018/0019.
  * Only the oldest pending file is shown at a time (there should never
  * realistically be more than one). Coach-initiated alerts are a separate
- * mechanism (see loadActiveAlerts, docs/adr/0045) — this proposal flow is
+ * mechanism (see loadActiveAlerts in app/js/views/today.js, docs/adr/0045,
+ * docs/adr/0053) — this proposal flow is
  * user-requested only. */
 async function loadPendingProposal(token) {
   const box = document.getElementById("pending-proposal");
@@ -245,70 +245,6 @@ async function loadPendingProposal(token) {
       statusEl.textContent = `Échec : ${err.message}`;
       btn.disabled = false;
     }
-  });
-}
-
-const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge" };
-
-/** Persistent alert cards, shown in the Planning sub-tab of Semaine —
- * between the day strip/day-overview panel and "objectifs clés" (direct
- * placement request, see docs/adr/0045 amendment) — distinct from a
- * plan-adjustment proposal: an alert stays up until the underlying
- * situation is actually resolved, not until a single Valider/Refuser
- * choice (direct request: "j'ai besoin qu'elles soient présentes...
- * enlevées au cas par cas").
- * `resolution: "auto"` entries (sleep, weight, workload) are entirely
- * managed by `coach.alerts.sync_active_alerts` and disappear on their own
- * once the signal clears — no dismiss button needed for those, and
- * clicking one wouldn't stick anyway since the next sync would re-add it
- * while the signal stays true. `resolution: "manual_or_note"` entries
- * (coach-judged, e.g. an injury) can also be cleared by the coach itself
- * from a voice note, but always get a manual dismiss button too, since the
- * coach might not always catch the resolution on its own. */
-async function loadActiveAlerts(token) {
-  const box = document.getElementById("week-active-alerts");
-  const file = await ghGetFile("data/alerts/active.json");
-  if (stale(token)) return;
-  let alerts = [];
-  if (file) { try { alerts = JSON.parse(file.content); } catch (_) { alerts = []; } }
-  if (!Array.isArray(alerts) || alerts.length === 0) { box.innerHTML = ""; return; }
-
-  // <details> rather than a plain <section> — collapsed by default, the
-  // full message/advice/button only render once opened (direct request:
-  // "trop verbeuses à l'écran", especially with several alerts stacked).
-  box.innerHTML = alerts
-    .map((a) => `
-      <details class="card alert-card" data-alert-id="${escapeAttr(a.id || "")}">
-        <summary>⚠️ ${ALERT_CATEGORY_LABELS[a.category] || "Alerte"}</summary>
-        <p>${escapeHtmlText(a.message || "")}</p>
-        ${Array.isArray(a.advice) && a.advice.length ? `<ul class="alert-advice">${a.advice.map((adv) => `<li>${escapeHtmlText(adv)}</li>`).join("")}</ul>` : ""}
-        ${a.resolution === "manual_or_note"
-          ? `<div class="proposal-actions">
-              <button type="button" class="primary-button ghost small alert-dismiss">✅ Marquer comme résolu</button>
-            </div>
-            <p class="muted small alert-status"></p>`
-          : `<p class="muted small">Se lève automatiquement une fois la situation revenue à la normale.</p>`}
-      </details>`)
-    .join("");
-
-  box.querySelectorAll(".alert-dismiss").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const card = btn.closest(".alert-card");
-      const alertId = card.dataset.alertId;
-      const statusEl = card.querySelector(".alert-status");
-      btn.disabled = true;
-      statusEl.textContent = "Mise à jour…";
-      try {
-        await ghPutJSON("data/alerts/active.json", [], "Alerte levée depuis l'app", (current) => {
-          const list = Array.isArray(current) ? current : [];
-          return list.filter((entry) => entry.id !== alertId);
-        });
-        loadActiveAlerts(state.renderToken).catch(() => {});
-      } catch (err) {
-        statusEl.textContent = `Échec : ${err.message}`;
-        btn.disabled = false;
-      }
-    });
   });
 }
 
