@@ -415,11 +415,14 @@ async function renderWeekOverview(dayStripEl, highlightsEl, markdown, todayISOSt
         ? SESSION_TYPES[summary.type].icon
         : dayIconFor(d.title);
       const title = summary && summary.hasSession && summary.name ? summary.name : d.title;
+      const secondaryIcon = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
+        ? `<span class="day-icon-secondary" title="+ ${escapeAttr(SESSION_TYPES[summary.secondaryType].label)}">${SESSION_TYPES[summary.secondaryType].icon}</span>`
+        : "";
       stripHTML += `
         <button type="button" class="day-card${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <div class="day-name">${d.day.slice(0, 3)}</div>
           <div class="day-date">${d.date}</div>
-          <div class="day-icon">${icon}</div>
+          <div class="day-icon">${icon}${secondaryIcon}</div>
           <div class="day-title">${title.slice(0, 28)}</div>
         </button>`;
     }
@@ -570,11 +573,21 @@ async function showDayOverviewPanel(token, date) {
     const workload = !isFuture && (session.session_rpe != null || session.session_duration_min != null)
       ? `<p class="muted small">${session.session_rpe != null ? `RPE ${session.session_rpe}` : ""}${session.session_rpe != null && session.session_duration_min != null ? " · " : ""}${session.session_duration_min != null ? `${session.session_duration_min} min` : ""}</p>`
       : "";
+    const secondary = session.secondary;
+    const secondaryHTML = secondary
+      ? `<div class="day-overview-secondary">
+          <p class="small"><strong>${SESSION_TYPES[secondary.type] ? SESSION_TYPES[secondary.type].icon : ""} ${escapeHtmlText(secondary.name || "")}</strong>${secondary.notes ? " — " + escapeHtmlText(secondary.notes) : ""}</p>
+          ${!isFuture && (secondary.session_rpe != null || secondary.session_duration_min != null)
+            ? `<p class="muted small">${secondary.session_rpe != null ? `RPE ${secondary.session_rpe}` : ""}${secondary.session_rpe != null && secondary.session_duration_min != null ? " · " : ""}${secondary.session_duration_min != null ? `${secondary.session_duration_min} min` : ""}</p>`
+            : ""}
+        </div>`
+      : "";
     el.innerHTML = `
       <section class="card day-overview-card">
         <h2>${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${escapeHtmlText(session.name || "Séance")} — ${formatFrDate(date)}</h2>
         ${body}
         ${workload}
+        ${secondaryHTML}
         ${editButtonHTML}
       </section>`;
   }
@@ -899,12 +912,15 @@ async function lookupDaySummary(date) {
   const appLogHit = appLogIndex.get(date);
   if (appLogHit) {
     const s = appLogHit.session;
-    return { date, name: s.name, type: s.type, hasSession: true, hasExecuted: sessionHasExecuted(s) };
+    // secondaryType only ever comes from the live app-log scan — a
+    // secondary session is an app-only concept (see blankSecondarySession,
+    // docs/adr/0050), never present in the Sheets-sourced summary index.
+    return { date, name: s.name, type: s.type, hasSession: true, hasExecuted: sessionHasExecuted(s), secondaryType: s.secondary ? s.secondary.type : null };
   }
   const summaryIndex = await loadSummaryIndex();
   const hit = summaryIndex.get(date);
-  if (hit) return { date, name: hit.name, type: hit.type, hasSession: true, hasExecuted: !!hit.has_executed };
-  return { date, name: null, type: null, hasSession: false, hasExecuted: false };
+  if (hit) return { date, name: hit.name, type: hit.type, hasSession: true, hasExecuted: !!hit.has_executed, secondaryType: null };
+  return { date, name: null, type: null, hasSession: false, hasExecuted: false, secondaryType: null };
 }
 
 /** {weekLabel, path, session} with the FULL session for `date` — fetches
@@ -3124,6 +3140,29 @@ function blankSession(date, type) {
   };
 }
 
+/** A second, independent activity on the same date (direct request: "je
+ * dois avoir la possibilité de faire deux séances par jour, par exemple si
+ * je vais à la salle le midi et au rugby le soir") — deliberately scoped
+ * to rugby/autre (see docs/adr/0050): the concrete case is always
+ * musculation (the primary session, already full-featured) plus a second
+ * simple activity, never two structured exercise lists to reconcile in one
+ * day. Lives on the primary session as `session.secondary` rather than a
+ * second top-level entry in `sessions[]` — every index (app-log Map keyed
+ * by date, coach.progression.session_on, the precomputed summary index...)
+ * assumes one record per date; nesting avoids touching any of that. */
+const SECONDARY_SESSION_TYPES = ["rugby", "autre"];
+
+function blankSecondarySession(date, type) {
+  return {
+    name: defaultSessionName(date, type),
+    type,
+    notes: "",
+    session_rpe: null,
+    session_duration_min: null,
+    distance_km: type === "autre" ? null : undefined,
+  };
+}
+
 async function renderSession(token) {
   const date = state.sessionDate || todayISO();
   document.getElementById("topbar-title").textContent = `Séance — ${formatFrDate(date)}`;
@@ -3397,6 +3436,7 @@ function renderSessionContent() {
       ${type === "autre" ? `<label>Distance (km, facultatif)</label><input type="text" id="session-distance" value="${escapeAttr(session.distance_km ?? "")}">` : ""}
     </section>
     ${workloadSectionHTML(session)}
+    ${secondarySessionSectionHTML(session)}
     <button id="save-session" class="primary-button">Enregistrer la séance</button>
     <p id="session-status" class="muted small"></p>`;
 
@@ -3808,6 +3848,41 @@ function workloadSectionHTML(session) {
     </section>`;
 }
 
+/** See blankSecondarySession — a second, simpler activity the same day
+ * (rugby/autre only). Rendered as its own compact card, always below the
+ * primary session's own charge section. */
+function secondarySessionSectionHTML(session) {
+  if (!session.secondary) {
+    return `
+      <section class="card">
+        <button type="button" id="add-secondary-session" class="primary-button ghost small">+ Ajouter une deuxième séance ce jour-là</button>
+      </section>`;
+  }
+  const secondary = session.secondary;
+  const type = SECONDARY_SESSION_TYPES.includes(secondary.type) ? secondary.type : "rugby";
+  return `
+    <section class="card" id="secondary-session-card">
+      <div class="secondary-session-header">
+        <h2>${SESSION_TYPES[type].icon} Deuxième séance</h2>
+        <button type="button" id="remove-secondary-session" class="icon-button small danger" title="Retirer cette deuxième séance" aria-label="Retirer cette deuxième séance">✕</button>
+      </div>
+      <label>Type</label>
+      <select id="secondary-type-select">
+        ${SECONDARY_SESSION_TYPES.map((t) => `<option value="${t}"${t === type ? " selected" : ""}>${SESSION_TYPES[t].label}</option>`).join("")}
+      </select>
+      <label>Nom</label>
+      <input id="secondary-name-input" value="${escapeAttr(secondary.name || "")}">
+      <label>${notesLabelFor(type)}</label>
+      <textarea id="secondary-notes" rows="3" placeholder="${escapeAttr(notesPlaceholderFor(type))}">${escapeHtmlText(secondary.notes || "")}</textarea>
+      ${type === "autre" ? `<label>Distance (km, facultatif)</label><input type="text" id="secondary-distance" value="${escapeAttr(secondary.distance_km ?? "")}">` : ""}
+      <div class="exercise-log-grid">
+        <div><label>RPE (0-10)</label><input type="number" min="0" max="10" step="1" id="secondary-rpe" value="${secondary.session_rpe ?? ""}"></div>
+        <div><label>Durée (min)</label><input type="number" min="0" step="5" id="secondary-duration" value="${secondary.session_duration_min ?? ""}"></div>
+      </div>
+      <p class="muted small">Compte avec la séance principale dans la charge aiguë:chronique du jour (RPE × durée de chaque séance, additionnées).</p>
+    </section>`;
+}
+
 /** Reads whatever's currently typed back into `sessionWorking.session` —
  * called before any structural change (reorder/add/remove/format switch)
  * so in-progress edits survive the re-render, and before the final save. */
@@ -3827,6 +3902,21 @@ function syncFormIntoSession() {
   if (rpeInput) session.session_rpe = rpeInput.value !== "" ? Number(rpeInput.value) : null;
   const durationInput = document.getElementById("session-duration");
   if (durationInput) session.session_duration_min = durationInput.value !== "" ? Number(durationInput.value) : null;
+
+  if (session.secondary) {
+    const typeSelect = document.getElementById("secondary-type-select");
+    if (typeSelect) session.secondary.type = typeSelect.value;
+    const secNameInput = document.getElementById("secondary-name-input");
+    if (secNameInput) session.secondary.name = secNameInput.value.trim() || session.secondary.name;
+    const secNotesInput = document.getElementById("secondary-notes");
+    if (secNotesInput) session.secondary.notes = secNotesInput.value.trim() || null;
+    const secDistanceInput = document.getElementById("secondary-distance");
+    if (secDistanceInput) session.secondary.distance_km = secDistanceInput.value !== "" ? Number(secDistanceInput.value) : null;
+    const secRpeInput = document.getElementById("secondary-rpe");
+    if (secRpeInput) session.secondary.session_rpe = secRpeInput.value !== "" ? Number(secRpeInput.value) : null;
+    const secDurationInput = document.getElementById("secondary-duration");
+    if (secDurationInput) session.secondary.session_duration_min = secDurationInput.value !== "" ? Number(secDurationInput.value) : null;
+  }
 
   // Individual exercise rows — a full standard card (solo exercise, or a
   // superset member) or a compact station row (AMRAP/EMOM/Circuit/For
@@ -4152,6 +4242,38 @@ function bindSessionContentEvents() {
       sessionSaveInFlight = false;
     }
   });
+
+  const addSecondaryBtn = document.getElementById("add-secondary-session");
+  if (addSecondaryBtn) addSecondaryBtn.addEventListener("click", () => {
+    syncFormIntoSession();
+    sessionWorking.session.secondary = blankSecondarySession(sessionWorking.date, "rugby");
+    renderSessionContent();
+  });
+
+  const removeSecondaryBtn = document.getElementById("remove-secondary-session");
+  if (removeSecondaryBtn) removeSecondaryBtn.addEventListener("click", () => {
+    if (!confirm("Retirer cette deuxième séance ?")) return;
+    syncFormIntoSession();
+    sessionWorking.session.secondary = null;
+    renderSessionContent();
+  });
+
+  const secondaryTypeSelect = document.getElementById("secondary-type-select");
+  if (secondaryTypeSelect) secondaryTypeSelect.addEventListener("change", () => {
+    syncFormIntoSession();
+    const secondary = sessionWorking.session.secondary;
+    const oldType = secondary.type;
+    const newType = secondaryTypeSelect.value;
+    // Follows the new type's default name only if it was still on the old
+    // type's default (never customized) — a name the user actually typed
+    // is left alone, same as the primary session's own naming.
+    if (secondary.name === defaultSessionName(sessionWorking.date, oldType)) {
+      secondary.name = defaultSessionName(sessionWorking.date, newType);
+    }
+    secondary.type = newType;
+    secondary.distance_km = newType === "autre" ? (secondary.distance_km ?? null) : undefined;
+    renderSessionContent();
+  });
 }
 
 /** Overwrites the whole session for `date` in data/training/app-log/<date>.json
@@ -4165,7 +4287,13 @@ function bindSessionContentEvents() {
  * data/health/<date>.json when present — that's the file coach.workload
  * actually reads (Foster's session-RPE method, see docs/adr/0011) — the
  * copy kept on the session itself is just for the app's own display, this
- * file is the real source of truth for the ACWR calculation. */
+ * file is the real source of truth for the ACWR calculation.
+ *
+ * When a secondary session (see blankSecondarySession, docs/adr/0050) also
+ * has a full RPE+durée pair, both loads are written as `session_loads`
+ * (summed by coach.workload) instead of just the primary's singular
+ * fields — the common single-session case keeps writing exactly the same
+ * shape as before, untouched. */
 async function saveSession(weekLabel, date, session) {
   const path = `data/training/app-log/${date}.json`;
   await ghPutJSON(path, null, `App : séance du ${date}`, (current) => {
@@ -4178,11 +4306,20 @@ async function saveSession(weekLabel, date, session) {
   });
   invalidateAppLogIndex();
 
-  if (session.session_rpe != null || session.session_duration_min != null) {
+  const secondary = session.secondary;
+  const primaryHasLoad = session.session_rpe != null && session.session_duration_min != null;
+  const secondaryHasLoad = !!secondary && secondary.session_rpe != null && secondary.session_duration_min != null;
+
+  if (primaryHasLoad || secondaryHasLoad || session.session_rpe != null || session.session_duration_min != null) {
     await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date}`, (current) => {
       const base = current || { date };
       if (session.session_rpe != null) base.session_rpe = session.session_rpe;
       if (session.session_duration_min != null) base.session_duration_min = session.session_duration_min;
+      const loads = [];
+      if (primaryHasLoad) loads.push({ rpe: session.session_rpe, duration_min: session.session_duration_min });
+      if (secondaryHasLoad) loads.push({ rpe: secondary.session_rpe, duration_min: secondary.session_duration_min });
+      if (loads.length > 1) base.session_loads = loads;
+      else delete base.session_loads; // no (longer any) second activity — legacy singular fields tell the whole story, clears a stale array if a secondary was removed
       return base;
     });
   }
