@@ -3234,7 +3234,13 @@ function blockCardHTML(indices, exercises) {
   const isChain = indices.length > 1;
 
   if (format === "standard" && !isChain) {
-    return exerciseCardHTML(leader, leaderIdx, exercises.length, true);
+    // Chaîner cet exercice à celui juste au-dessus (superset) n'a de sens
+    // que si ce précédent est lui-même de format standard — un exercice
+    // "standard" chaîné après un leader AMRAP/EMOM/Circuit produirait un
+    // bloc mixte que blockCardHTML ne sait pas rendre (ses stations
+    // partagent toutes le format du leader).
+    const canChainToPrevious = leaderIdx > 0 && (exercises[leaderIdx - 1].format || "standard") === "standard";
+    return exerciseCardHTML(leader, leaderIdx, exercises.length, true, canChainToPrevious);
   }
 
   const timingFields = BLOCK_TIMING_FIELDS[format] || [];
@@ -3412,8 +3418,16 @@ function bindRemoveExecSetRow(btn) {
  * true for a solo exercise (where the format select doubles as "turn this
  * into a superset/AMRAP/EMOM/..." — see the shared `.f-block-format`
  * handler in bindSessionContentEvents): a superset member's format is
- * fixed to the block's ("standard"), so it doesn't need its own select. */
-function exerciseCardHTML(ex, idx, total, showFormatControls) {
+ * fixed to the block's ("standard"), so it doesn't need its own select.
+ * `canChainToPrevious` adds one more option, "chaîner au précédent" — a
+ * sentinel value (`__chain_previous`), never a real `format`, handled
+ * separately by the change handler (sets `superset_with_previous`
+ * instead): a real "superset" format value was deliberately removed from
+ * `EXERCISE_FORMATS` (superset pairing and an exercise's own format are
+ * independent axes — see EXERCISE_FORMATS' docstring), this restores an
+ * easy way to reach it from the same dropdown without reintroducing that
+ * conflation. */
+function exerciseCardHTML(ex, idx, total, showFormatControls, canChainToPrevious) {
   const planned = ex.planned || {};
   const executed = ex.executed || {};
   return `
@@ -3429,6 +3443,7 @@ function exerciseCardHTML(ex, idx, total, showFormatControls) {
       ${showFormatControls
         ? `<select class="f-block-format" data-leader-idx="${idx}">
         ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${(ex.format || "standard") === key ? " selected" : ""}>${label}</option>`).join("")}
+        ${canChainToPrevious ? `<option value="__chain_previous">🔗 Superset (avec le précédent)</option>` : ""}
       </select>`
         : ""}
       <div class="field-row-label">Prévu</div>
@@ -3588,6 +3603,15 @@ function bindSessionContentEvents() {
     syncFormIntoSession();
     const leaderIdx = +sel.dataset.leaderIdx;
     const exercises = sessionWorking.session.exercises;
+    if (sel.value === "__chain_previous") {
+      // Chaîne cet exercice à celui juste au-dessus — voir
+      // exerciseCardHTML's `canChainToPrevious`. Le format reste
+      // "standard" (déjà le cas ici, cette option n'existe que sur un
+      // exercice solo), seul `superset_with_previous` change.
+      exercises[leaderIdx].superset_with_previous = true;
+      renderSessionContent();
+      return;
+    }
     const end = blockEndIndex(exercises, leaderIdx);
     const newFormat = sel.value;
     for (let i = leaderIdx; i < end; i++) exercises[i].format = newFormat;
