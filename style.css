@@ -1501,3 +1501,14 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .block-overview-details summary::-webkit-details-marker { display: none; }
 .block-overview-details summary::after { content: " ▾"; }
 .block-overview-details[open] summary::after { content: " ▴"; }
+
+/* ---------- Aide RPE (Loguer la séance) — docs/adr/0056 ----------
+   Table à 2 colonnes lisible sans scroll horizontal (contrairement à
+   .markdown-body table, prévue pour des tableaux markdown générés par le
+   coach et volontairement nowrap) : ici le texte de la 2e colonne doit
+   pouvoir passer à la ligne sur mobile. */
+.rpe-help-details p.small { margin: 6px 0; }
+.rpe-scale-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 6px 0; }
+.rpe-scale-table td { border-bottom: 1px solid var(--border); padding: 6px 4px; text-align: left; vertical-align: top; }
+.rpe-scale-table td:first-child { width: 34px; font-weight: 600; font-family: var(--font-display); color: var(--green-light); white-space: nowrap; }
+.rpe-scale-table tr:last-child td { border-bottom: none; }

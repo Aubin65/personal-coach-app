@@ -10,6 +10,39 @@ import { formatFrDate } from "../date-utils.js";
 import { setSessionTimerStart, getSessionTimerStart, setBlockTimerState, getBlockTimerState, formatDurationMs } from "./session-timer.js";
 import { ghPutJSON } from "../github-api.js";
 
+/** Repères concrets pour bien choisir le RPE de séance (échelle 0-10,
+ * méthode de Foster) — mêmes anchors que la table que le coach utilise
+ * lui-même pour estimer un RPE à partir d'une note vocale (voir
+ * `prompts/coaching-guidelines.md`, section ACWR) : un ressenti "dur"
+ * doit correspondre au même chiffre qu'on le tape soi-même ou que le
+ * coach le déduise, sinon la charge aiguë:chronique mélange deux
+ * échelles différentes sans le savoir. Repliée par défaut (`<details>`,
+ * même pattern que `.block-overview-details`) — un repère consulté
+ * surtout la première fois ou en cas de doute, pas à chaque séance. */
+function rpeHelpDetailsHTML() {
+  const rows = [
+    ["0-1", "Repos, très très léger (mobilité, marche)"],
+    ["2-3", "Facile, tranquille — tu peux tenir une conversation"],
+    ["4-6", "Modéré à soutenu — respiration marquée mais contrôlée"],
+    ["7-8", "Difficile — ça tire, peu de réserve en fin de séance"],
+    ["9", "Très difficile — proche de l'échec sur les derniers efforts"],
+    ["10", "Maximal — tout donné, rien en réserve (effort exceptionnel, match décisif)"],
+  ].map(([rpe, feel]) => `<tr><td>${rpe}</td><td>${feel}</td></tr>`).join("");
+  return `
+    <details class="block-overview-details rpe-help-details">
+      <summary>Comment bien choisir le RPE ?</summary>
+      <p class="small">Un seul chiffre pour <strong>toute la séance</strong>
+      (muscu ou rugby/match) — pas par exercice, ça c'est le RIR de chaque
+      série dans le tableau "Fait". Note-le idéalement 20-30 min après la
+      fin, une fois le souffle redescendu, plutôt qu'à chaud juste après le
+      dernier exercice ou la dernière action de match.</p>
+      <table class="rpe-scale-table">${rows}</table>
+      <p class="small">Sois honnête même un jour "ordinaire" : ce chiffre
+      sert au calcul de charge aiguë:chronique (onglet Data) pour repérer
+      une hausse de charge trop rapide — jamais un jugement de performance.</p>
+    </details>`;
+}
+
 export function workloadSectionHTML(session) {
   return `
     <section class="card">
@@ -19,7 +52,7 @@ export function workloadSectionHTML(session) {
         <div><label>RPE (0-10)</label><input type="number" min="0" max="10" step="1" id="session-rpe" value="${session.session_rpe ?? ""}"></div>
         <div><label>Durée (min)</label><input type="number" min="0" step="5" id="session-duration" value="${session.session_duration_min ?? ""}"></div>
       </div>
-      <p class="muted small">0 = repos total, 5 = soutenu, 10 = effort maximal.</p>
+      ${rpeHelpDetailsHTML()}
     </section>`;
 }
 
@@ -55,6 +88,7 @@ export function secondarySessionSectionHTML(session) {
         <div><label>Durée (min)</label><input type="number" min="0" step="5" id="secondary-duration" value="${secondary.session_duration_min ?? ""}"></div>
       </div>
       <p class="muted small">Compte avec la séance principale dans la charge aiguë:chronique du jour (RPE × durée de chaque séance, additionnées).</p>
+      ${rpeHelpDetailsHTML()}
     </section>`;
 }
 
