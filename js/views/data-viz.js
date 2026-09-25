@@ -253,6 +253,52 @@ export function workloadTrendSVG(readings) {
     </svg>`;
 }
 
+/** Green ≤3 (gênant mais gérable), gold 4-6 (modéré), danger ≥7 (élevé) —
+ * mêmes seuils utilisés pour le badge de niveau dans la liste d'historique
+ * (pain.js) et pour le point le plus récent du tracé ici, donc jamais
+ * deux couleurs différentes pour le même niveau selon où on le regarde. */
+export function painLevelColor(level) {
+  if (level >= 7) return "var(--danger)";
+  if (level >= 4) return "var(--gold)";
+  return "var(--green-light)";
+}
+
+/** Douleur d'une zone dans le temps ([{date, level}], ascending, depuis
+ * `pain_recent.entries` filtré à une zone) — même construction que
+ * `workloadTrendSVG` (échelle fixe, ici 0-10, points espacés régulièrement
+ * par index plutôt que par date réelle : le rythme de logging n'est pas
+ * régulier — un jour sur deux, une pause de plusieurs semaines — un
+ * espacement proportionnel au temps écraserait les périodes actives
+ * contre les longs silences). Plusieurs entrées le même jour restent des
+ * points distincts, volontairement (matin vs après séance peut être le
+ * point intéressant). */
+export function painTrendSVG(entries) {
+  const w = 280, h = 90, padLeft = 20, padRight = 8, padTop = 10, padBottom = 18;
+  if (entries.length < 2) return "";
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+  const maxVal = 10;
+  const yFor = (v) => padTop + plotH * (1 - Math.min(v, maxVal) / maxVal);
+  const stepX = plotW / (entries.length - 1);
+  const coords = entries.map((e, i) => [padLeft + i * stepX, yFor(e.level)]);
+  const path = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const thresholdLines = [3, 6]
+    .map((v) => `
+      <line x1="${padLeft}" y1="${yFor(v).toFixed(1)}" x2="${w - padRight}" y2="${yFor(v).toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
+      <text x="${padLeft - 2}" y="${(yFor(v) + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--muted)">${v}</text>`)
+    .join("");
+  const [lastX, lastY] = coords[coords.length - 1];
+  const lastColor = painLevelColor(entries[entries.length - 1].level);
+  return `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="sparkline" preserveAspectRatio="none">
+      ${thresholdLines}
+      <path d="${path}" fill="none" stroke="var(--muted)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${lastX}" cy="${lastY}" r="4" fill="${lastColor}"/>
+      <text x="${padLeft}" y="${h - 3}" text-anchor="start" font-size="9" fill="var(--muted)">${shortDateFr(entries[0].date)}</text>
+      <text x="${w - padRight}" y="${h - 3}" text-anchor="end" font-size="9" fill="var(--muted)">${shortDateFr(entries[entries.length - 1].date)}</text>
+    </svg>`;
+}
+
 /** A compact labeled value, for secondary Data-tab metrics that don't
  * warrant a full progress ring (recovery, body composition) — optionally
  * with a small delta vs the previous reading. `goodDirection`: "up"

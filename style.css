@@ -1040,6 +1040,12 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .big-action-card:active { transform: scale(0.97); }
 .big-action-card.log-session { background: linear-gradient(135deg, var(--green-light), var(--green)); color: white; }
 .big-action-card.write-note { background: linear-gradient(135deg, var(--gold), #B47F2C); color: white; }
+/* Pleine largeur sur sa propre ligne plutôt qu'à moitié vide à côté d'une
+   grille à 2 colonnes fixe — troisième tuile, moins fréquente que les
+   deux premières. Rouge/danger (même famille que .alert-card) : seule
+   tuile "médicale" du lot. */
+.big-action-card.log-pain { grid-column: 1 / -1; background: linear-gradient(135deg, var(--danger), #8F1F1F); color: white; flex-direction: row; padding: 16px 20px; }
+.big-action-card.log-pain .big-action-label { text-align: left; }
 .big-action-icon { font-size: 2rem; }
 .big-action-label {
   font-family: var(--font-display);
@@ -1602,3 +1608,30 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .rpe-scale-table td { border-bottom: 1px solid var(--border); padding: 6px 4px; text-align: left; vertical-align: top; }
 .rpe-scale-table td:first-child { width: 34px; font-weight: 600; font-family: var(--font-display); color: var(--green-light); white-space: nowrap; }
 .rpe-scale-table tr:last-child td { border-bottom: none; }
+
+/* ---------- Suivi de la douleur (Aujourd'hui → Douleur / gêne) ----------
+   docs/adr/0060. */
+#pain-history-trend:not(:empty) { margin: 4px 0 14px; padding-top: 10px; border-top: 1px solid var(--border); }
+.pain-history-item {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pain-history-item:last-child { border-bottom: none; }
+.pain-level-badge {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-family: var(--font-display);
+  font-size: 0.92rem;
+}
+.pain-history-item-body { flex: 1; min-width: 0; }
+.pain-history-item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pain-history-item-body p { margin: 2px 0 0; }

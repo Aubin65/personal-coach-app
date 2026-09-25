@@ -8,6 +8,7 @@ import { renderChat } from "./views/chat.js";
 import { renderSession } from "./session/session-render.js";
 import { renderWriteNote } from "./views/write-note.js";
 import { renderAdjustWeek } from "./views/adjust-week.js";
+import { renderPain } from "./views/pain.js";
 import { loadSyncStatus } from "./sync-status.js";
 
 // ============================================================================
@@ -45,6 +46,7 @@ const views = {
   session: { title: "Séance", render: renderSession },
   "write-note": { title: "Nouvelle note", render: renderWriteNote },
   "adjust-week": { title: "Ajuster ma semaine", render: renderAdjustWeek },
+  pain: { title: "Douleur / gêne", render: renderPain },
 };
 
 /** `params.date` (ISO) targets the "session" view at an arbitrary date —
