@@ -1256,6 +1256,33 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .workload-badge.zone-zone_prudente { background: var(--gold-pale); color: #8A5F1E; }
 .workload-badge.zone-risque_eleve { background: #FBE2E2; color: var(--danger); }
 
+.workload-zone-help { margin: 0 0 10px; }
+
+/* Gauge : position du ratio courant sur les 4 zones Gabbett (2016), pas
+   seulement son nom — voir docs/adr/0055. */
+.workload-gauge-wrap { margin: 10px 0 4px; }
+.workload-gauge-track { position: relative; height: 12px; }
+.workload-gauge-bars { display: flex; height: 100%; border-radius: 6px; overflow: hidden; }
+.workload-gauge-segment { height: 100%; }
+.workload-gauge-segment.zone-sous_charge { background: var(--border); }
+.workload-gauge-segment.zone-zone_optimale { background: var(--green-light); }
+.workload-gauge-segment.zone-zone_prudente { background: var(--gold); }
+.workload-gauge-segment.zone-risque_eleve { background: var(--danger); }
+.workload-gauge-marker {
+  position: absolute;
+  top: -3px;
+  width: 3px;
+  height: 18px;
+  background: var(--text);
+  border-radius: 2px;
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 2px var(--card-bg);
+}
+.workload-gauge-scale { display: flex; margin-top: 3px; }
+.workload-gauge-scale-label { font-size: 0.65rem; color: var(--muted); text-align: right; padding-right: 2px; }
+
+.workload-trend { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+
 /* ---------- Indice de forme (Data, tout en haut) ---------- */
 .readiness-card { border-left: 4px solid var(--border); }
 .readiness-card.level-pret, .readiness-card.level-bonne_forme { border-left-color: var(--green-light); }

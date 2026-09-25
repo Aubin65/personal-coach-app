@@ -1,7 +1,7 @@
 import { ghGetFile } from "../github-api.js";
 import { stale } from "../nav.js";
 import { skeletonHTML, escapeHtmlText } from "../markdown.js";
-import { statTile, sleepGoalTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple } from "./data-viz.js";
+import { statTile, sleepGoalTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
 
@@ -12,6 +12,13 @@ const WORKLOAD_ZONE_LABELS = {
   zone_optimale: "Zone optimale",
   zone_prudente: "Zone prudente",
   risque_eleve: "Risque élevé",
+};
+
+const WORKLOAD_ZONE_HELP = {
+  sous_charge: "Charge en dessous de la référence des 4 dernières semaines — marge pour remonter progressivement sans risque.",
+  zone_optimale: "Charge cohérente avec la référence récente — bonne zone pour progresser régulièrement.",
+  zone_prudente: "Charge sensiblement au-dessus de la référence récente — surveille la récupération avant d'ajouter du volume.",
+  risque_eleve: "Hausse de charge trop rapide par rapport à la moyenne des 4 dernières semaines — zone associée à un risque de blessure accru (Gabbett 2016).",
 };
 
 export async function renderData(token) {
@@ -167,11 +174,24 @@ export async function renderData(token) {
 
   if (s.workload) {
     const w = s.workload;
+    const readings = s.workload_history || [];
     html += `
       <section class="card">
         <h2>⚙️ Charge aiguë:chronique</h2>
         <p class="workload-badge zone-${w.zone}">${WORKLOAD_ZONE_LABELS[w.zone] || w.zone}</p>
-        <p class="muted small">Ratio ${w.ratio.toFixed(2)} — charge des 7 derniers jours vs moyenne des 4 dernières semaines (RPE × durée de séance).</p>
+        ${workloadGaugeHTML(w.ratio)}
+        <p class="workload-zone-help small">${WORKLOAD_ZONE_HELP[w.zone] || ""}</p>
+        <div class="stat-grid">
+          ${statTileSimple("Ratio actuel", w.ratio.toFixed(2))}
+          ${statTileSimple("Charge 7 derniers jours (moy./j)", `${Math.round(w.acute_load)} u.a.`)}
+          ${statTileSimple("Référence 4 semaines (moy./j)", `${Math.round(w.chronic_load)} u.a.`)}
+        </div>
+        ${readings.length > 1 ? `
+        <div class="workload-trend">
+          <div class="sleep-week-summary-label">Évolution du ratio (${readings.length} dernier${readings.length > 1 ? "s" : ""} jour${readings.length > 1 ? "s" : ""})</div>
+          ${workloadTrendSVG(readings)}
+        </div>` : ""}
+        <p class="muted small">Ratio = charge des 7 derniers jours ÷ moyenne quotidienne des 4 dernières semaines (RPE × durée de séance, méthode de Foster — renseignée à chaque séance loguée). Repères : &lt;0,8 sous-charge, 0,8–1,3 zone optimale, 1,3–1,5 zone prudente, &gt;1,5 risque élevé.</p>
       </section>`;
   } else {
     html += `

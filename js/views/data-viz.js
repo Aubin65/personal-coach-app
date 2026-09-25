@@ -171,6 +171,88 @@ export function formatHoursFr(hours) {
   return minutes ? `${wholeHours}h${String(minutes).padStart(2, "0")}` : `${wholeHours}h`;
 }
 
+// ---- Charge aiguë:chronique (ACWR) — gauge + trend chart ----
+// Zone boundaries mirror coach.workload.classify_ratio (Gabbett 2016) —
+// kept in sync manually since this is presentation-only, no shared source
+// of truth is worth the plumbing for 3 numbers that essentially never
+// change.
+const WORKLOAD_GAUGE_MAX = 2.0;
+const WORKLOAD_GAUGE_SEGMENTS = [
+  { zone: "sous_charge", upTo: 0.8 },
+  { zone: "zone_optimale", upTo: 1.3 },
+  { zone: "zone_prudente", upTo: 1.5 },
+  { zone: "risque_eleve", upTo: WORKLOAD_GAUGE_MAX },
+];
+
+/** Where the current ratio sits across the 4 Gabbett zones, not just which
+ * one it's in — a bare zone name doesn't say whether it's just inside a
+ * boundary or deep into it. Segments are proportional to `WORKLOAD_GAUGE_MAX`
+ * (ratios above it are clamped to the marker's rightmost position rather
+ * than distorting the scale for a rare extreme reading). */
+export function workloadGaugeHTML(ratio) {
+  const markerPct = Math.max(0, Math.min(100, (ratio / WORKLOAD_GAUGE_MAX) * 100));
+  let prevBound = 0;
+  const segments = WORKLOAD_GAUGE_SEGMENTS.map(({ zone, upTo }) => {
+    const widthPct = ((upTo - prevBound) / WORKLOAD_GAUGE_MAX) * 100;
+    prevBound = upTo;
+    return { zone, widthPct, upTo };
+  });
+  const bars = segments
+    .map((s) => `<div class="workload-gauge-segment zone-${s.zone}" style="width:${s.widthPct}%"></div>`)
+    .join("");
+  const scale = segments
+    .map((s) => `<span class="workload-gauge-scale-label" style="width:${s.widthPct}%">${s.upTo >= WORKLOAD_GAUGE_MAX ? "" : s.upTo}</span>`)
+    .join("");
+  return `
+    <div class="workload-gauge-wrap">
+      <div class="workload-gauge-track">
+        <div class="workload-gauge-bars">${bars}</div>
+        <div class="workload-gauge-marker" style="left:${markerPct.toFixed(1)}%"></div>
+      </div>
+      <div class="workload-gauge-scale">${scale}</div>
+    </div>`;
+}
+
+const WORKLOAD_ZONE_STROKE = {
+  sous_charge: "var(--muted)",
+  zone_optimale: "var(--green-light)",
+  zone_prudente: "var(--gold)",
+  risque_eleve: "var(--danger)",
+};
+
+/** Ratio trend over `readings` ([{date, ratio, zone}], ascending, from
+ * `coach.workload.history`) — a fixed 0–2 y-scale (not data-driven like
+ * `sparklineSVG`) so the 3 zone-boundary lines stay at consistent heights
+ * and are actually comparable to the gauge above, and the trailing point is
+ * colored by its own zone so a currently-risky reading reads as risky at a
+ * glance even before checking the badge. */
+export function workloadTrendSVG(readings) {
+  const w = 280, h = 90, padLeft = 30, padRight = 8, padTop = 10, padBottom = 18;
+  if (readings.length < 2) return "";
+  const plotW = w - padLeft - padRight;
+  const plotH = h - padTop - padBottom;
+  const maxVal = Math.max(WORKLOAD_GAUGE_MAX, ...readings.map((r) => r.ratio)) * 1.05;
+  const yFor = (v) => padTop + plotH * (1 - Math.min(v, maxVal) / maxVal);
+  const stepX = plotW / (readings.length - 1);
+  const coords = readings.map((r, i) => [padLeft + i * stepX, yFor(r.ratio)]);
+  const path = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  const thresholdLines = [0.8, 1.3, 1.5]
+    .map((v) => `
+      <line x1="${padLeft}" y1="${yFor(v).toFixed(1)}" x2="${w - padRight}" y2="${yFor(v).toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
+      <text x="${padLeft - 3}" y="${(yFor(v) + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--muted)">${v}</text>`)
+    .join("");
+  const [lastX, lastY] = coords[coords.length - 1];
+  const lastColor = WORKLOAD_ZONE_STROKE[readings[readings.length - 1].zone] || "var(--green-light)";
+  return `
+    <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="sparkline" preserveAspectRatio="none">
+      ${thresholdLines}
+      <path d="${path}" fill="none" stroke="var(--green-light)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${lastX}" cy="${lastY}" r="4" fill="${lastColor}"/>
+      <text x="${padLeft}" y="${h - 3}" text-anchor="start" font-size="9" fill="var(--muted)">${shortDateFr(readings[0].date)}</text>
+      <text x="${w - padRight}" y="${h - 3}" text-anchor="end" font-size="9" fill="var(--muted)">${shortDateFr(readings[readings.length - 1].date)}</text>
+    </svg>`;
+}
+
 /** A compact labeled value, for secondary Data-tab metrics that don't
  * warrant a full progress ring (recovery, body composition) — optionally
  * with a small delta vs the previous reading. `goodDirection`: "up"
