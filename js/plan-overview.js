@@ -4,6 +4,8 @@ import { lookupDaySummary, findSessionForDate, currentBlockLabel } from "./train
 import { addDaysISO, formatFrDate, todayISO } from "./date-utils.js";
 import { SESSION_TYPES, EXERCISE_FORMATS } from "./session-types.js";
 import { ghGetFile } from "./github-api.js";
+import { setupMicButton } from "./voice-input.js";
+import { postUserMessage } from "./views/chat.js";
 
 // ============================================================================
 // Weekly plan overview — parses the plan markdown's day headers ("## Lundi
@@ -245,6 +247,85 @@ export function blockResultDisplay(format, leader) {
   return raw;
 }
 
+// "Modifier la séance" is manual (reprendre soi-même chaque champ) — pour
+// "elle ne me convient pas" sans avoir à tout retaper, un mot au coach est
+// plus fluide. Suggestions volontairement scoped à une seule séance
+// (contraste avec ADJUST_SUGGESTIONS d'adjust-week.js, qui parle de la
+// semaine entière).
+const DAY_ADJUST_SUGGESTIONS = [
+  "Cet exercice ne me convient pas, remplace-le",
+  "Trop intense, allège cette séance",
+  "Je manque de temps, raccourcis cette séance",
+];
+
+/** "🔧 Cette séance ne convient pas ?" — un mot au coach scopé à une seule
+ * date, sans toucher au reste de la semaine (retour direct : "ajuster les
+ * séances au cas par cas"). Message écrit pour matcher sans ambiguïté la
+ * règle "ajustement d'une seule séance déjà existante" d'app-chat.md
+ * (→ prompts/session-adjustment.md, pas weekly-plan.md) : il termine dans
+ * data/training/app-log/pending/adjust-<date>.json, déjà affiché avec son
+ * propre Valider/Refuser par loadPendingSessionAdjustments (même onglet
+ * Semaine → Planning, pas besoin de changer d'écran pour valider). Repliée
+ * par défaut, même motif que .block-overview-details — c'est une action
+ * secondaire, pas le contenu principal du panneau. */
+function dayAdjustComposerHTML(date) {
+  return `
+    <details class="block-overview-details day-adjust-details">
+      <summary>🔧 Cette séance ne convient pas ?</summary>
+      <p class="muted small">Décris ce qui ne va pas — le coach ajuste uniquement la séance du ${formatFrDate(date)}, le reste de la semaine ne bouge pas.</p>
+      <div id="day-adjust-suggestions" class="suggestion-chips"></div>
+      <div class="compose-row">
+        <textarea id="day-adjust-text" rows="3" placeholder="Ex : remplace le Squat par autre chose, allège l'intensité…"></textarea>
+        <button type="button" id="day-adjust-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
+      </div>
+      <p class="voice-hint" id="day-adjust-voice-hint" hidden></p>
+      <p class="live-caption" id="day-adjust-live-caption" hidden></p>
+      <button type="button" id="day-adjust-send" class="primary-button small" style="margin-top:8px">Envoyer au coach</button>
+      <p id="day-adjust-status" class="muted small"></p>
+    </details>`;
+}
+
+function wireDayAdjustComposer(date) {
+  setupMicButton(
+    document.getElementById("day-adjust-mic"),
+    document.getElementById("day-adjust-voice-hint"),
+    document.getElementById("day-adjust-text"),
+    document.getElementById("day-adjust-live-caption")
+  );
+  const chipsEl = document.getElementById("day-adjust-suggestions");
+  chipsEl.innerHTML = DAY_ADJUST_SUGGESTIONS.map((s) => `<button type="button" class="suggestion-chip">${s}</button>`).join("");
+  const textEl = document.getElementById("day-adjust-text");
+  chipsEl.querySelectorAll(".suggestion-chip").forEach((chip) => {
+    chip.addEventListener("click", () => { textEl.value = chip.textContent; textEl.focus(); });
+  });
+
+  document.getElementById("day-adjust-send").addEventListener("click", async (e) => {
+    const statusEl = document.getElementById("day-adjust-status");
+    const text = textEl.value.trim();
+    if (!text) return;
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    statusEl.textContent = "Envoi…";
+    try {
+      await postUserMessage(`Ajuste la séance du ${formatFrDate(date)} (${date}) : ${text}`);
+      textEl.value = "";
+      statusEl.innerHTML = "";
+      const ok = document.createElement("span");
+      ok.textContent = "Envoyé ✓ — le coach prépare l'ajustement (quelques minutes), à valider ensuite ici même, dans Semaine → Planning. ";
+      const link = document.createElement("button");
+      link.textContent = "Voir dans Coach →";
+      link.className = "suggestion-chip";
+      link.addEventListener("click", () => showView("chat"));
+      statusEl.appendChild(ok);
+      statusEl.appendChild(link);
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
 /** Inline read-only overview for a day tapped in Planning's day-strip —
  * a table for musculation (one row per exercise, prévu/fait side by
  * side), the free-text description for rugby/autre/repos, and an
@@ -258,6 +339,10 @@ export async function showDayOverviewPanel(token, date) {
   const session = found.session;
 
   const editButtonHTML = `<button type="button" id="day-overview-edit" class="primary-button ghost small" data-date="${date}">${session ? "✏️ Modifier la séance" : "+ Créer une séance"}</button>`;
+  // Demander l'ajustement d'une séance qui n'existe pas encore n'a pas de
+  // sens (rien à ajuster) ; une séance déjà passée non plus (rien à
+  // changer avant coup) — seulement aujourd'hui et le futur.
+  const canAdjust = session && date >= todayISO();
 
   if (!session) {
     el.innerHTML = `
@@ -339,9 +424,11 @@ export async function showDayOverviewPanel(token, date) {
         ${workload}
         ${secondaryHTML}
         ${editButtonHTML}
+        ${canAdjust ? dayAdjustComposerHTML(date) : ""}
       </section>`;
   }
   document.getElementById("day-overview-edit").addEventListener("click", () => showView("session", { date }));
+  if (canAdjust) wireDayAdjustComposer(date);
 }
 
 /** Splits a block markdown into a condensed "objectifs principaux" part
