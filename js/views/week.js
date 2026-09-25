@@ -1,8 +1,8 @@
 import { ghListDir, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js";
 import { state, stale, showView } from "../nav.js";
 import { todayISO, mondayOfWeek, addDaysISO, formatFrDate, sessionDayStatus } from "../date-utils.js";
-import { skeletonHTML, escapeHtmlText, renderMarkdown } from "../markdown.js";
-import { renderWeekOverview, parseWeekOverview, splitBlockMarkdown, splitBlockIntro, DAY_NAMES } from "../plan-overview.js";
+import { skeletonHTML, escapeHtmlText, escapeAttr, renderMarkdown } from "../markdown.js";
+import { renderWeekOverview, parseWeekOverview, splitBlockMarkdown, splitBlockIntro, splitWeekPlanByDay, buildMergedWeekPlan, DAY_NAMES } from "../plan-overview.js";
 import { currentBlockLabel, lookupDaySummary, findSessionForDate } from "../training-index.js";
 import { SESSION_TYPES } from "../session-types.js";
 import { saveSession } from "../session/session-form.js";
@@ -184,7 +184,17 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
  * realistically be more than one). Coach-initiated alerts are a separate
  * mechanism (see loadActiveAlerts in app/js/views/today.js, docs/adr/0045,
  * docs/adr/0053) — this proposal flow is
- * user-requested only. */
+ * user-requested only.
+ *
+ * Validation is per day (docs/adr/0057 — "j'ai besoin de pouvoir valider
+ * séance par séance"), not just the whole week's prose as one block: each
+ * day whose proposed content actually differs from the current validated
+ * plan gets its own checkbox (checked by default) plus the current
+ * version to compare against; days the proposal leaves unchanged need no
+ * decision and are reapplied as-is. "Valider la sélection" merges
+ * accepted days' new content with rejected days' current content (see
+ * buildMergedWeekPlan); "Tout refuser" still discards the whole pending
+ * file at once, unchanged from before. */
 async function loadPendingProposal(token) {
   const box = document.getElementById("pending-proposal");
   // Surfaced as a badge on the Planning tab too — a pending proposal must
@@ -203,14 +213,48 @@ async function loadPendingProposal(token) {
   if (planningTab) planningTab.classList.add("has-pending");
 
   const monday = target.name.slice(0, -3);
+  const currentPath = `data/plans/${target.name}`;
+  const currentFile = await ghGetFile(currentPath);
+  if (stale(token)) return;
+
+  const pendingSplit = splitWeekPlanByDay(file.content);
+  const currentSplit = currentFile ? splitWeekPlanByDay(currentFile.content) : null;
+
+  const dayInfo = pendingSplit.days.map((pd) => {
+    const cd = currentSplit ? currentSplit.days.find((d) => d.day === pd.day) : null;
+    const changed = !cd || cd.body.trim() !== pd.body.trim();
+    return { pd, cd, changed };
+  });
+  const changedDays = dayInfo.filter((d) => d.changed);
+  const unchangedDayNames = dayInfo.filter((d) => !d.changed).map((d) => d.pd.day);
+
+  const dayCardsHTML = changedDays
+    .map(({ pd, cd }) => `
+      <div class="plan-day-proposal" data-day="${escapeAttr(pd.day)}">
+        <label class="plan-day-proposal-header">
+          <input type="checkbox" class="plan-day-accept" checked>
+          <span>${escapeHtmlText(pd.day)} ${escapeHtmlText(pd.date)}${pd.title ? ` — ${escapeHtmlText(pd.title)}` : ""}</span>
+          <span class="plan-day-tag">${cd ? "🔄 modifié" : "🆕 nouveau"}</span>
+        </label>
+        <div class="markdown-body small">${renderMarkdown(pd.body)}</div>
+        ${cd ? `
+        <details class="block-overview-details">
+          <summary>Voir la version actuelle</summary>
+          <div class="markdown-body small">${renderMarkdown(cd.body)}</div>
+        </details>` : ""}
+      </div>`)
+    .join("");
+
   box.innerHTML = `
     <section class="card pending-proposal-card">
       <h2>🗒️ Proposition du coach — à valider</h2>
       <p class="muted small">Semaine du ${monday}</p>
-      <div class="markdown-body">${renderMarkdown(file.content)}</div>
+      ${pendingSplit.intro.trim() ? `<div class="markdown-body">${renderMarkdown(pendingSplit.intro)}</div>` : ""}
+      ${dayCardsHTML || "<p class='muted small'>Aucun jour modifié par rapport au planning actuel.</p>"}
+      ${unchangedDayNames.length ? `<p class="muted small">Jours inchangés, repris tels quels : ${unchangedDayNames.join(", ")}.</p>` : ""}
       <div class="proposal-actions">
-        <button type="button" id="proposal-reject" class="primary-button ghost small">❌ Refuser</button>
-        <button type="button" id="proposal-accept" class="primary-button small">✅ Valider</button>
+        <button type="button" id="proposal-reject" class="primary-button ghost small">❌ Tout refuser</button>
+        <button type="button" id="proposal-accept" class="primary-button small">✅ Valider la sélection</button>
       </div>
       <p id="proposal-status" class="muted small"></p>
     </section>`;
@@ -221,9 +265,13 @@ async function loadPendingProposal(token) {
     btn.disabled = true;
     statusEl.textContent = "Application…";
     try {
-      const targetPath = `data/plans/${target.name}`;
-      const targetCurrent = await ghGetFile(targetPath);
-      await ghPutFile(targetPath, file.content, `Planning semaine du ${monday} (validé depuis l'app)`, targetCurrent ? targetCurrent.sha : null);
+      const acceptedDayNames = new Set(unchangedDayNames);
+      box.querySelectorAll(".plan-day-proposal").forEach((el) => {
+        if (el.querySelector(".plan-day-accept").checked) acceptedDayNames.add(el.dataset.day);
+      });
+      const merged = buildMergedWeekPlan(pendingSplit, currentSplit, acceptedDayNames);
+      const targetCurrent = await ghGetFile(currentPath);
+      await ghPutFile(currentPath, merged, `Planning semaine du ${monday} (validé depuis l'app, séance par séance)`, targetCurrent ? targetCurrent.sha : null);
       await ghDeleteFile(target.path, `Proposition validée : ${target.name}`, file.sha);
       statusEl.textContent = "Validé ✓";
       renderWeek(state.renderToken);

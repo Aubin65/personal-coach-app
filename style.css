@@ -1060,6 +1060,40 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .proposal-actions { display: flex; gap: 10px; margin-top: 8px; }
 .proposal-actions .primary-button { flex: 1; }
 
+/* Validation séance par séance d'une proposition — docs/adr/0057. Un jour
+   inchangé par rapport au planning validé n'a pas de carte ici (rien à
+   décider) ; seuls les jours modifiés/nouveaux en ont une, avec sa propre
+   case à cocher. */
+.plan-day-proposal {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--card-bg);
+  padding: 10px 12px;
+  margin: 10px 0;
+}
+.plan-day-proposal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+.plan-day-proposal-header input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; }
+.plan-day-tag {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.plan-day-proposal .markdown-body { margin: 8px 0 0; max-height: 220px; }
+
 /* ---------- Aujourd'hui : alertes persistantes (docs/adr/0045, déplacées
    depuis Semaine par docs/adr/0053) ---------- */
 #active-alerts { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }

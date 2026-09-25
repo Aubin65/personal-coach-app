@@ -57,6 +57,67 @@ export function parseWeekOverview(md) {
   return { days, highlights };
 }
 
+/** Splits a weekly-plan markdown (`data/plans/<lundi>.md` or its pending
+ * counterpart) into `{intro, days, footer}` — `intro` is everything before
+ * the first day heading (title, rationale paragraph), `days` is one entry
+ * per `## <Jour> <date> — <titre>` heading with its **full** section body
+ * (heading included, up to but excluding the next top-level heading —
+ * unlike `parseWeekOverview`, which only extracts the day/date/title, not
+ * the body text itself), and `footer` is whatever follows the last day
+ * heading ("## Points de vigilance de la semaine" and beyond). Powers
+ * per-day accept/reject of a pending proposal (see
+ * `buildMergedWeekPlan`/docs/adr/0057) — "je veux pouvoir valider séance
+ * par séance", not just the whole week's prose as one block. */
+export function splitWeekPlanByDay(md) {
+  const lines = md.replace(/\r\n/g, "\n").split("\n");
+  const dayRe = new RegExp(`^##\\s+(${DAY_NAMES.join("|")})\\s+(\\d{1,2}/\\d{1,2})\\s*[—-]?\\s*(.*)$`);
+  const headingIdx = [];
+  lines.forEach((l, idx) => { if (/^##\s+/.test(l)) headingIdx.push(idx); });
+  const dayHeadingIdx = headingIdx.filter((idx) => dayRe.test(lines[idx]));
+
+  const introEnd = dayHeadingIdx.length ? dayHeadingIdx[0] : lines.length;
+  const intro = lines.slice(0, introEnd).join("\n");
+
+  const days = dayHeadingIdx.map((idx) => {
+    const m = dayRe.exec(lines[idx]);
+    const nextHeading = headingIdx.find((h) => h > idx);
+    const end = nextHeading !== undefined ? nextHeading : lines.length;
+    return { day: m[1], date: m[2], title: m[3].replace(/\([^)]*\)/g, "").trim(), body: lines.slice(idx, end).join("\n") };
+  });
+
+  const lastDayIdx = dayHeadingIdx.length ? dayHeadingIdx[dayHeadingIdx.length - 1] : -1;
+  const footerStart = lastDayIdx === -1 ? lines.length : (headingIdx.find((h) => h > lastDayIdx) ?? lines.length);
+  const footer = lines.slice(footerStart).join("\n");
+
+  return { intro, days, footer };
+}
+
+/** Reassembles a full weekly-plan markdown from `pendingSplit` (see
+ * `splitWeekPlanByDay`) keeping only the days named in `acceptedDayNames`
+ * (a `Set` of `DAY_NAMES` values) — every other day falls back to its
+ * matching entry in `currentSplit` (the already-validated
+ * `data/plans/<lundi>.md`, or `null` for a brand-new week with nothing to
+ * fall back to). A rejected day with no current version to fall back to is
+ * simply omitted, never fabricated — `renderWeekOverview`'s day-strip
+ * already tolerates a week with fewer than 7 day headings, and the actual
+ * source of truth for what's executed is Sheets/app-log either way (see
+ * docs/adr/0019), never this prose. `intro`/`footer` always come from
+ * `pendingSplit` — the rationale/vigilance points explain the proposal as
+ * a whole, there's no per-day equivalent to select between. */
+export function buildMergedWeekPlan(pendingSplit, currentSplit, acceptedDayNames) {
+  const dayBodies = pendingSplit.days
+    .map((pd) => {
+      if (acceptedDayNames.has(pd.day)) return pd.body;
+      const cd = currentSplit && currentSplit.days.find((d) => d.day === pd.day);
+      return cd ? cd.body : null;
+    })
+    .filter(Boolean);
+  return [pendingSplit.intro, dayBodies.join("\n\n"), pendingSplit.footer]
+    .map((s) => (s || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function normalizeDM(str) {
   const [a, b] = str.split("/").map((n) => parseInt(n, 10));
   return `${a}/${b}`;
