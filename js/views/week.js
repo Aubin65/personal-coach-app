@@ -1,7 +1,7 @@
 import { ghListDir, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js";
 import { state, stale, showView } from "../nav.js";
 import { todayISO, mondayOfWeek, addDaysISO, formatFrDate, sessionDayStatus } from "../date-utils.js";
-import { skeletonHTML, escapeHtmlText, escapeAttr, renderMarkdown } from "../markdown.js";
+import { skeletonHTML, escapeHtmlText, escapeAttr, renderMarkdown, addTableDataLabels } from "../markdown.js";
 import { renderWeekOverview, parseWeekOverview, splitBlockMarkdown, splitBlockIntro, splitWeekPlanByDay, buildMergedWeekPlan, DAY_NAMES } from "../plan-overview.js";
 import { currentBlockLabel, lookupDaySummary, findSessionForDate } from "../training-index.js";
 import { SESSION_TYPES } from "../session-types.js";
@@ -228,21 +228,26 @@ async function loadPendingProposal(token) {
   const changedDays = dayInfo.filter((d) => d.changed);
   const unchangedDayNames = dayInfo.filter((d) => !d.changed).map((d) => d.pd.day);
 
+  // <details> collapsed by default (retour direct : les cartes ne
+  // devaient pas s'afficher toutes ouvertes d'un coup) — la case à cocher
+  // reste dans le <summary> pour rester décidable sans ouvrir la carte ;
+  // son clic stoppe la propagation (voir plus bas) pour ne pas aussi
+  // replier/déplier la carte à chaque coche.
   const dayCardsHTML = changedDays
     .map(({ pd, cd }) => `
-      <div class="plan-day-proposal" data-day="${escapeAttr(pd.day)}">
-        <label class="plan-day-proposal-header">
+      <details class="plan-day-proposal" data-day="${escapeAttr(pd.day)}">
+        <summary class="plan-day-proposal-header">
           <input type="checkbox" class="plan-day-accept" checked>
           <span>${escapeHtmlText(pd.day)} ${escapeHtmlText(pd.date)}${pd.title ? ` — ${escapeHtmlText(pd.title)}` : ""}</span>
           <span class="plan-day-tag">${cd ? "🔄 modifié" : "🆕 nouveau"}</span>
-        </label>
+        </summary>
         <div class="markdown-body small">${renderMarkdown(pd.body)}</div>
         ${cd ? `
         <details class="block-overview-details">
           <summary>Voir la version actuelle</summary>
           <div class="markdown-body small">${renderMarkdown(cd.body)}</div>
         </details>` : ""}
-      </div>`)
+      </details>`)
     .join("");
 
   box.innerHTML = `
@@ -258,6 +263,17 @@ async function loadPendingProposal(token) {
       </div>
       <p id="proposal-status" class="muted small"></p>
     </section>`;
+
+  // La case vit dans le <summary> : sans ça, la cocher rouvre/referme
+  // aussi la carte (le clic bulle jusqu'au <summary>).
+  box.querySelectorAll(".plan-day-accept").forEach((cb) => {
+    cb.addEventListener("click", (e) => e.stopPropagation());
+  });
+  // Tableaux Fonction/Ordre/Exercice/Série×Reps/Charge/RIR-Note : 6
+  // colonnes ne tiennent pas côte à côte sur un écran de téléphone sans
+  // devenir illisibles — étiquette chaque cellule pour l'affichage en
+  // carte empilée (voir .plan-day-proposal .markdown-body table).
+  addTableDataLabels(box);
 
   document.getElementById("proposal-accept").addEventListener("click", async (e) => {
     const btn = e.currentTarget;

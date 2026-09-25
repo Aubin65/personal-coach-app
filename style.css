@@ -47,6 +47,11 @@
 
 * { box-sizing: border-box; }
 
+/* Coche/radio natives aux couleurs de la DA plutôt que le bleu système par
+   défaut du navigateur — s'applique partout (pas seulement aux
+   propositions du coach), aucune raison qu'une case à cocher détonne. */
+input[type="checkbox"], input[type="radio"] { accent-color: var(--green-light); }
+
 /* #login-screen/#app below set their own `display`, which (being an ID
    selector) otherwise outranks the UA stylesheet's default `[hidden]`
    rule — without this, toggling the `hidden` attribute in app.js has no
@@ -1071,6 +1076,10 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   padding: 10px 12px;
   margin: 10px 0;
 }
+/* Repliée par défaut (retour direct) : <summary> porte la case à cocher
+   (décidable sans ouvrir la carte, voir loadPendingProposal) + le
+   triangle de disclosure, même motif que .alert-card/.block-overview-
+   details. */
 .plan-day-proposal-header {
   display: flex;
   align-items: center;
@@ -1079,7 +1088,12 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 0.92rem;
+  list-style: none;
 }
+.plan-day-proposal-header::-webkit-details-marker { display: none; }
+.plan-day-proposal-header::after { content: " ▾"; color: var(--muted); margin-left: 2px; }
+.plan-day-proposal[open] .plan-day-proposal-header::after { content: " ▴"; }
+.plan-day-proposal[open] .plan-day-proposal-header { margin-bottom: 4px; }
 .plan-day-proposal-header input[type="checkbox"] { width: 18px; height: 18px; flex-shrink: 0; }
 .plan-day-tag {
   margin-left: auto;
@@ -1092,7 +1106,49 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   padding: 2px 8px;
   white-space: nowrap;
 }
-.plan-day-proposal .markdown-body { margin: 8px 0 0; max-height: 220px; }
+.plan-day-proposal .markdown-body { margin: 8px 0 0; max-height: none; }
+
+/* Tableau de séance dans une proposition (Fonction/Ordre/Exercice/
+   Série×Reps/Charge/RIR-Note, 6 colonnes) : le défilement horizontal en
+   nowrap (.markdown-body table de base) coupait la moitié des colonnes
+   sur un écran de téléphone, et des colonnes de largeur égale rendaient
+   chaque mot coupé en deux. Une carte empilée par ligne (une paire
+   étiquette/valeur par ligne, étiquette prise dans l'en-tête via
+   addTableDataLabels) reste lisible quelle que soit la longueur du texte
+   d'une colonne (le "RIR / Note" du coach est souvent une phrase entière). */
+.plan-day-proposal .markdown-body table {
+  display: block;
+  width: 100%;
+  white-space: normal;
+  font-size: 0.85rem;
+  border: none;
+}
+.plan-day-proposal .markdown-body thead { display: none; }
+.plan-day-proposal .markdown-body tbody { display: block; }
+.plan-day-proposal .markdown-body tr {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin: 0 0 8px;
+}
+.plan-day-proposal .markdown-body tr:nth-child(even) { background: var(--green-pale); }
+.plan-day-proposal .markdown-body td {
+  display: flex;
+  gap: 8px;
+  border: none;
+  padding: 3px 0;
+  overflow-wrap: break-word;
+}
+.plan-day-proposal .markdown-body td::before {
+  content: attr(data-label);
+  flex: 0 0 84px;
+  font-weight: 700;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--green-light);
+}
 
 /* ---------- Aujourd'hui : alertes persistantes (docs/adr/0045, déplacées
    depuis Semaine par docs/adr/0053) ---------- */

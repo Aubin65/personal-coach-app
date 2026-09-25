@@ -85,6 +85,23 @@ export function renderMarkdown(md) {
   return html;
 }
 
+/** Tags every <td> in every table under `root` with a `data-label`
+ * attribute taken from its column's header — used to turn a wide
+ * multi-column markdown table into a readable stacked card per row on a
+ * narrow screen (see .plan-day-proposal .markdown-body table in
+ * style.css), without hardcoding column names anywhere (works whatever
+ * columns the coach's table actually has). */
+export function addTableDataLabels(root) {
+  root.querySelectorAll("table").forEach((table) => {
+    const headers = Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent.trim());
+    table.querySelectorAll("tbody tr").forEach((tr) => {
+      Array.from(tr.children).forEach((td, i) => {
+        if (headers[i]) td.setAttribute("data-label", headers[i]);
+      });
+    });
+  });
+}
+
 export function skeletonHTML() {
   const tpl = document.getElementById("tpl-skeleton");
   return tpl ? tpl.innerHTML : "";
