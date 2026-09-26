@@ -801,6 +801,18 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   cursor: pointer;
 }
 .suggestion-chip:active { background: var(--border); }
+/* Sélection persistante (zone de douleur, filtre d'historique...) — sans
+   ça un chip "actif" (classList.toggle("active", ...)) est visuellement
+   identique à un chip non sélectionné, seul :active (l'état pressé,
+   disparaît au relâchement) avait un style. Retour direct : "je n'arrive
+   pas à sélectionner proprement la zone" — la sélection fonctionnait déjà
+   côté JS, elle était juste invisible à l'écran. */
+.suggestion-chip.active {
+  background: var(--green-light);
+  border-color: var(--green-light);
+  color: white;
+  font-weight: 600;
+}
 
 /* ---------- Voice input ---------- */
 .compose-row { display: flex; gap: 8px; align-items: flex-start; }
