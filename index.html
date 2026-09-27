@@ -247,6 +247,7 @@
     <h2>🩹 Loguer une douleur / gêne</h2>
     <p class="muted small">Zone, niveau 0-10, une note si besoin — pour pouvoir relire plus tard comment ça a évolué et ce qui avait aidé la dernière fois.</p>
     <div id="pain-zone-chips" class="suggestion-chips"></div>
+    <div id="pain-side-toggle" class="suggestion-chips" hidden></div>
     <div class="exercise-log-grid" style="margin-top:10px">
       <div><label>Niveau (0-10)</label><input type="number" id="pain-level" min="0" max="10" step="1" placeholder="0-10"></div>
       <div><label>Date</label><input type="date" id="pain-date"></div>
@@ -263,7 +264,6 @@
   <section class="card">
     <h2>Historique</h2>
     <div id="pain-history-filters" class="suggestion-chips"></div>
-    <div id="pain-history-trend"></div>
     <div id="pain-history-list"></div>
   </section>
 </template>

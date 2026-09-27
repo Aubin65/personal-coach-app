@@ -263,8 +263,8 @@ export function painLevelColor(level) {
   return "var(--green-light)";
 }
 
-/** Douleur d'une zone dans le temps ([{date, level}], ascending, depuis
- * `pain_recent.entries` filtré à une zone) — même construction que
+/** Douleur d'une zone dans le temps ([{date, level}], ascending — les
+ * entrées d'un épisode de `pain_recent.episodes`) — même construction que
  * `workloadTrendSVG` (échelle fixe, ici 0-10, points espacés régulièrement
  * par index plutôt que par date réelle : le rythme de logging n'est pas
  * régulier — un jour sur deux, une pause de plusieurs semaines — un

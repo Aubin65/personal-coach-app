@@ -1622,15 +1622,10 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .rpe-scale-table tr:last-child td { border-bottom: none; }
 
 /* ---------- Suivi de la douleur (Aujourd'hui → Douleur / gêne) ----------
-   docs/adr/0060. */
-#pain-history-trend:not(:empty) { margin: 4px 0 14px; padding-top: 10px; border-top: 1px solid var(--border); }
-.pain-history-item {
-  display: flex;
-  gap: 10px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-.pain-history-item:last-child { border-bottom: none; }
+   docs/adr/0060/0061. Historique regroupé par bloc d'entraînement, chaque
+   bloc et chaque épisode repliés par défaut (sauf le plus récent) — même
+   motif de disclosure que .block-overview-details/.alert-card partout
+   ailleurs dans l'app. */
 .pain-level-badge {
   flex-shrink: 0;
   width: 30px;
@@ -1644,6 +1639,35 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   font-family: var(--font-display);
   font-size: 0.92rem;
 }
-.pain-history-item-body { flex: 1; min-width: 0; }
-.pain-history-item-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.pain-history-item-body p { margin: 2px 0 0; }
+.pain-block-group { margin: 0 0 12px; }
+.pain-block-group summary {
+  cursor: pointer;
+  color: var(--green);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 0.98rem;
+  padding: 6px 0;
+  list-style: none;
+  border-bottom: 2px solid var(--gold);
+}
+.pain-block-group summary::-webkit-details-marker { display: none; }
+.pain-block-group summary::after { content: " ▾"; color: var(--muted); }
+.pain-block-group[open] summary::after { content: " ▴"; }
+.pain-episode {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin: 10px 0 0;
+}
+.pain-episode summary {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+}
+.pain-episode summary::-webkit-details-marker { display: none; }
+.pain-episode-title { font-weight: 600; }
+.pain-episode-evolution { margin: 8px 0 0; color: var(--muted); }
+.pain-episode-notes { margin: 6px 0 0; padding-left: 20px; font-size: 0.88rem; }
+.pain-episode-notes li { margin-bottom: 4px; }
