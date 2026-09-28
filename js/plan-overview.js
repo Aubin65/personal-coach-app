@@ -5,7 +5,7 @@ import { addDaysISO, formatFrDate, todayISO } from "./date-utils.js";
 import { SESSION_TYPES, EXERCISE_FORMATS } from "./session-types.js";
 import { ghGetFile } from "./github-api.js";
 import { setupMicButton } from "./voice-input.js";
-import { postUserMessage } from "./views/chat.js";
+import { postUserMessage, dispatchStatusNote } from "./views/chat.js";
 
 // ============================================================================
 // Weekly plan overview — parses the plan markdown's day headers ("## Lundi
@@ -307,11 +307,13 @@ function wireDayAdjustComposer(date) {
     btn.disabled = true;
     statusEl.textContent = "Envoi…";
     try {
-      await postUserMessage(`Ajuste la séance du ${formatFrDate(date)} (${date}) : ${text}`);
+      const dispatch = await postUserMessage(`Ajuste la séance du ${formatFrDate(date)} (${date}) : ${text}`);
       textEl.value = "";
       statusEl.innerHTML = "";
       const ok = document.createElement("span");
-      ok.textContent = "Envoyé ✓ — le coach prépare l'ajustement (quelques minutes), à valider ensuite ici même, dans Semaine → Planning. ";
+      ok.textContent = dispatch.dispatched
+        ? "Envoyé ✓ — le coach prépare l'ajustement (quelques minutes), à valider ensuite ici même, dans Semaine → Planning. "
+        : `Envoyé ✓ — à valider ensuite ici même, dans Semaine → Planning.${dispatchStatusNote(dispatch)} `;
       const link = document.createElement("button");
       link.textContent = "Voir dans Coach →";
       link.className = "suggestion-chip";

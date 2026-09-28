@@ -7,7 +7,7 @@ import { lookupDaySummary, findSessionForDate } from "../training-index.js";
 import { SESSION_TYPES } from "../session-types.js";
 import { blankSession, defaultSessionName } from "../session/session-model.js";
 import { saveSession } from "../session/session-form.js";
-import { postUserMessage } from "./chat.js";
+import { postUserMessage, dispatchStatusNote } from "./chat.js";
 
 // ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
 
@@ -38,8 +38,10 @@ export async function renderForge(token) {
     btn.disabled = true;
     statusEl.textContent = "Envoi…";
     try {
-      await postUserMessage(forgeSkeletonRequestText(state.forgeMonday));
-      statusEl.textContent = "Envoyé ✓ — le coach prépare une proposition, elle apparaît ici automatiquement (quelques minutes).";
+      const dispatch = await postUserMessage(forgeSkeletonRequestText(state.forgeMonday));
+      statusEl.textContent = dispatch.dispatched
+        ? "Envoyé ✓ — le coach prépare une proposition, elle apparaît ici automatiquement (quelques minutes)."
+        : `Envoyé ✓ — elle apparaîtra ici automatiquement.${dispatchStatusNote(dispatch)}`;
       startForgePolling();
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;

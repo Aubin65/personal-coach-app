@@ -12,21 +12,41 @@ let chatPollTimer = null;
  * directly, see docs/adr/0018). Also dispatches app-chat.yml immediately
  * instead of waiting for its cron: GitHub only runs scheduled workflows
  * on a best-effort basis, and in practice this one fires every couple of
- * hours rather than every 5 minutes, which is why replies used to take so
- * long to show up. The cron stays as a fallback (see app-chat.yml) for
- * anything that reaches conversation.json some other way, so a dispatch
- * failure (e.g. token missing the Actions permission — same requirement
- * as "Nouveau digest", see docs/app-deploy.md) is swallowed rather than
- * blocking the send. */
+ * hours (sometimes longer) rather than every 15 minutes, which is why
+ * replies used to take so long to show up. The cron stays as a fallback
+ * (see app-chat.yml) for anything that reaches conversation.json some
+ * other way, so a dispatch failure (e.g. token missing the Actions
+ * permission — same requirement as "Nouveau digest", see
+ * docs/app-deploy.md) never blocks the send — but it used to be swallowed
+ * entirely (`.catch(() => {})`), silently, with the same "quelques
+ * minutes" message shown regardless. A real incident (dispatch broken/
+ * unused for 3+ days straight — no workflow_dispatch-triggered app-chat
+ * run at all between 2026-09-25 and 2026-09-28 despite several messages
+ * sent in between, each one waiting hours on the cron instead) showed
+ * that silence is indistinguishable from "your message is on its way" —
+ * the user has no way to tell a message got stuck. Surface it via the
+ * return value instead, so every caller can show an accurate status. */
 export async function postUserMessage(text) {
-  const result = await ghPutJSON(
+  await ghPutJSON(
     "data/app-chat/conversation.json",
     [],
     "App : nouveau message utilisateur",
     (conv) => [...conv, { role: "user", text, at: localISOWithOffset() }]
   );
-  ghDispatchWorkflow("app-chat.yml").catch(() => {});
-  return result;
+  try {
+    await ghDispatchWorkflow("app-chat.yml");
+    return { dispatched: true };
+  } catch (err) {
+    return { dispatched: false, dispatchError: err.message };
+  }
+}
+
+/** Suffix for a "message sent" status line — call after `postUserMessage`
+ * to say plainly when the instant path failed instead of always claiming
+ * "quelques minutes" (see postUserMessage's doc comment). */
+export function dispatchStatusNote({ dispatched, dispatchError }) {
+  if (dispatched) return "";
+  return ` ⚠️ Déclenchement immédiat indisponible (${dispatchError || "erreur inconnue"}) — la réponse passera par le cycle automatique, ça peut prendre plusieurs heures. Si ça persiste, vérifie la permission Actions du token (docs/app-deploy.md).`;
 }
 
 export async function renderChat(token) {
@@ -40,7 +60,10 @@ export async function renderChat(token) {
     input.value = "";
     appendChatBubble(text, "user");
     try {
-      await postUserMessage(text);
+      const dispatch = await postUserMessage(text);
+      showChatStatus(dispatch.dispatched
+        ? "Réponse en cours de préparation…"
+        : `Message envoyé.${dispatchStatusNote(dispatch)}`);
     } catch (err) {
       appendChatBubble(`Échec de l'envoi : ${err.message}`, "assistant");
     }
@@ -79,6 +102,17 @@ function appendChatBubble(text, role) {
   scrollChatToBottom();
 }
 
+/** Status line below the composer (#chat-status) — separate from
+ * `.chat-log` so it survives independently of `refreshChatLog`'s full
+ * rebuild of the log every poll (15s). Cleared automatically as soon as
+ * an actual reply lands (see refreshChatLog below), never left stale. */
+function showChatStatus(text) {
+  const el = document.getElementById("chat-status");
+  if (!el) return;
+  el.textContent = text;
+  el.hidden = !text;
+}
+
 async function refreshChatLog(token) {
   const file = await ghGetFile("data/app-chat/conversation.json");
   if (token != null && stale(token)) return;
@@ -94,6 +128,10 @@ async function refreshChatLog(token) {
     div.textContent = turn.text;
     log.appendChild(div);
   }
+  // A reply landed (or there was never anything pending) — whatever the
+  // composer's status line said ("en cours de préparation", a dispatch
+  // warning…) no longer applies.
+  if (!conv.length || conv[conv.length - 1].role === "assistant") showChatStatus("");
   scrollChatToBottom();
 }
 

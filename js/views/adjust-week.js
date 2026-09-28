@@ -1,6 +1,6 @@
 import { showView } from "../nav.js";
 import { setupMicButton } from "../voice-input.js";
-import { postUserMessage } from "./chat.js";
+import { postUserMessage, dispatchStatusNote } from "./chat.js";
 
 // ---- Ajuster ma semaine ----
 const ADJUST_SUGGESTIONS = [
@@ -36,11 +36,13 @@ export async function renderAdjustWeek() {
     btn.disabled = true;
     statusEl.textContent = "Envoi…";
     try {
-      await postUserMessage(text);
+      const dispatch = await postUserMessage(text);
       textEl.value = "";
       statusEl.innerHTML = "";
       const ok = document.createElement("span");
-      ok.textContent = "Envoyé ✓ — le coach prépare une proposition (quelques minutes), à valider ensuite dans Semaine → Planning. ";
+      ok.textContent = dispatch.dispatched
+        ? "Envoyé ✓ — le coach prépare une proposition (quelques minutes), à valider ensuite dans Semaine → Planning. "
+        : `Envoyé ✓ — à valider ensuite dans Semaine → Planning.${dispatchStatusNote(dispatch)} `;
       const link = document.createElement("button");
       link.textContent = "Voir dans Coach →";
       link.className = "suggestion-chip";
