@@ -3,10 +3,11 @@ import { state, stale } from "../nav.js";
 import { todayISO, formatFrDate, sessionIsBlankSkeleton } from "../date-utils.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
 import { findSessionForDate } from "../training-index.js";
+import { ghPutJSON } from "../github-api.js";
 import { SESSION_TYPES, EXERCISE_FORMATS, BLOCK_TIMING_FIELDS, BLOCK_RESULT_LABELS } from "../session-types.js";
 import { blankSession, groupExercisesIntoBlocks } from "./session-model.js";
 import { splitTimerHTML, timerBarHTML, startTimerDisplayInterval, startSessionAutoSave, startBlockTimerIntervals } from "./session-timer.js";
-import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEvents } from "./session-form.js";
+import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEvents, saveSession } from "./session-form.js";
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 
 // ---------- Session detail : voir/loguer/planifier n'importe quelle date ----------
@@ -67,6 +68,7 @@ export function renderSessionContent() {
   el.innerHTML = `
     <section class="card">
       <div class="session-type-badge">${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${SESSION_TYPES[type] ? SESSION_TYPES[type].label : type}</div>
+      ${session.cancelled_from ? `<p class="muted small session-cancelled-note">Remplace « ${escapeHtmlText(session.cancelled_from.name || "séance")} » (annulée).</p>` : ""}
       <label>Nom de la séance</label>
       <input id="session-name-input" value="${escapeAttr(session.name || "Séance")}">
     </section>
@@ -80,12 +82,88 @@ export function renderSessionContent() {
     ${workloadSectionHTML(session)}
     ${secondarySessionSectionHTML(session)}
     <button id="save-session" class="primary-button">Enregistrer la séance</button>
-    <p id="session-status" class="muted small"></p>`;
+    <p id="session-status" class="muted small"></p>
+    ${cancelSessionCardHTML(session)}`;
 
   bindSessionContentEvents();
+  bindCancelSession();
   startTimerDisplayInterval();
   startSessionAutoSave();
   startBlockTimerIntervals();
+}
+
+/** Annuler une séance = la remplacer par un autre type (repos par défaut,
+ * ou une activité plus douce / le rugby) en une seule action, au lieu de
+ * vider à la main la séance puis rechoisir un type — demande directe :
+ * "annuler une séance et mettre soit du repos soit un autre type
+ * d'exercice, pour des adaptations plus faciles". `cancelled_from` garde
+ * le nom/type d'origine pour que le coach sache qu'il s'agit d'une
+ * annulation et non d'un jour vide (jamais interprété comme du volume
+ * réalisé : le contenu prévu n'est pas conservé, pas de charge ajoutée). */
+function cancelSessionCardHTML(session) {
+  const current = session.type || "musculation";
+  if (current === "repos") return ""; // un jour de repos n'a rien à annuler
+  const targets = Object.entries(SESSION_TYPES).filter(([key]) => key !== current && key !== "musculation");
+  if (!targets.length) return "";
+  return `
+    <section class="card cancel-session-card">
+      <h2>🚫 Annuler cette séance</h2>
+      <p class="muted small">Remplace la séance par un autre type. Motif facultatif, repris dans la note.</p>
+      <textarea id="cancel-reason" rows="2" placeholder="Pourquoi ? (courbatures, fatigue, douleur...)"></textarea>
+      <div class="cancel-session-actions">
+        ${targets.map(([key, t]) => `<button type="button" class="action-button" data-cancel-to="${key}"><span class="action-icon">${t.icon}</span>Remplacer par : ${t.label}</button>`).join("")}
+      </div>
+      <p id="cancel-status" class="muted small"></p>
+    </section>`;
+}
+
+function bindCancelSession() {
+  document.querySelectorAll("[data-cancel-to]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const { session, date, weekLabel } = sessionRuntime.working;
+      const newType = btn.dataset.cancelTo;
+      const reasonEl = document.getElementById("cancel-reason");
+      const statusEl = document.getElementById("cancel-status");
+      const reason = reasonEl ? reasonEl.value.trim() : "";
+      if (sessionRuntime.saveInFlight) { statusEl.textContent = "Sauvegarde en cours, réessaie dans un instant."; return; }
+      const hasLoggedWork = session.session_rpe != null || session.session_duration_min != null ||
+        (session.exercises || []).some((ex) => ex.executed && (ex.executed.sets || ex.executed.reps || ex.executed.load));
+      const label = SESSION_TYPES[newType].label.toLowerCase();
+      if (!window.confirm(hasLoggedWork
+        ? `Cette séance contient déjà des données réalisées — les remplacer par « ${label} » les supprime. Continuer ?`
+        : `Annuler « ${session.name || "la séance"} » et la remplacer par « ${label} » ?`)) return;
+
+      const next = blankSession(date, newType);
+      next.cancelled_from = { name: session.name || null, type: session.type || "musculation" };
+      next.notes = `Séance « ${session.name || "prévue"} » annulée${reason ? ` : ${reason}` : ""}.`;
+      statusEl.textContent = "Enregistrement…";
+      document.querySelectorAll("[data-cancel-to]").forEach((b) => (b.disabled = true));
+      sessionRuntime.saveInFlight = true;
+      try {
+        await saveSession(weekLabel, date, next);
+        // saveSession n'écrit la charge que si elle est renseignée — sans
+        // ce nettoyage, un RPE/durée déjà logués ce jour-là resteraient
+        // dans data/health et continueraient de compter dans l'ACWR.
+        if (session.session_rpe != null || session.session_duration_min != null || session.secondary) {
+          await ghPutJSON(`data/health/${date}.json`, { date }, `App : séance du ${date} annulée`, (current) => {
+            const base = current || { date };
+            delete base.session_rpe;
+            delete base.session_duration_min;
+            delete base.session_loads;
+            return base;
+          });
+        }
+        sessionRuntime.working.session = next;
+        renderSessionContent();
+        document.getElementById("session-status").textContent = "Séance annulée ✓";
+      } catch (err) {
+        statusEl.textContent = `Échec : ${err.message}`;
+        document.querySelectorAll("[data-cancel-to]").forEach((b) => (b.disabled = false));
+      } finally {
+        sessionRuntime.saveInFlight = false;
+      }
+    });
+  });
 }
 
 export function notesLabelFor(type) {

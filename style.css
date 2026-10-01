@@ -784,6 +784,13 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .checkin-summary p { margin: 0 0 6px; }
 .checkin-summary .checkin-edit { margin-top: 2px; }
 .checkin-section-title { font-weight: 600; margin: 0 0 8px; }
+.checkin-history { margin-top: 12px; }
+.checkin-history-list { list-style: none; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.checkin-patterns { margin-top: 10px; }
+.cancel-session-card textarea { margin-bottom: 8px; }
+.cancel-session-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.cancel-session-actions .action-button { margin-bottom: 0; }
+.session-cancelled-note { margin: 0 0 8px; }
 .checkin-wellness-row { margin-bottom: 14px; }
 .checkin-wellness-label { margin: 0 0 6px; font-weight: 600; }
 .checkin-wellness-anchors { display: flex; justify-content: space-between; margin: 4px 0 0; }

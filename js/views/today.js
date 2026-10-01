@@ -111,6 +111,71 @@ function checkinFormHTML(wellness, mobility, arrivalState, hidden) {
     </div>`;
 }
 
+const WEEKDAYS_SHORT = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
+
+/** Fusionne par date les trois historiques exportés (`arrival_state_recent`,
+ * `wellness_recent`, `mobility_recent`) — le résumé n'est régénéré qu'à
+ * chaque digest, donc le check-in du jour (lu en direct, voir
+ * `loadCheckin`) est toujours ajouté par-dessus. Plus récent d'abord. */
+function mergeCheckinHistory(summary, today) {
+  const byDate = new Map();
+  const slot = (date) => {
+    if (!byDate.has(date)) byDate.set(date, { date });
+    return byDate.get(date);
+  };
+  ((summary.arrival_state_recent || {}).history || []).forEach((e) => { slot(e.date).arrival = { state: e.state }; });
+  ((summary.wellness_recent || {}).history || []).forEach((e) => { slot(e.date).wellness = e; });
+  ((summary.mobility_recent || {}).history || []).forEach((e) => { slot(e.date).mobility = e; });
+  if (today.arrival || today.wellness || today.mobility) {
+    const entry = slot(today.date);
+    if (today.arrival) entry.arrival = today.arrival;
+    if (today.wellness) entry.wellness = today.wellness;
+    if (today.mobility) entry.mobility = today.mobility;
+  }
+  return [...byDate.values()].sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+function checkinHistoryHTML(entries) {
+  if (!entries.length) return "";
+  const rows = entries
+    .map((e) => {
+      const d = new Date(`${e.date}T12:00:00`);
+      const label = `${WEEKDAYS_SHORT[d.getDay()]} ${e.date.slice(8, 10)}/${e.date.slice(5, 7)}`;
+      const parts = [];
+      if (e.arrival) {
+        const opt = ARRIVAL_STATE_OPTIONS.find((o) => o.id === e.arrival.state);
+        parts.push(`${opt ? `${opt.emoji} ${opt.label}` : escapeHtmlText(String(e.arrival.state))}`);
+      }
+      if (e.wellness) parts.push(`bien-être ${e.wellness.score}/100`);
+      if (e.mobility) {
+        const doneLabel = MOBILITY_DONE_LABELS[e.mobility.done] || e.mobility.done;
+        parts.push(`étirements ${escapeHtmlText(String(doneLabel))}${e.mobility.stiffness != null ? ` (raideur ${e.mobility.stiffness}/10)` : ""}`);
+      }
+      return `<li><strong>${label}</strong> — ${parts.join(" · ") || "—"}</li>`;
+    })
+    .join("");
+  return `
+    <details class="block-overview-details checkin-history">
+      <summary>📅 Historique des check-ins (${entries.length})</summary>
+      <ul class="checkin-history-list small">${rows}</ul>
+    </details>`;
+}
+
+function recoveryPatternsHTML(patterns) {
+  if (!patterns) return "";
+  const lines = [];
+  const sleep = patterns.sleep_correlation;
+  if (sleep) {
+    lines.push(`Nuits < 7h : arrivée moyenne ${sleep.short_sleep_avg_severity}/5 (${sleep.short_sleep_n} jours) contre ${sleep.good_sleep_avg_severity}/5 après ≥ 7h (${sleep.good_sleep_n} jours).`);
+  }
+  const contact = patterns.poor_recovery_after_contact;
+  if (contact && contact.length) {
+    lines.push(`Arrivée difficile le lendemain d'un match à contacts : ${contact.length} fois (${contact.map((c) => `${c.date.slice(8, 10)}/${c.date.slice(5, 7)}`).join(", ")}).`);
+  }
+  if (!lines.length) return "";
+  return `<p class="muted small checkin-patterns">${lines.map(escapeHtmlText).join("<br>")}</p>`;
+}
+
 /** (Re)branche "✏️ Modifier" — appelé au rendu initial et après une
  * sauvegarde qui remplace le contenu du slot résumé (le nouveau bouton
  * n'a pas encore d'écouteur, même motif que calendar.js). */
@@ -191,9 +256,15 @@ function wireCheckinForm(card) {
       // encore régénéré à ce stade, seul le prochain digest le fera) —
       // même motif que le composer de performance match (calendar.js).
       statusEl.textContent = "";
-      card.querySelector(".checkin-summary-slot").innerHTML = checkinSummaryHTML({ ...wellness, score: wellnessScore(wellness) }, mobility, arrivalState);
+      const wellnessWithScore = { ...wellness, score: wellnessScore(wellness) };
+      card.querySelector(".checkin-summary-slot").innerHTML = checkinSummaryHTML(wellnessWithScore, mobility, arrivalState);
       card.querySelector(".checkin-form").hidden = true;
       wireCheckinEditButton(card);
+      const historyCard = card.querySelector(".checkin-card");
+      if (historyCard && historyCard._history) {
+        historyCard._history.today = { date, arrival: arrivalState, wellness: wellnessWithScore, mobility };
+        refreshCheckinHistory(historyCard);
+      }
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
     } finally {
@@ -202,14 +273,27 @@ function wireCheckinForm(card) {
   });
 }
 
+/** Lit le check-in du jour directement dans `data/health/<date>.json`, la
+ * source de vérité écrite par "Enregistrer" — pas dans `data/app/summary.json`,
+ * qui n'est régénéré qu'à chaque digest : un check-in tout juste enregistré
+ * y restait invisible, le composer se rouvrait vierge et on pouvait
+ * enregistrer le matin une deuxième fois. Le résumé ne sert plus que pour
+ * l'historique des jours précédents. */
 async function loadCheckin(token) {
   const box = document.getElementById("checkin-content");
-  const file = await ghGetFile("data/app/summary.json");
+  const date = todayISO();
+  const [summaryFile, liveFile] = await Promise.all([ghGetFile("data/app/summary.json"), ghGetFile(`data/health/${date}.json`)]);
   if (stale(token)) return;
-  const s = file ? JSON.parse(file.content) : {};
-  const arrivalStateToday = (s.arrival_state_recent || {}).today || null;
-  const wellnessToday = (s.wellness_recent || {}).today || null;
-  const mobilityToday = (s.mobility_recent || {}).today || null;
+  const summary = summaryFile ? JSON.parse(summaryFile.content) : {};
+  let live = {};
+  if (liveFile) { try { live = JSON.parse(liveFile.content) || {}; } catch (_) { live = {}; } }
+
+  const arrivalStateToday = live.arrival_state && live.arrival_state.state ? live.arrival_state : null;
+  const wellnessRaw = live.wellness;
+  const wellnessToday = wellnessRaw && WELLNESS_DIMENSIONS.every((d) => wellnessRaw[d.key] != null)
+    ? { ...wellnessRaw, score: wellnessScore(wellnessRaw) }
+    : null;
+  const mobilityToday = live.mobility && live.mobility.done ? live.mobility : null;
   const alreadyLogged = !!(arrivalStateToday || wellnessToday || mobilityToday);
 
   box.innerHTML = `
@@ -217,8 +301,18 @@ async function loadCheckin(token) {
       <h2>🌅 Check-in du matin</h2>
       <div class="checkin-summary-slot">${alreadyLogged ? checkinSummaryHTML(wellnessToday, mobilityToday, arrivalStateToday) : ""}</div>
       ${checkinFormHTML(wellnessToday, mobilityToday, arrivalStateToday, alreadyLogged)}
+      <div class="checkin-history-slot"></div>
+      ${recoveryPatternsHTML((summary.arrival_state_recent || {}).patterns)}
     </section>`;
+  const card = box.querySelector(".checkin-card");
+  card._history = { summary, today: { date, arrival: arrivalStateToday, wellness: wellnessToday, mobility: mobilityToday } };
+  refreshCheckinHistory(card);
   wireCheckinForm(box);
+}
+
+function refreshCheckinHistory(card) {
+  const { summary, today } = card._history;
+  card.querySelector(".checkin-history-slot").innerHTML = checkinHistoryHTML(mergeCheckinHistory(summary, today));
 }
 
 /** Persistent alert cards — direct request : toutes les alertes
