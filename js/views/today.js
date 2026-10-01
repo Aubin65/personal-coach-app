@@ -1,6 +1,8 @@
 import { setupCredo } from "../credo.js";
 import { showView, stale, state } from "../nav.js";
-import { todayISO } from "../date-utils.js";
+import { todayISO, sessionHasExecuted } from "../date-utils.js";
+import { findSessionForDate } from "../training-index.js";
+import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
 import { ghDispatchWorkflow, ghGetFile, ghPutJSON } from "../github-api.js";
 import { latestFileOnOrBefore } from "../training-index.js";
@@ -109,6 +111,67 @@ function checkinFormHTML(wellness, mobility, arrivalState, hidden) {
       <button type="button" class="primary-button small" id="checkin-save" style="margin-top:10px">Enregistrer</button>
       <p class="muted small" id="checkin-status"></p>
     </div>`;
+}
+
+const POOR_ARRIVALS = ["difficile", "vraiment_fatigué"];
+const adaptRequestKey = (date) => `coach_checkin_adapt_requested_${date}`;
+
+function checkinAdaptRequestText(arrivalState, wellness, session) {
+  const opt = ARRIVAL_STATE_OPTIONS.find((o) => o.id === arrivalState.state);
+  const label = opt ? opt.label.toLowerCase() : arrivalState.state;
+  // Échelles 1-5 où 5 = très bien pour les quatre curseurs : "courbatures
+  // 1/5" veut dire très courbaturé — à préciser pour ne pas être lu à l'envers.
+  const dims = wellness ? ` (énergie ${wellness.energie}/5, courbatures ${wellness.courbatures}/5 où 1 = très courbaturé, motivation ${wellness.motivation}/5 ; 5 = au mieux)` : "";
+  return `[Check-in] J'arrive « ${label} » ce matin${dims}. Adapte la séance d'aujourd'hui (« ${session.name || "séance"} ») en conséquence : allège-la, ou propose du repos si c'est plus sage.`;
+}
+
+/** Après un check-in "difficile"/"vraiment fatigué" et seulement s'il reste
+ * une séance à faire aujourd'hui, propose d'un tap de demander au coach de
+ * l'adapter — le digest de 8h30 passe souvent avant le check-in du
+ * matin, donc il ne verrait jamais cet état (docs/adr/0068). La demande
+ * suit le chemin habituel du chat (préfixe `[Check-in]` routé vers
+ * prompts/session-adjustment.md) : une proposition à valider dans Semaine,
+ * jamais une modification appliquée d'office. */
+async function refreshAdaptOffer(card, token) {
+  const slot = card.querySelector(".checkin-adapt-slot");
+  if (!slot) return;
+  const { today } = card._history;
+  const arrival = today.arrival;
+  if (!arrival || !POOR_ARRIVALS.includes(arrival.state)) { slot.innerHTML = ""; return; }
+
+  let found = null;
+  try { found = await findSessionForDate(today.date); } catch (_) { return; }
+  if (stale(token)) return;
+  const session = found && found.session;
+  if (!session || session.type === "repos" || sessionHasExecuted(session)) { slot.innerHTML = ""; return; }
+
+  let alreadyRequested = false;
+  try { alreadyRequested = !!localStorage.getItem(adaptRequestKey(today.date)); } catch (_) {}
+  if (alreadyRequested) {
+    slot.innerHTML = `<p class="muted small">Demande d'adaptation envoyée au coach — la proposition arrive dans Semaine.</p>`;
+    return;
+  }
+
+  slot.innerHTML = `
+    <div class="checkin-adapt">
+      <p class="small">Arrivée difficile ce matin : veux-tu que le coach adapte la séance du jour (« ${escapeHtmlText(session.name || "séance")} ») ?</p>
+      <button type="button" class="primary-button small checkin-adapt-button">🧠 Adapter ma séance</button>
+      <p class="muted small checkin-adapt-status"></p>
+    </div>`;
+  const btn = slot.querySelector(".checkin-adapt-button");
+  const statusEl = slot.querySelector(".checkin-adapt-status");
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    statusEl.textContent = "Envoi…";
+    try {
+      const dispatch = await postUserMessage(checkinAdaptRequestText(arrival, today.wellness, session));
+      try { localStorage.setItem(adaptRequestKey(today.date), "1"); } catch (_) {}
+      statusEl.textContent = `Demande envoyée ✓ — proposition dans Semaine d'ici quelques minutes.${dispatchStatusNote(dispatch)}`;
+    } catch (err) {
+      statusEl.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
+    }
+  });
 }
 
 const WEEKDAYS_SHORT = ["dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."];
@@ -264,6 +327,7 @@ function wireCheckinForm(card) {
       if (historyCard && historyCard._history) {
         historyCard._history.today = { date, arrival: arrivalState, wellness: wellnessWithScore, mobility };
         refreshCheckinHistory(historyCard);
+        refreshAdaptOffer(historyCard, state.renderToken).catch(() => {});
       }
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
@@ -300,6 +364,7 @@ async function loadCheckin(token) {
     <section class="card checkin-card">
       <h2>🌅 Check-in du matin</h2>
       <div class="checkin-summary-slot">${alreadyLogged ? checkinSummaryHTML(wellnessToday, mobilityToday, arrivalStateToday) : ""}</div>
+      <div class="checkin-adapt-slot"></div>
       ${checkinFormHTML(wellnessToday, mobilityToday, arrivalStateToday, alreadyLogged)}
       <div class="checkin-history-slot"></div>
       ${recoveryPatternsHTML((summary.arrival_state_recent || {}).patterns)}
@@ -308,6 +373,7 @@ async function loadCheckin(token) {
   card._history = { summary, today: { date, arrival: arrivalStateToday, wellness: wellnessToday, mobility: mobilityToday } };
   refreshCheckinHistory(card);
   wireCheckinForm(box);
+  refreshAdaptOffer(card, token).catch(() => {});
 }
 
 function refreshCheckinHistory(card) {
