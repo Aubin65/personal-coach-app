@@ -20,6 +20,14 @@ const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "�
 // pour l'affichage immédiat après sauvegarde (voir `wellnessScore`).
 // ============================================================================
 
+const ARRIVAL_STATE_OPTIONS = [
+  { id: "energique", label: "Énergique", emoji: "⚡" },
+  { id: "ok", label: "OK", emoji: "👍" },
+  { id: "difficile", label: "Difficile", emoji: "😴" },
+  { id: "vraiment_fatigué", label: "Vraiment fatigué", emoji: "🚫" },
+];
+const ARRIVAL_STATE_LABELS = Object.fromEntries(ARRIVAL_STATE_OPTIONS.map((o) => [o.id, o.label]));
+
 const WELLNESS_DIMENSIONS = [
   { key: "energie", label: "Énergie", low: "Épuisé", high: "Plein d'énergie" },
   { key: "stress", label: "Stress", low: "Très stressé", high: "Détendu" },
@@ -43,8 +51,12 @@ function wellnessScore(w) {
   return Math.round(((avg - 1) / 4) * 100);
 }
 
-function checkinSummaryHTML(wellness, mobility) {
+function checkinSummaryHTML(wellness, mobility, arrivalState) {
   const parts = [];
+  if (arrivalState) {
+    const opt = ARRIVAL_STATE_OPTIONS.find((o) => o.id === arrivalState.state);
+    parts.push(`Arrivée : ${opt ? opt.emoji : ""} ${arrivalState.label || ARRIVAL_STATE_LABELS[arrivalState.state] || arrivalState.state}`);
+  }
   if (wellness) parts.push(`Bien-être : ${wellness.score}/100`);
   if (mobility) {
     const doneLabel = MOBILITY_DONE_LABELS[mobility.done] || mobility.done;
@@ -69,14 +81,19 @@ function wellnessChipsRowHTML(dim, value) {
     </div>`;
 }
 
-function checkinFormHTML(wellness, mobility, hidden) {
+function checkinFormHTML(wellness, mobility, arrivalState, hidden) {
+  const arrivalChips = ARRIVAL_STATE_OPTIONS
+    .map((o) => `<button type="button" class="suggestion-chip${arrivalState && arrivalState.state === o.id ? " active" : ""}" data-arrival-state="${o.id}" title="${o.label}">${o.emoji} ${o.label}</button>`)
+    .join("");
   const mobilityChips = MOBILITY_DONE_OPTIONS
     .map((o) => `<button type="button" class="suggestion-chip${mobility && mobility.done === o.id ? " active" : ""}" data-mobility-done="${o.id}">${o.label}</button>`)
     .join("");
   const wellnessRows = WELLNESS_DIMENSIONS.map((dim) => wellnessChipsRowHTML(dim, wellness ? wellness[dim.key] : null)).join("");
   return `
     <div class="checkin-form"${hidden ? " hidden" : ""}>
-      <p class="small checkin-section-title">Étirements du matin</p>
+      <p class="small checkin-section-title">Comment tu arrives ce matin</p>
+      <div class="suggestion-chips">${arrivalChips}</div>
+      <p class="small checkin-section-title" style="margin-top:10px">Étirements du matin</p>
       <div class="suggestion-chips">${mobilityChips}</div>
       <div class="exercise-log-grid full" style="margin-top:8px">
         <div><label>Raideur ressentie (0-10)</label><input type="number" id="checkin-stiffness" min="0" max="10" step="1" value="${mobility && mobility.stiffness != null ? mobility.stiffness : ""}" placeholder="0-10"></div>
@@ -112,6 +129,12 @@ function wireCheckinForm(card) {
     setupMicButton(micBtn, card.querySelector("#checkin-voice-hint"), card.querySelector("#checkin-note"), card.querySelector("#checkin-live-caption"));
   }
 
+  card.querySelectorAll("[data-arrival-state]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      card.querySelectorAll("[data-arrival-state]").forEach((c) => c.classList.toggle("active", c === chip));
+    });
+  });
+
   card.querySelectorAll("[data-mobility-done]").forEach((chip) => {
     chip.addEventListener("click", () => {
       card.querySelectorAll("[data-mobility-done]").forEach((c) => c.classList.toggle("active", c === chip));
@@ -130,6 +153,7 @@ function wireCheckinForm(card) {
   card.querySelector("#checkin-save").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     const statusEl = card.querySelector("#checkin-status");
+    const arrivalChip = card.querySelector("[data-arrival-state].active");
     const mobilityDoneChip = card.querySelector("[data-mobility-done].active");
     const stiffnessEl = card.querySelector("#checkin-stiffness");
     const noteEl = card.querySelector("#checkin-note");
@@ -138,10 +162,15 @@ function wireCheckinForm(card) {
       const chip = card.querySelector(`[data-wellness="${dim.key}"].active`);
       if (chip) wellness[dim.key] = Number(chip.dataset.value);
     }
+    if (!arrivalChip) { statusEl.textContent = "Indique comment tu arrives ce matin."; return; }
     if (!mobilityDoneChip) { statusEl.textContent = "Indique si tu as fait tes étirements."; return; }
     if (Object.keys(wellness).length < WELLNESS_DIMENSIONS.length) { statusEl.textContent = "Complète les 4 curseurs de bien-être."; return; }
 
     const date = todayISO();
+    const arrivalState = {
+      state: arrivalChip.dataset.arrivalState,
+      label: ARRIVAL_STATE_LABELS[arrivalChip.dataset.arrivalState] || null,
+    };
     const mobility = {
       done: mobilityDoneChip.dataset.mobilityDone,
       stiffness: stiffnessEl.value !== "" ? Number(stiffnessEl.value) : null,
@@ -153,6 +182,7 @@ function wireCheckinForm(card) {
     try {
       await ghPutJSON(`data/health/${date}.json`, { date }, `App : check-in du matin du ${date}`, (current) => {
         const base = current || { date };
+        base.arrival_state = arrivalState;
         base.wellness = wellness;
         base.mobility = mobility;
         return base;
@@ -161,7 +191,7 @@ function wireCheckinForm(card) {
       // encore régénéré à ce stade, seul le prochain digest le fera) —
       // même motif que le composer de performance match (calendar.js).
       statusEl.textContent = "";
-      card.querySelector(".checkin-summary-slot").innerHTML = checkinSummaryHTML({ ...wellness, score: wellnessScore(wellness) }, mobility);
+      card.querySelector(".checkin-summary-slot").innerHTML = checkinSummaryHTML({ ...wellness, score: wellnessScore(wellness) }, mobility, arrivalState);
       card.querySelector(".checkin-form").hidden = true;
       wireCheckinEditButton(card);
     } catch (err) {
@@ -177,15 +207,16 @@ async function loadCheckin(token) {
   const file = await ghGetFile("data/app/summary.json");
   if (stale(token)) return;
   const s = file ? JSON.parse(file.content) : {};
+  const arrivalStateToday = (s.arrival_state_recent || {}).today || null;
   const wellnessToday = (s.wellness_recent || {}).today || null;
   const mobilityToday = (s.mobility_recent || {}).today || null;
-  const alreadyLogged = !!(wellnessToday || mobilityToday);
+  const alreadyLogged = !!(arrivalStateToday || wellnessToday || mobilityToday);
 
   box.innerHTML = `
     <section class="card checkin-card">
       <h2>🌅 Check-in du matin</h2>
-      <div class="checkin-summary-slot">${alreadyLogged ? checkinSummaryHTML(wellnessToday, mobilityToday) : ""}</div>
-      ${checkinFormHTML(wellnessToday, mobilityToday, alreadyLogged)}
+      <div class="checkin-summary-slot">${alreadyLogged ? checkinSummaryHTML(wellnessToday, mobilityToday, arrivalStateToday) : ""}</div>
+      ${checkinFormHTML(wellnessToday, mobilityToday, arrivalStateToday, alreadyLogged)}
     </section>`;
   wireCheckinForm(box);
 }
