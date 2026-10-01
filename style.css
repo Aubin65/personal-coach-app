@@ -765,6 +765,34 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .calendar-match-score.is-win { background: var(--green-pale); color: var(--green-light); }
 .calendar-match-score.is-loss { background: rgba(211, 71, 71, 0.12); color: var(--danger); }
 
+/* Suivi de performance match (docs/adr/0064) — sous-section repliée dans
+   la ligne d'une équipe, distincte visuellement (fond léger, coins
+   arrondis) du reste de calendar-match-detail plutôt qu'un simple
+   paragraphe de plus. */
+.match-performance {
+  background: var(--bg);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 4px 0 8px;
+}
+.match-performance-title { margin: 0 0 6px; color: var(--muted); }
+.match-performance-summary p { margin: 0 0 6px; }
+.match-performance-summary .match-performance-edit { margin-top: 2px; }
+
+/* Check-in du matin (docs/adr/0065) — bien-être subjectif + mobilité,
+   même esprit compact que match-performance ci-dessus. */
+.checkin-summary p { margin: 0 0 6px; }
+.checkin-summary .checkin-edit { margin-top: 2px; }
+.checkin-section-title { font-weight: 600; margin: 0 0 8px; }
+.checkin-wellness-row { margin-bottom: 14px; }
+.checkin-wellness-label { margin: 0 0 6px; font-weight: 600; }
+.checkin-wellness-anchors { display: flex; justify-content: space-between; margin: 4px 0 0; }
+
+/* Tendances (docs/adr/0065) — une ligne par tendance descriptive. */
+.tendance-row { margin-bottom: 12px; }
+.tendance-row p { margin: 0 0 4px; }
+.tendance-row:last-of-type { margin-bottom: 10px; }
+
 .highlights-card {
   background: var(--gold-pale);
   border-radius: var(--radius);

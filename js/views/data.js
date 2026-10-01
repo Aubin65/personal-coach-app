@@ -14,6 +14,8 @@ const WORKLOAD_ZONE_LABELS = {
   risque_eleve: "Risque élevé",
 };
 
+const CONTACT_INTENSITY_LABELS_FR = { leger: "Contacts légers", modere: "Contacts modérés", intense: "Contacts intenses" };
+
 const WORKLOAD_ZONE_HELP = {
   sous_charge: "Charge en dessous de la référence des 4 dernières semaines — marge pour remonter progressivement sans risque.",
   zone_optimale: "Charge cohérente avec la référence récente — bonne zone pour progresser régulièrement.",
@@ -192,6 +194,8 @@ export async function renderData(token) {
           ${workloadTrendSVG(readings)}
         </div>` : ""}
         <p class="muted small">Ratio = charge des 7 derniers jours ÷ moyenne quotidienne des 4 dernières semaines (RPE × durée de séance, méthode de Foster — renseignée à chaque séance loguée). Repères : &lt;0,8 sous-charge, 0,8–1,3 zone optimale, 1,3–1,5 zone prudente, &gt;1,5 risque élevé.</p>
+        ${deloadInfoHTML(s.deload)}
+        ${gymFrequencyInfoHTML(s.gym_frequency)}
       </section>`;
   } else {
     html += `
@@ -205,6 +209,8 @@ export async function renderData(token) {
 
   html += tonnageHeatmapHTML(s.tonnage && s.tonnage.periods);
 
+  html += tendancesHTML(s.insights);
+
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
 }
 
@@ -214,7 +220,7 @@ const READINESS_LEVEL_LABELS = {
   vigilance: "Vigilance",
   repos_recommande: "Repos recommandé",
 };
-const READINESS_COMPONENT_LABELS = { charge: "Charge", sommeil: "Sommeil", recuperation: "Récupération" };
+const READINESS_COMPONENT_LABELS = { charge: "Charge", sommeil: "Sommeil", recuperation: "Récupération", bien_etre: "Bien-être" };
 
 /** "Indice de forme" (Data tab, tout en haut) — croise charge aiguë:
  * chronique, sommeil et récupération en un seul chiffre 0-100 (voir
@@ -249,7 +255,7 @@ function readinessScoreHTML(readiness) {
         <div class="readiness-score-label">${READINESS_LEVEL_LABELS[readiness.level] || readiness.level}</div>
       </div>
       <div class="readiness-components">${rows}</div>
-      <p class="muted small">Charge aiguë:chronique, sommeil récent et signaux de récupération (FC repos/HRV) — un repère, pas une vérité absolue.</p>
+      <p class="muted small">Charge aiguë:chronique, sommeil récent, signaux de récupération (FC repos/HRV) et bien-être du check-in du matin — un repère, pas une vérité absolue.</p>
     </section>`;
 }
 
@@ -557,5 +563,85 @@ function tonnageHeatmapHTML(periods) {
         ${panels}
       </div>
       <p class="muted small">Intensité relative (nombre de séries) par compartiment sur la période choisie — le gainage et les mollets, presque toujours au poids du corps, comptent ici comme les autres.</p>
+    </section>`;
+}
+
+/** Ligne discrète sous la carte ACWR (voir docs/adr/0065) — "deload
+ * proactif" : visible même quand la charge n'est pas encore en zone à
+ * risque (transparence sur le compte à rebours), pas seulement au moment
+ * où l'alerte `deload_conseille` apparaît dans Aujourd'hui. */
+function deloadInfoHTML(deload) {
+  if (!deload) return "";
+  const weeks = deload.weeks_since_light_week;
+  const plural = weeks > 1 ? "s" : "";
+  if (deload.due) {
+    return `<p class="muted small">📉 Aucune semaine nettement allégée depuis ${weeks} semaine${plural} — une semaine de décharge est conseillée.</p>`;
+  }
+  return `<p class="muted small">Dernière semaine nettement allégée il y a ${weeks} semaine${plural}.</p>`;
+}
+
+/** Ligne discrète sous la carte ACWR, juste après `deloadInfoHTML` (voir
+ * docs/adr/0066) — retour direct de l'utilisateur : par le passé, la
+ * reprise du rugby a toujours fait disparaître la musculation en dehors
+ * des entraînements. Toujours visible dès que le rugby a repris (pas
+ * seulement quand l'alerte `prepa_physique_en_baisse` se déclenche) —
+ * même logique de transparence que `deloadInfoHTML`. */
+function gymFrequencyInfoHTML(gymFrequency) {
+  if (!gymFrequency || !gymFrequency.current_week) return "";
+  const { target, current_week: current } = gymFrequency;
+  const low = gymFrequency.status && gymFrequency.status.low;
+  const icon = current.count >= target ? "✅" : low ? "🏋️" : "";
+  const prefix = icon ? `${icon} ` : "";
+  return `<p class="muted small">${prefix}Musculation cette semaine : ${current.count}/${target} séance${target > 1 ? "s" : ""}${low ? " — en retrait depuis plusieurs semaines, à rattraper." : "."}</p>`;
+}
+
+/** "Tendances" (voir docs/adr/0065) — retour direct : "établir des liens
+ * de cause à effet cohérents avec la gestion de ma prépa physique".
+ * Toujours affichée (même convention que le reste de l'onglet Data,
+ * tâche #56 : "always-visible placeholders") — un placeholder tant
+ * qu'aucune des trois tendances n'a assez d'observations, jamais une
+ * section qui disparaît silencieusement. */
+function tendancesHTML(insights) {
+  const cards = [];
+  const sleep = insights && insights.sleep_vs_rpe;
+  if (sleep) {
+    cards.push(`
+      <div class="tendance-row">
+        <p class="small"><strong>Sommeil → ressenti d'effort</strong></p>
+        <p class="small">Nuits &lt; ${sleep.threshold_hours}h : RPE moyen ${sleep.short_night_avg_rpe}/10 (${sleep.short_night_n} jours) — nuits correctes : RPE moyen ${sleep.good_night_avg_rpe}/10 (${sleep.good_night_n} jours).</p>
+      </div>`);
+  }
+  const match = insights && insights.match_contact_vs_followup_rpe;
+  if (match) {
+    const rows = Object.entries(match.by_intensity)
+      .map(([intensity, v]) => `${CONTACT_INTENSITY_LABELS_FR[intensity] || intensity} : RPE moyen ${v.avg_followup_rpe}/10 sur les ${match.window_days} jours suivants (${v.n} jours)`)
+      .join(" · ");
+    cards.push(`
+      <div class="tendance-row">
+        <p class="small"><strong>Intensité des contacts en match → séances suivantes</strong></p>
+        <p class="small">${rows}</p>
+      </div>`);
+  }
+  const pain = insights && insights.pain_onset_vs_load;
+  if (pain) {
+    cards.push(`
+      <div class="tendance-row">
+        <p class="small"><strong>Charge d'entraînement → apparition de douleur</strong></p>
+        <p class="small">Charge aiguë moyenne au début d'un épisode de douleur : ${pain.onset_avg_acute_load} u.a. (${pain.onset_n} épisode${pain.onset_n > 1 ? "s" : ""}) — contre ${pain.baseline_avg_acute_load} u.a. en moyenne le reste du temps.</p>
+      </div>`);
+  }
+
+  if (!cards.length) {
+    return `
+      <section class="card">
+        <h2>📊 Tendances</h2>
+        <p class="muted small">Pas encore assez d'historique pour un premier repère fiable (échantillon trop réduit) — reviens plus tard.</p>
+      </section>`;
+  }
+  return `
+    <section class="card">
+      <h2>📊 Tendances</h2>
+      ${cards.join("")}
+      <p class="muted small">Tendances observées sur ton propre historique, pas une preuve causale — un repère parmi d'autres, jamais une conclusion isolée.</p>
     </section>`;
 }
