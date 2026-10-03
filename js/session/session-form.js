@@ -9,6 +9,9 @@ import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../t
 import { formatFrDate } from "../date-utils.js";
 import { setSessionTimerStart, getSessionTimerStart, setBlockTimerState, getBlockTimerState, formatDurationMs } from "./session-timer.js";
 import { ghPutJSON } from "../github-api.js";
+import { openExerciseSheet } from "../exercise-sheet.js";
+import { openRpeSheet } from "../rpe-sheet.js";
+import { registerQueuedOp, runQueued } from "../offline-queue.js";
 
 /** Repères concrets pour bien choisir le RPE de séance (échelle 0-10,
  * méthode de Foster) — mêmes anchors que la table que le coach utilise
@@ -43,10 +46,36 @@ function rpeHelpDetailsHTML() {
     </details>`;
 }
 
+/** Ouvre la saisie rapide RPE/durée sur la séance en cours d'édition, puis
+ * l'enregistre aussitôt (un RPE donné au sortir de la séance ne doit pas
+ * dépendre d'un second appui sur "Enregistrer la séance"). */
+async function promptRpeAndSave(title) {
+  const working = sessionRuntime.working;
+  const session = working.session;
+  const result = await openRpeSheet({
+    title,
+    defaultRpe: session.session_rpe ?? null,
+    defaultDuration: session.session_duration_min ?? null,
+  });
+  if (!result || sessionRuntime.working !== working) return;
+  session.session_rpe = result.rpe;
+  session.session_duration_min = result.duration;
+  renderSessionContent();
+  const statusEl = document.getElementById("session-status");
+  if (statusEl) statusEl.textContent = "Enregistrement…";
+  try {
+    const outcome = await saveSession(working.weekLabel, working.date, session);
+    if (statusEl) statusEl.textContent = outcome && outcome.queued ? "RPE gardé sur le téléphone — envoi dès que le réseau revient." : "RPE et durée enregistrés ✓";
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `Échec : ${err.message}`;
+  }
+}
+
 export function workloadSectionHTML(session) {
   return `
     <section class="card">
       <h2>⚙️ Charge de la séance (optionnel)</h2>
+      <button type="button" id="quick-rpe-button" class="primary-button ghost small">⚡ Saisie rapide RPE + durée</button>
       <p class="muted small">Alimente le calcul de charge aiguë:chronique (RPE × durée, méthode de Foster) — voir l'onglet Data.</p>
       <div class="exercise-log-grid">
         <div><label>RPE (0-10)</label><input type="number" min="0" max="10" step="1" id="session-rpe" value="${session.session_rpe ?? ""}"></div>
@@ -422,7 +451,7 @@ export function bindSessionContentEvents() {
     renderSessionContent();
   });
   const stopTimerBtn = document.getElementById("stop-timer");
-  if (stopTimerBtn) stopTimerBtn.addEventListener("click", () => {
+  if (stopTimerBtn) stopTimerBtn.addEventListener("click", async () => {
     if (!confirm("Terminer la séance ? La durée sera remplie automatiquement (encore modifiable ensuite).")) return;
     const startedAt = getSessionTimerStart(sessionRuntime.working.date);
     syncFormIntoSession(); // garde les autres champs déjà tapés (RPE, notes...) avant d'écraser la durée
@@ -431,7 +460,22 @@ export function bindSessionContentEvents() {
     }
     setSessionTimerStart(sessionRuntime.working.date, null);
     renderSessionContent();
+    // Le RPE se demande tout de suite, durée déjà remplie : c'est le moment
+    // où il est le plus juste, et le seul chiffre qui manquait au calcul de
+    // charge (docs/adr/0070).
+    await promptRpeAndSave("Séance terminée");
   });
+
+  const quickRpeBtn = document.getElementById("quick-rpe-button");
+  if (quickRpeBtn) quickRpeBtn.addEventListener("click", () => {
+    syncFormIntoSession();
+    promptRpeAndSave("Charge de la séance");
+  });
+
+  document.querySelectorAll(".exercise-history-button").forEach((btn) => btn.addEventListener("click", () => {
+    const nameInput = btn.closest(".exercise-log-card").querySelector(".f-name");
+    openExerciseSheet(nameInput ? nameInput.value : "");
+  }));
 
   document.getElementById("save-session").addEventListener("click", async (e) => {
     syncFormIntoSession();
@@ -442,8 +486,8 @@ export function bindSessionContentEvents() {
     sessionRuntime.saveInFlight = true;
     statusEl.textContent = "Enregistrement…";
     try {
-      await saveSession(sessionRuntime.working.weekLabel, sessionRuntime.working.date, sessionRuntime.working.session);
-      statusEl.textContent = "Enregistré ✓";
+      const outcome = await saveSession(sessionRuntime.working.weekLabel, sessionRuntime.working.date, sessionRuntime.working.session);
+      statusEl.textContent = outcome.queued ? "Gardé sur le téléphone — envoi dès que le réseau revient." : "Enregistré ✓";
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
     } finally {
@@ -503,7 +547,7 @@ export function bindSessionContentEvents() {
  * (summed by coach.workload) instead of just the primary's singular
  * fields — the common single-session case keeps writing exactly the same
  * shape as before, untouched. */
-export async function saveSession(weekLabel, date, session) {
+async function performSaveSession({ weekLabel, date, session }) {
   const path = `data/training/app-log/${date}.json`;
   await ghPutJSON(path, null, `App : séance du ${date}`, (current) => {
     const base = current || { week_label: weekLabel, objective: null, bodyweight: {}, sessions: [] };
@@ -532,4 +576,14 @@ export async function saveSession(weekLabel, date, session) {
       return base;
     });
   }
+}
+
+registerQueuedOp("saveSession", performSaveSession);
+
+/** Enregistre la séance d'une date. Sans réseau, la saisie est gardée sur le
+ * téléphone puis renvoyée au retour de la connexion (offline-queue.js) —
+ * `{queued: true}` dans ce cas, `{queued: false}` sinon. Une seule saisie en
+ * attente par date : chaque appel porte la séance complète. */
+export async function saveSession(weekLabel, date, session) {
+  return runQueued("saveSession", { weekLabel, date, session }, { key: `session:${date}`, label: `Séance du ${formatFrDate(date)}` });
 }

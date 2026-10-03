@@ -42,24 +42,82 @@ async function ghRequest(path, options = {}) {
   return res;
 }
 
+/** Vrai pour un échec réseau (hors-ligne, réception coupée) et faux pour une
+ * réponse HTTP d'erreur de GitHub — `fetch` rejette alors avec un
+ * `TypeError`, alors que les erreurs HTTP sont levées ici en `Error`. La
+ * file d'attente hors-ligne (offline-queue.js) ne retient que les premiers. */
+export function isNetworkError(err) {
+  return err instanceof TypeError || (typeof navigator !== "undefined" && navigator.onLine === false);
+}
+
+// Dernière lecture réussie de chaque fichier/dossier, gardée dans le
+// navigateur (Cache Storage) et resservie quand le réseau manque : sans ça,
+// ouvrir une séance dans une salle sans réception échouait dès le chargement.
+// Le nom commence par "coach-data" pour survivre au nettoyage des anciens
+// caches du service worker (service-worker.js).
+const READ_CACHE_NAME = "coach-data-v1";
+const READ_CACHE_MAX_BYTES = 1500000;
+
+async function readCachePut(path, value) {
+  try {
+    const body = JSON.stringify(value);
+    if (body.length > READ_CACHE_MAX_BYTES) return;
+    const cache = await caches.open(READ_CACHE_NAME);
+    await cache.put(`https://cache.local/${path}`, new Response(body));
+  } catch (_) { /* Cache Storage indisponible : le cache n'est qu'un filet */ }
+}
+
+async function readCacheGet(path) {
+  try {
+    const cache = await caches.open(READ_CACHE_NAME);
+    const hit = await cache.match(`https://cache.local/${path}`);
+    return hit ? await hit.json() : undefined;
+  } catch (_) {
+    return undefined;
+  }
+}
+
 /** {content, sha} for a file, or null if it doesn't exist (404). Throws on
- * any other error (bad token, rate limit, etc.) so callers can surface it. */
+ * any other error (bad token, rate limit, etc.) so callers can surface it.
+ * Hors-ligne, resservi depuis la dernière lecture réussie s'il y en a une. */
 export async function ghGetFile(path) {
-  const res = await ghRequest(path);
+  let res;
+  try {
+    res = await ghRequest(path);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      const cached = await readCacheGet(path);
+      if (cached !== undefined) return cached;
+    }
+    throw err;
+  }
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`GitHub ${res.status} en lisant ${path}`);
   const data = await res.json();
-  return { content: b64DecodeUtf8(data.content), sha: data.sha };
+  const file = { content: b64DecodeUtf8(data.content), sha: data.sha };
+  readCachePut(path, file);
+  return file;
 }
 
 /** Directory entries [{name, path, type}], or [] if the directory doesn't
- * exist yet. */
+ * exist yet. Même repli hors-ligne que `ghGetFile`. */
 export async function ghListDir(path) {
-  const res = await ghRequest(path);
+  let res;
+  try {
+    res = await ghRequest(path);
+  } catch (err) {
+    if (isNetworkError(err)) {
+      const cached = await readCacheGet(`${path}/`);
+      if (cached !== undefined) return cached;
+    }
+    throw err;
+  }
   if (res.status === 404) return [];
   if (!res.ok) throw new Error(`GitHub ${res.status} en listant ${path}`);
   const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  const entries = Array.isArray(data) ? data : [];
+  readCachePut(`${path}/`, entries);
+  return entries;
 }
 
 /** Create or update a file. Retries once on a 409 (sha changed between our

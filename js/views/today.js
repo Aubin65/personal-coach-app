@@ -1,6 +1,6 @@
 import { setupCredo } from "../credo.js";
 import { showView, stale, state } from "../nav.js";
-import { todayISO, sessionHasExecuted } from "../date-utils.js";
+import { todayISO, addDaysISO, sessionHasExecuted } from "../date-utils.js";
 import { findSessionForDate } from "../training-index.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
@@ -9,6 +9,9 @@ import { latestFileOnOrBefore } from "../training-index.js";
 import { renderDigestSections } from "../plan-overview.js";
 import { setupMicButton } from "../voice-input.js";
 import { renderSystemStatus, latestDigestDate } from "../system-status.js";
+import { openRpeSheet } from "../rpe-sheet.js";
+import { saveSession } from "../session/session-form.js";
+import { registerQueuedOp, runQueued } from "../offline-queue.js";
 
 const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge", prepa_physique: "🏋️ Préparation physique" };
 
@@ -206,8 +209,11 @@ function checkinHistoryHTML(entries) {
       const d = new Date(`${e.date}T12:00:00`);
       const label = `${WEEKDAYS_SHORT[d.getDay()]} ${e.date.slice(8, 10)}/${e.date.slice(5, 7)}`;
       const parts = [];
+      let sev = "";
       if (e.arrival) {
         const opt = ARRIVAL_STATE_OPTIONS.find((o) => o.id === e.arrival.state);
+        const level = { energique: "ok", ok: "ok", difficile: "warn", "vraiment_fatigué": "alert" }[e.arrival.state];
+        if (level) sev = `<span class="sev-dot sev-${level}" aria-hidden="true"></span>`;
         parts.push(`${opt ? `${opt.emoji} ${opt.label}` : escapeHtmlText(String(e.arrival.state))}`);
       }
       if (e.wellness) parts.push(`bien-être ${e.wellness.score}/100`);
@@ -215,7 +221,7 @@ function checkinHistoryHTML(entries) {
         const doneLabel = MOBILITY_DONE_LABELS[e.mobility.done] || e.mobility.done;
         parts.push(`étirements ${escapeHtmlText(String(doneLabel))}${e.mobility.stiffness != null ? ` (raideur ${e.mobility.stiffness}/10)` : ""}`);
       }
-      return `<li><strong>${label}</strong> — ${parts.join(" · ") || "—"}</li>`;
+      return `<li>${sev}<strong>${label}</strong> — ${parts.join(" · ") || "—"}</li>`;
     })
     .join("");
   return `
@@ -251,6 +257,23 @@ function wireCheckinEditButton(card) {
     card.querySelector(".checkin-form").hidden = false;
   });
 }
+
+/** Écrit le check-in du jour dans data/health/<date>.json — opération
+ * rejouable par la file hors-ligne (offline-queue.js). Renvoie si la synchro
+ * Santé du jour était déjà passée (sommeil présent), qui conditionne le
+ * lancement automatique du digest. */
+registerQueuedOp("checkin", async ({ date, arrivalState, wellness, mobility }) => {
+  let healthSynced = false;
+  await ghPutJSON(`data/health/${date}.json`, { date }, `App : check-in du matin du ${date}`, (current) => {
+    const base = current || { date };
+    healthSynced = !!base.sleep_stages;
+    base.arrival_state = arrivalState;
+    base.wellness = wellness;
+    base.mobility = mobility;
+    return base;
+  });
+  return { healthSynced };
+});
 
 function wireCheckinForm(card) {
   const micBtn = card.querySelector("#checkin-mic");
@@ -310,23 +333,19 @@ function wireCheckinForm(card) {
     statusEl.textContent = "Enregistrement…";
     let healthSynced = false;
     try {
-      await ghPutJSON(`data/health/${date}.json`, { date }, `App : check-in du matin du ${date}`, (current) => {
-        const base = current || { date };
-        healthSynced = !!base.sleep_stages;
-        base.arrival_state = arrivalState;
-        base.wellness = wellness;
-        base.mobility = mobility;
-        return base;
-      });
+      const outcome = await runQueued("checkin", { date, arrivalState, wellness, mobility }, { key: `checkin:${date}`, label: "Check-in du matin" });
+      healthSynced = !!(outcome.result && outcome.result.healthSynced);
       // Patch local plutôt qu'un re-fetch de data/app/summary.json (pas
       // encore régénéré à ce stade, seul le prochain digest le fera) —
       // même motif que le composer de performance match (calendar.js).
-      statusEl.textContent = "";
+      if (!outcome.queued) statusEl.textContent = "";
       const wellnessWithScore = { ...wellness, score: wellnessScore(wellness) };
       card.querySelector(".checkin-summary-slot").innerHTML = checkinSummaryHTML(wellnessWithScore, mobility, arrivalState);
       card.querySelector(".checkin-form").hidden = true;
       wireCheckinEditButton(card);
-      maybeLaunchDigestAfterCheckin(date, healthSynced, statusEl);
+      const summarySlot = card.querySelector(".checkin-summary-slot");
+      if (outcome.queued) summarySlot.insertAdjacentHTML("beforeend", `<p class="muted small">Gardé sur le téléphone — envoi dès que le réseau revient.</p>`);
+      maybeLaunchDigestAfterCheckin(date, healthSynced, summarySlot);
       const historyCard = card.querySelector(".checkin-card");
       if (historyCard && historyCard._history) {
         historyCard._history.today = { date, arrival: arrivalState, wellness: wellnessWithScore, mobility };
@@ -350,7 +369,7 @@ function wireCheckinForm(card) {
  * comme avant), si aucun digest n'existe encore pour aujourd'hui, et une
  * seule fois par jour et par appareil. Silencieux en cas d'échec : l'état du
  * système affiche déjà le refus de déclenchement. */
-async function maybeLaunchDigestAfterCheckin(date, healthSynced, statusEl) {
+async function maybeLaunchDigestAfterCheckin(date, healthSynced, noteSlot) {
   if (!healthSynced) return;
   const flagKey = `coach_digest_autolaunch_${date}`;
   try { if (localStorage.getItem(flagKey)) return; } catch (_) {}
@@ -359,7 +378,7 @@ async function maybeLaunchDigestAfterCheckin(date, healthSynced, statusEl) {
     if (latest === date) return;
     await ghDispatchWorkflow("daily-digest.yml");
     try { localStorage.setItem(flagKey, "1"); } catch (_) {}
-    statusEl.textContent = "Digest du jour lancé automatiquement — il tiendra compte de ton check-in (⟳ dans quelques minutes).";
+    noteSlot.insertAdjacentHTML("beforeend", `<p class="muted small">Digest du jour lancé automatiquement — il tiendra compte de ton check-in (⟳ dans quelques minutes).</p>`);
   } catch (_) {
     // pas de message ici : "État du système" rend compte d'un refus
   }
@@ -407,6 +426,97 @@ async function loadCheckin(token) {
 function refreshCheckinHistory(card) {
   const { summary, today } = card._history;
   card.querySelector(".checkin-history-slot").innerHTML = checkinHistoryHTML(mergeCheckinHistory(summary, today));
+}
+
+// ============================================================================
+// Charge à saisir (docs/adr/0070) — une séance d'hier ou d'aujourd'hui sans
+// RPE ni durée ne compte pas dans la charge aiguë:chronique. Un rugby ou une
+// autre activité se faisait surtout oublier : rien ne la signalait. Carte
+// à deux touches (RPE + durée), repoussable par date ("Ignorer").
+// ============================================================================
+
+const QUICK_LOAD_TYPES = ["musculation", "rugby", "autre"];
+const quickLoadDismissKey = (date) => `coach_quickload_dismissed_${date}`;
+
+function hasLoggedExerciseValues(session) {
+  return (session.exercises || []).some((ex) => {
+    const executed = ex.executed || {};
+    return !!(executed.sets || executed.reps || executed.load);
+  });
+}
+
+/** Séances de [aujourd'hui, hier] pour lesquelles une saisie de charge a du
+ * sens : pas de repos, ni RPE ni durée déjà là, pas ignorée. Une
+ * musculation sans aucun chiffre saisi est probablement non faite (ou en
+ * cours de log dans la vue séance) : pas de relance. */
+async function pendingLoadSessions() {
+  const today = todayISO();
+  const found = [];
+  for (const date of [today, addDaysISO(today, -1)]) {
+    let dismissed = false;
+    try { dismissed = !!localStorage.getItem(quickLoadDismissKey(date)); } catch (_) {}
+    if (dismissed) continue;
+    const day = await findSessionForDate(date);
+    const session = day && day.session;
+    if (!session || !QUICK_LOAD_TYPES.includes(session.type || "musculation")) continue;
+    if (session.session_rpe != null || session.session_duration_min != null) continue;
+    if ((session.type || "musculation") === "musculation" && !hasLoggedExerciseValues(session)) continue;
+    found.push({ date, session, weekLabel: day.weekLabel });
+  }
+  return found;
+}
+
+function quickLoadRowHTML({ date, session }) {
+  const icon = { musculation: "🏋️", rugby: "🏉", autre: "🏃" }[session.type || "musculation"];
+  const when = date === todayISO() ? "aujourd'hui" : "hier";
+  return `
+    <div class="quick-load-row" data-date="${date}">
+      <p class="small"><strong>${icon} ${escapeHtmlText(session.name || "Séance")}</strong> — ${when}</p>
+      <div class="proposal-actions">
+        <button type="button" class="primary-button ghost small quick-load-dismiss">Ignorer</button>
+        <button type="button" class="primary-button small quick-load-enter">⚡ Saisir RPE + durée</button>
+      </div>
+      <p class="muted small quick-load-status"></p>
+    </div>`;
+}
+
+async function loadQuickLoad(token) {
+  const box = document.getElementById("quick-load");
+  if (!box) return;
+  const pending = await pendingLoadSessions();
+  if (stale(token)) return;
+  if (!pending.length) { box.innerHTML = ""; return; }
+
+  box.innerHTML = `
+    <section class="card quick-load-card">
+      <h2>⚡ Charge à saisir</h2>
+      <p class="muted small">Sans RPE ni durée, la séance ne compte pas dans ton suivi de charge.</p>
+      ${pending.map(quickLoadRowHTML).join("")}
+    </section>`;
+
+  pending.forEach((item) => {
+    const row = box.querySelector(`.quick-load-row[data-date="${item.date}"]`);
+    const statusEl = row.querySelector(".quick-load-status");
+    row.querySelector(".quick-load-dismiss").addEventListener("click", () => {
+      try { localStorage.setItem(quickLoadDismissKey(item.date), "1"); } catch (_) {}
+      row.remove();
+      if (!box.querySelector(".quick-load-row")) box.innerHTML = "";
+    });
+    row.querySelector(".quick-load-enter").addEventListener("click", async () => {
+      const result = await openRpeSheet({ title: `${item.session.name || "Séance"} — ${item.date === todayISO() ? "aujourd'hui" : "hier"}` });
+      if (!result) return;
+      statusEl.textContent = "Enregistrement…";
+      try {
+        const updated = { ...item.session, session_rpe: result.rpe, session_duration_min: result.duration };
+        const outcome = await saveSession(item.weekLabel || "app", item.date, updated);
+        row.querySelector(".proposal-actions").remove();
+        row.querySelector("p.small").insertAdjacentHTML("afterend", `<p class="small">✅ RPE ${result.rpe} · ${result.duration} min ${outcome && outcome.queued ? "gardés sur le téléphone, envoi au retour du réseau" : "enregistrés"}.</p>`);
+        statusEl.textContent = "";
+      } catch (err) {
+        statusEl.textContent = `Échec : ${err.message}`;
+      }
+    });
+  });
 }
 
 /** Persistent alert cards — direct request : toutes les alertes
@@ -471,6 +581,7 @@ export async function renderToday(token) {
   setupCredo();
   loadCheckin(token).catch(() => {});
   loadActiveAlerts(token).catch(() => {});
+  loadQuickLoad(token).catch(() => {});
   renderSystemStatus(token).catch(() => {});
 
   document.getElementById("adjust-week-cta").addEventListener("click", () => showView("adjust-week"));

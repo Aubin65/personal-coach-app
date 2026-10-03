@@ -1,4 +1,5 @@
 import { ghGetFile, ghPutJSON } from "../github-api.js";
+import { registerQueuedOp, runQueued } from "../offline-queue.js";
 import { state, stale } from "../nav.js";
 import { todayISO, localISOWithOffset } from "../date-utils.js";
 import { escapeHtmlText, escapeAttr } from "../markdown.js";
@@ -97,6 +98,20 @@ function renderZoneComposer(regions) {
   }
 }
 
+/** Ajoute une entrée de douleur au fichier santé du jour — rejouable par la
+ * file hors-ligne (offline-queue.js) : l'horodatage `at` sert de clé pour ne
+ * jamais ajouter deux fois la même entrée si un premier envoi avait abouti
+ * sans que la réponse revienne. */
+registerQueuedOp("pain", async ({ date, entry }) => {
+  await ghPutJSON(`data/health/${date}.json`, { date }, `App : douleur du ${date}`, (current) => {
+    const base = current || { date };
+    const existing = base.pain || [];
+    if (existing.some((p) => p.at === entry.at)) return base;
+    base.pain = [...existing, entry];
+    return base;
+  });
+});
+
 export async function renderPain(token) {
   setupMicButton(
     document.getElementById("pain-mic"),
@@ -135,14 +150,10 @@ export async function renderPain(token) {
     btn.disabled = true;
     statusEl.textContent = "Enregistrement…";
     try {
-      await ghPutJSON(`data/health/${date}.json`, { date }, `App : douleur du ${date}`, (current) => {
-        const base = current || { date };
-        base.pain = [...(base.pain || []), entry];
-        return base;
-      });
+      const outcome = await runQueued("pain", { date, entry }, { label: "Douleur" });
       levelEl.value = "";
       noteEl.value = "";
-      statusEl.textContent = "Enregistrée ✓";
+      statusEl.textContent = outcome.queued ? "Gardée sur le téléphone — envoi dès que le réseau revient." : "Enregistrée ✓";
       loadPainHistory(state.renderToken).catch(() => {});
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;

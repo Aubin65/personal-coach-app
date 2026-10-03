@@ -6,7 +6,7 @@
 // byte-comparing this file against the installed one, so if this file's
 // bytes don't change, no update is ever detected and clients stay on the
 // old cached shell indefinitely, however much app.js/style.css changed.
-const CACHE_NAME = "coach-shell-v60";
+const CACHE_NAME = "coach-shell-v61";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -26,6 +26,11 @@ const SHELL_FILES = [
   "./js/credo.js",
   "./js/proposal-refine.js",
   "./js/system-status.js",
+  "./js/offline-queue.js",
+  "./js/sheet.js",
+  "./js/exercise-stats.js",
+  "./js/exercise-sheet.js",
+  "./js/rpe-sheet.js",
   "./js/sync-status.js",
   "./js/push-notifications.js",
   "./js/views/today.js",
@@ -57,7 +62,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME && !k.startsWith("coach-data")).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

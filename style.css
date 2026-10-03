@@ -23,6 +23,19 @@
   --border: #E2E1D6;
   --danger: #C62828;
   --danger-pale: #FBE4E2;
+  /* États sémantiques, un seul vocabulaire pour toute l'app (charge, forme,
+     alertes, check-in, état du système) : ok / attention / alerte. Le
+     `-text` est la variante lisible en texte sur fond clair/sombre — les
+     fonds, bordures et pastilles gardent la teinte pleine. */
+  --status-ok: var(--green-light);
+  --status-ok-text: #1E7A4D;
+  --status-ok-pale: var(--green-pale);
+  --status-warn: var(--gold);
+  --status-warn-text: #8A5F1E;
+  --status-warn-pale: var(--gold-pale);
+  --status-alert: var(--danger);
+  --status-alert-text: #C62828;
+  --status-alert-pale: var(--danger-pale);
   --radius: 16px;
   --radius-sm: 10px;
   --safe-top: env(safe-area-inset-top);
@@ -40,7 +53,11 @@
     --border: #2A3630;
     --green-pale: #16281F;
     --gold-pale: #2E2513;
+    --danger: #E5534B;
     --danger-pale: #331715;
+    --status-ok-text: #5CC38F;
+    --status-warn-text: #E8B857;
+    --status-alert-text: #FF8A80;
     --shadow: 0 1px 3px rgba(0,0,0,0.3), 0 4px 14px rgba(0,0,0,0.25);
   }
 }
@@ -135,11 +152,11 @@ button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
 #topbar-back { flex-shrink: 0; font-size: 1rem; padding: 6px 10px; }
 .topbar-sync-status {
   font-family: var(--font-display);
-  font-size: 0.6rem;
+  font-size: 0.7rem;
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: none;
-  color: rgba(255,255,255,0.75);
+  color: rgba(255,255,255,0.92);
 }
 
 .icon-button {
@@ -456,7 +473,7 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   font-family: var(--font-display);
   font-weight: 600;
   font-size: 0.8rem;
-  color: #8A5F1E;
+  color: var(--status-warn-text);
   white-space: nowrap;
 }
 .exercise-block-header select.f-block-format { flex: 1; font-size: 0.85rem; padding: 8px 10px; }
@@ -1341,14 +1358,21 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 }
 .forge-quick-type-button {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 6px 0;
+  padding: 6px 0 5px;
   font-size: 1.15rem;
+  color: var(--text);
   cursor: pointer;
   line-height: 1;
 }
+.forge-quick-type-button .fq-label { font-size: 0.62rem; font-weight: 600; letter-spacing: 0.02em; color: var(--muted); text-transform: uppercase; font-family: var(--font-display); }
+.forge-quick-type-button.active .fq-label { color: var(--status-ok-text); }
 .forge-quick-type-button.active { background: var(--green-pale); border-color: var(--green-light); }
 .forge-quick-type-button:active { transform: scale(0.92); }
 .forge-quick-type-button:disabled { opacity: 0.4; }
@@ -1357,8 +1381,8 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .sparkline { display: block; width: 100%; height: auto; margin: 6px 0; }
 .trend-line { font-size: 1.3rem; font-family: var(--font-display); font-weight: 600; margin: 4px 0 0; }
 .trend-line .small { font-size: 0.75rem; font-weight: 500; display: block; margin-top: 2px; }
-.trend-up { color: var(--green-light); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
-.trend-down { color: var(--danger); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
+.trend-up { color: var(--status-ok-text); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
+.trend-down { color: var(--status-alert-text); font-size: 0.95rem; font-weight: 600; margin-left: 6px; }
 
 .sleep-week-summary {
   margin-top: 12px;
@@ -1396,10 +1420,10 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   font-size: 0.95rem;
   margin: 2px 0 6px;
 }
-.workload-badge.zone-sous_charge { background: var(--green-pale); color: var(--green-light); }
-.workload-badge.zone-zone_optimale { background: var(--green-pale); color: var(--green-light); }
-.workload-badge.zone-zone_prudente { background: var(--gold-pale); color: #8A5F1E; }
-.workload-badge.zone-risque_eleve { background: #FBE2E2; color: var(--danger); }
+.workload-badge.zone-sous_charge { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.workload-badge.zone-zone_optimale { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.workload-badge.zone-zone_prudente { background: var(--status-warn-pale); color: var(--status-warn-text); }
+.workload-badge.zone-risque_eleve { background: var(--status-alert-pale); color: var(--status-alert-text); }
 
 .workload-zone-help { margin: 0 0 10px; }
 
@@ -1410,9 +1434,9 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .workload-gauge-bars { display: flex; height: 100%; border-radius: 6px; overflow: hidden; }
 .workload-gauge-segment { height: 100%; }
 .workload-gauge-segment.zone-sous_charge { background: var(--border); }
-.workload-gauge-segment.zone-zone_optimale { background: var(--green-light); }
-.workload-gauge-segment.zone-zone_prudente { background: var(--gold); }
-.workload-gauge-segment.zone-risque_eleve { background: var(--danger); }
+.workload-gauge-segment.zone-zone_optimale { background: var(--status-ok); }
+.workload-gauge-segment.zone-zone_prudente { background: var(--status-warn); }
+.workload-gauge-segment.zone-risque_eleve { background: var(--status-alert); }
 .workload-gauge-marker {
   position: absolute;
   top: -3px;
@@ -1430,15 +1454,15 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 
 /* ---------- Indice de forme (Data, tout en haut) ---------- */
 .readiness-card { border-left: 4px solid var(--border); }
-.readiness-card.level-pret, .readiness-card.level-bonne_forme { border-left-color: var(--green-light); }
-.readiness-card.level-vigilance { border-left-color: var(--gold); }
-.readiness-card.level-repos_recommande { border-left-color: var(--danger); }
+.readiness-card.level-pret, .readiness-card.level-bonne_forme { border-left-color: var(--status-ok); }
+.readiness-card.level-vigilance { border-left-color: var(--status-warn); }
+.readiness-card.level-repos_recommande { border-left-color: var(--status-alert); }
 .readiness-score-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
 .readiness-score-value { font-family: var(--font-display); font-size: 2.6rem; font-weight: 700; line-height: 1; color: var(--muted); }
 .readiness-card.level-pret .readiness-score-value,
-.readiness-card.level-bonne_forme .readiness-score-value { color: var(--green-light); }
-.readiness-card.level-vigilance .readiness-score-value { color: #8A5F1E; }
-.readiness-card.level-repos_recommande .readiness-score-value { color: var(--danger); }
+.readiness-card.level-bonne_forme .readiness-score-value { color: var(--status-ok-text); }
+.readiness-card.level-vigilance .readiness-score-value { color: var(--status-warn-text); }
+.readiness-card.level-repos_recommande .readiness-score-value { color: var(--status-alert-text); }
 .readiness-score-label { font-family: var(--font-display); font-weight: 600; font-size: 1rem; color: var(--muted); }
 .readiness-components { display: flex; flex-direction: column; gap: 7px; margin-top: 4px; }
 .readiness-component { display: flex; align-items: center; gap: 10px; }
@@ -1716,5 +1740,50 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .system-status-card { margin-top: 14px; }
 .system-status-card summary { font-weight: 600; cursor: pointer; }
 .system-status-list { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
-.system-status-row { display: flex; gap: 8px; align-items: flex-start; }
+.system-status-row { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: var(--radius-sm); border-left: 4px solid var(--border); background: var(--bg); }
+.system-status-row.ok { border-left-color: var(--status-ok); }
+.system-status-row.warn { border-left-color: var(--status-warn); background: var(--status-warn-pale); }
+.system-status-row.alert { border-left-color: var(--status-alert); background: var(--status-alert-pale); }
+.sev-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--border); }
+.sev-dot.sev-ok { background: var(--status-ok); }
+.sev-dot.sev-warn { background: var(--status-warn); }
+.sev-dot.sev-alert { background: var(--status-alert); }
 .system-status-row .system-launch-digest { margin-left: 4px; }
+
+/* ---------- Feuille modale (fiche exercice, saisie rapide du RPE) ---------- */
+.sheet-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: flex-end; z-index: 60; }
+.sheet {
+  position: relative;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: 18px 18px 0 0;
+  padding: 18px 18px calc(22px + var(--safe-bottom));
+  box-shadow: 0 -6px 24px rgba(0,0,0,0.25);
+}
+.sheet h2 { margin: 0 34px 10px 0; font-size: 1.15rem; }
+.sheet-close { position: absolute; top: 12px; right: 12px; width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--bg); color: var(--text); font-size: 1rem; cursor: pointer; }
+.rpe-chips { gap: 6px; }
+.rpe-chip { min-width: 40px; min-height: 40px; justify-content: center; }
+.rpe-sheet-title { font-weight: 600; margin: 12px 0 6px; }
+.rpe-description { min-height: 2.2em; margin: 8px 0; }
+.rpe-duration-input { width: 100%; margin-top: 8px; }
+.exercise-sheet-facts { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+.exercise-sheet-facts li { display: flex; justify-content: space-between; gap: 12px; font-size: 0.9rem; }
+.exercise-sheet-label { color: var(--muted); font-weight: 600; flex-shrink: 0; }
+.exercise-sheet-facts li > span:last-child { text-align: right; }
+.exercise-sheet-subtitle { font-size: 0.95rem; margin: 16px 0 4px; }
+.exercise-sheet-chart-title { margin: 12px 0 0; }
+.exercise-history-button { flex-shrink: 0; }
+
+/* ---------- Charge à saisir (Aujourd'hui) ---------- */
+.quick-load-card { border-left: 4px solid var(--status-warn); }
+.quick-load-row + .quick-load-row { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.quick-load-row p { margin: 0 0 8px; }
+
+/* ---------- Saisies en attente d'envoi (hors-ligne) ---------- */
+.queue-banner { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 14px; font-size: 0.82rem; background: var(--status-warn-pale); color: var(--status-warn-text); border-bottom: 1px solid var(--border); }
+.queue-banner.is-error { background: var(--status-alert-pale); color: var(--status-alert-text); }
+.queue-banner button { flex-shrink: 0; }

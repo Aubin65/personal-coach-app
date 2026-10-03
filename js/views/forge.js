@@ -69,11 +69,15 @@ function startForgePolling() {
   }, 10000);
 }
 
+// Libellé court sous chaque icône : quatre icônes seules (🏋️🏉🏃😴) étaient
+// ambiguës d'un coup d'œil, surtout "autre" (docs/adr/0070).
+const QUICK_TYPE_SHORT_LABELS = { musculation: "Muscu", rugby: "Rugby", autre: "Autre", repos: "Repos" };
+
 function quickTypeButtonsHTML(date, currentType) {
   return Object.entries(SESSION_TYPES)
     .map(([key, t]) => `
       <button type="button" class="forge-quick-type-button${currentType === key ? " active" : ""}"
-              data-date="${date}" data-type="${key}" title="${escapeAttr(t.label)}" aria-label="${escapeAttr(t.label)}">${t.icon}</button>`)
+              data-date="${date}" data-type="${key}" title="${escapeAttr(t.label)}" aria-label="${escapeAttr(t.label)}"><span class="fq-icon">${t.icon}</span><span class="fq-label">${QUICK_TYPE_SHORT_LABELS[key] || escapeHtmlText(t.label)}</span></button>`)
     .join("");
 }
 

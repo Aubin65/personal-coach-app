@@ -1,9 +1,27 @@
 import { ghGetFile, ghPutJSON, ghDispatchWorkflow } from "../github-api.js";
 import { state, stale } from "../nav.js";
 import { localISOWithOffset } from "../date-utils.js";
+import { registerQueuedOp, runQueued } from "../offline-queue.js";
 
 // ---- Chat ----
 let chatPollTimer = null;
+
+registerQueuedOp("chatMessage", async ({ text, at }) => {
+  await ghPutJSON(
+    "data/app-chat/conversation.json",
+    [],
+    "App : nouveau message utilisateur",
+    // `at` sert de clé : jamais deux fois le même tour si un premier envoi
+    // avait abouti sans que la réponse revienne (file hors-ligne).
+    (conv) => (conv.some((turn) => turn.role === "user" && turn.at === at && turn.text === text) ? conv : [...conv, { role: "user", text, at }])
+  );
+  try {
+    await ghDispatchWorkflow("app-chat.yml");
+    return { dispatched: true };
+  } catch (err) {
+    return { dispatched: false, dispatchError: err.message };
+  }
+});
 
 /** Appends a user turn to the shared chat log — used by the Coach tab and
  * by "Ajuster ma semaine" (prompts/app-chat.md routes planning requests to
@@ -27,24 +45,16 @@ let chatPollTimer = null;
  * the user has no way to tell a message got stuck. Surface it via the
  * return value instead, so every caller can show an accurate status. */
 export async function postUserMessage(text) {
-  await ghPutJSON(
-    "data/app-chat/conversation.json",
-    [],
-    "App : nouveau message utilisateur",
-    (conv) => [...conv, { role: "user", text, at: localISOWithOffset() }]
-  );
-  try {
-    await ghDispatchWorkflow("app-chat.yml");
-    return { dispatched: true };
-  } catch (err) {
-    return { dispatched: false, dispatchError: err.message };
-  }
+  const outcome = await runQueued("chatMessage", { text, at: localISOWithOffset() }, { label: "Message au coach" });
+  if (outcome.queued) return { dispatched: false, queued: true };
+  return outcome.result;
 }
 
 /** Suffix for a "message sent" status line — call after `postUserMessage`
  * to say plainly when the instant path failed instead of always claiming
  * "quelques minutes" (see postUserMessage's doc comment). */
-export function dispatchStatusNote({ dispatched, dispatchError }) {
+export function dispatchStatusNote({ dispatched, dispatchError, queued }) {
+  if (queued) return " 📡 Hors ligne : message gardé sur le téléphone, envoyé au retour du réseau.";
   if (dispatched) return "";
   return ` ⚠️ Déclenchement immédiat indisponible (${dispatchError || "erreur inconnue"}) — la réponse passera par le cycle automatique, ça peut prendre plusieurs heures. Si ça persiste, vérifie la permission Actions du token (docs/app-deploy.md).`;
 }

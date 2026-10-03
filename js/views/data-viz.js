@@ -215,9 +215,9 @@ export function workloadGaugeHTML(ratio) {
 
 const WORKLOAD_ZONE_STROKE = {
   sous_charge: "var(--muted)",
-  zone_optimale: "var(--green-light)",
-  zone_prudente: "var(--gold)",
-  risque_eleve: "var(--danger)",
+  zone_optimale: "var(--status-ok)",
+  zone_prudente: "var(--status-warn)",
+  risque_eleve: "var(--status-alert)",
 };
 
 /** Ratio trend over `readings` ([{date, ratio, zone}], ascending, from
@@ -258,9 +258,9 @@ export function workloadTrendSVG(readings) {
  * (pain.js) et pour le point le plus récent du tracé ici, donc jamais
  * deux couleurs différentes pour le même niveau selon où on le regarde. */
 export function painLevelColor(level) {
-  if (level >= 7) return "var(--danger)";
-  if (level >= 4) return "var(--gold)";
-  return "var(--green-light)";
+  if (level >= 7) return "var(--status-alert)";
+  if (level >= 4) return "var(--status-warn)";
+  return "var(--status-ok)";
 }
 
 /** Douleur d'une zone dans le temps ([{date, level}], ascending — les

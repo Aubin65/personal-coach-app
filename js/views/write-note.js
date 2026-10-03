@@ -3,6 +3,15 @@ import { state, stale } from "../nav.js";
 import { localISOWithOffset } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
+import { registerQueuedOp, runQueued } from "../offline-queue.js";
+
+/** Crée le fichier de la note — rejouable par la file hors-ligne : si le
+ * fichier existe déjà (premier envoi abouti, réponse perdue), rien à refaire. */
+registerQueuedOp("note", async ({ iso, text }) => {
+  const path = `data/notes/${iso}.md`;
+  if (await ghGetFile(path)) return;
+  await ghPutFile(path, `${iso}\n\n${text}`, `Note depuis l'app (${iso})`);
+});
 
 export async function renderWriteNote(token) {
   setupMicButton(
@@ -19,10 +28,10 @@ export async function renderWriteNote(token) {
     const iso = localISOWithOffset();
     statusEl.textContent = "Enregistrement…";
     try {
-      await ghPutFile(`data/notes/${iso}.md`, `${iso}\n\n${text}`, `Note depuis l'app (${iso})`);
+      const outcome = await runQueued("note", { iso, text }, { label: "Note vocale" });
       textEl.value = "";
-      statusEl.textContent = "Enregistrée ✓";
-      loadRecentNotes(state.renderToken);
+      statusEl.textContent = outcome.queued ? "Gardée sur le téléphone — envoi dès que le réseau revient." : "Enregistrée ✓";
+      if (!outcome.queued) loadRecentNotes(state.renderToken);
     } catch (err) {
       statusEl.textContent = `Échec : ${err.message}`;
     }

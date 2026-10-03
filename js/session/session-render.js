@@ -3,6 +3,7 @@ import { state, stale } from "../nav.js";
 import { todayISO, formatFrDate, sessionIsBlankSkeleton } from "../date-utils.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
 import { findSessionForDate } from "../training-index.js";
+import { queuedEntryByKey } from "../offline-queue.js";
 import { ghPutJSON } from "../github-api.js";
 import { SESSION_TYPES, EXERCISE_FORMATS, BLOCK_TIMING_FIELDS, BLOCK_RESULT_LABELS } from "../session-types.js";
 import { blankSession, groupExercisesIntoBlocks } from "./session-model.js";
@@ -21,6 +22,11 @@ export async function renderSession(token) {
 
   const found = await findSessionForDate(date);
   if (stale(token)) return;
+  // Une saisie faite hors-ligne et pas encore envoyée l'emporte sur la
+  // version distante, plus ancienne : sans ça, rouvrir la séance montrerait
+  // l'état d'avant et la prochaine sauvegarde l'écraserait.
+  const queued = queuedEntryByKey(`session:${date}`);
+  if (queued) found.session = queued.args.session;
   // A day tapped "✏️" from a pending Forge skeleton proposal (see
   // loadForgePendingSkeleton) prefills here as an editable draft — nothing
   // is written until "Enregistrer la séance", same as any other new
@@ -299,6 +305,7 @@ function stationRowHTML(ex, idx, format, total) {
     <div class="exercise-row station-row exercise-log-card" data-idx="${idx}">
       <div class="exercise-log-head">
         <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Nouvel exercice">
+        <button type="button" class="icon-button small exercise-history-button" title="Historique de l'exercice" aria-label="Historique de l'exercice">📈</button>
         <div class="reorder-buttons">
           <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
           <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
@@ -337,6 +344,7 @@ function exerciseCardHTML(ex, idx, total, showFormatControls) {
     <div class="exercise-row exercise-log-card" data-idx="${idx}">
       <div class="exercise-log-head">
         <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}">
+        <button type="button" class="icon-button small exercise-history-button" title="Historique de l'exercice" aria-label="Historique de l'exercice">📈</button>
         <div class="reorder-buttons">
           <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
           <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
