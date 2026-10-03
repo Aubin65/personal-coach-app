@@ -120,6 +120,30 @@ export async function verifyToken() {
  * Actions: Read and write permission (Contents alone isn't enough for
  * this one call) — see docs/app-deploy.md and docs/adr/0018. */
 export async function ghDispatchWorkflow(fileName, ref = "main") {
+  try {
+    await dispatchWorkflowRaw(fileName, ref);
+    recordDispatch({ ok: true, workflow: fileName });
+  } catch (err) {
+    recordDispatch({ ok: false, workflow: fileName, error: err.message });
+    throw err;
+  }
+}
+
+const DISPATCH_LOG_KEY = "coach_last_dispatch";
+
+function recordDispatch(entry) {
+  try { localStorage.setItem(DISPATCH_LOG_KEY, JSON.stringify({ ...entry, at: new Date().toISOString() })); } catch (_) {}
+}
+
+/** Résultat du dernier déclenchement de workflow depuis cet appareil
+ * (`{ok, workflow, at, error?}`), ou `null` — alimente "État du système" :
+ * seul moyen fiable de savoir si le token a la permission Actions en
+ * écriture sans déclencher un workflow pour rien. */
+export function lastDispatchResult() {
+  try { return JSON.parse(localStorage.getItem(DISPATCH_LOG_KEY)); } catch (_) { return null; }
+}
+
+async function dispatchWorkflowRaw(fileName, ref) {
   const res = await fetch(`${API}/repos/${REPO}/actions/workflows/${fileName}/dispatches`, {
     method: "POST",
     headers: {

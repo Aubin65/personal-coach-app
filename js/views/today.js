@@ -8,6 +8,7 @@ import { ghDispatchWorkflow, ghGetFile, ghPutJSON } from "../github-api.js";
 import { latestFileOnOrBefore } from "../training-index.js";
 import { renderDigestSections } from "../plan-overview.js";
 import { setupMicButton } from "../voice-input.js";
+import { renderSystemStatus, latestDigestDate } from "../system-status.js";
 
 const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge", prepa_physique: "🏋️ Préparation physique" };
 
@@ -307,9 +308,11 @@ function wireCheckinForm(card) {
 
     btn.disabled = true;
     statusEl.textContent = "Enregistrement…";
+    let healthSynced = false;
     try {
       await ghPutJSON(`data/health/${date}.json`, { date }, `App : check-in du matin du ${date}`, (current) => {
         const base = current || { date };
+        healthSynced = !!base.sleep_stages;
         base.arrival_state = arrivalState;
         base.wellness = wellness;
         base.mobility = mobility;
@@ -323,6 +326,7 @@ function wireCheckinForm(card) {
       card.querySelector(".checkin-summary-slot").innerHTML = checkinSummaryHTML(wellnessWithScore, mobility, arrivalState);
       card.querySelector(".checkin-form").hidden = true;
       wireCheckinEditButton(card);
+      maybeLaunchDigestAfterCheckin(date, healthSynced, statusEl);
       const historyCard = card.querySelector(".checkin-card");
       if (historyCard && historyCard._history) {
         historyCard._history.today = { date, arrival: arrivalState, wellness: wellnessWithScore, mobility };
@@ -335,6 +339,30 @@ function wireCheckinForm(card) {
       btn.disabled = false;
     }
   });
+}
+
+/** Lance le digest du jour dès que le check-in est enregistré, plutôt que
+ * d'attendre l'horloge de GitHub (déclenchements `schedule` parfois en
+ * retard de plusieurs heures — docs/adr/0069) : le digest verra aussi
+ * l'état d'arrivée du jour, qu'il manquait quand il partait avant le
+ * check-in. Seulement si la synchro Santé du jour est déjà passée (sinon le
+ * digest partirait sans le sommeil de la nuit — le cron s'en charge alors
+ * comme avant), si aucun digest n'existe encore pour aujourd'hui, et une
+ * seule fois par jour et par appareil. Silencieux en cas d'échec : l'état du
+ * système affiche déjà le refus de déclenchement. */
+async function maybeLaunchDigestAfterCheckin(date, healthSynced, statusEl) {
+  if (!healthSynced) return;
+  const flagKey = `coach_digest_autolaunch_${date}`;
+  try { if (localStorage.getItem(flagKey)) return; } catch (_) {}
+  try {
+    const latest = await latestDigestDate(date);
+    if (latest === date) return;
+    await ghDispatchWorkflow("daily-digest.yml");
+    try { localStorage.setItem(flagKey, "1"); } catch (_) {}
+    statusEl.textContent = "Digest du jour lancé automatiquement — il tiendra compte de ton check-in (⟳ dans quelques minutes).";
+  } catch (_) {
+    // pas de message ici : "État du système" rend compte d'un refus
+  }
 }
 
 /** Lit le check-in du jour directement dans `data/health/<date>.json`, la
@@ -443,6 +471,7 @@ export async function renderToday(token) {
   setupCredo();
   loadCheckin(token).catch(() => {});
   loadActiveAlerts(token).catch(() => {});
+  renderSystemStatus(token).catch(() => {});
 
   document.getElementById("adjust-week-cta").addEventListener("click", () => showView("adjust-week"));
 

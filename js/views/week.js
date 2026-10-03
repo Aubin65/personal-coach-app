@@ -6,6 +6,7 @@ import { renderWeekOverview, parseWeekOverview, splitBlockMarkdown, splitBlockIn
 import { currentBlockLabel, lookupDaySummary, findSessionForDate } from "../training-index.js";
 import { SESSION_TYPES } from "../session-types.js";
 import { saveSession } from "../session/session-form.js";
+import { refineBoxHTML, wireRefineBox } from "../proposal-refine.js";
 
 async function listPlans() {
   const entries = (await ghListDir("data/plans")).filter((e) => e.type === "file" && e.name.endsWith(".md"));
@@ -262,7 +263,15 @@ async function loadPendingProposal(token) {
         <button type="button" id="proposal-accept" class="primary-button small">✅ Valider la sélection</button>
       </div>
       <p id="proposal-status" class="muted small"></p>
+      ${refineBoxHTML("Ex. : décale la séance de jeudi à vendredi, plus de tirage")}
     </section>`;
+  wireRefineBox(box, {
+    prefix: `[Affiner Semaine ${monday}]`,
+    pendingPath: target.path,
+    pendingSha: file.sha,
+    view: "week",
+    onUpdated: () => loadPendingProposal(state.renderToken).catch(() => {}),
+  });
 
   // La case vit dans le <summary> : sans ça, la cocher rouvre/referme
   // aussi la carte (le clic bulle jusqu'au <summary>).
@@ -358,7 +367,15 @@ async function loadPendingSessionAdjustments(token) {
         <button type="button" id="session-adjust-accept" class="primary-button small">✅ Valider</button>
       </div>
       <p id="session-adjust-status" class="muted small"></p>
+      ${refineBoxHTML("Ex. : garde le leg press mais retire le hip thrust, 2 séries seulement")}
     </section>`;
+  wireRefineBox(box, {
+    prefix: `[Affiner Séance ${date}]`,
+    pendingPath: target.path,
+    pendingSha: file.sha,
+    view: "week",
+    onUpdated: () => loadPendingSessionAdjustments(state.renderToken).catch(() => {}),
+  });
 
   document.getElementById("session-adjust-accept").addEventListener("click", async (e) => {
     const btn = e.currentTarget;

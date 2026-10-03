@@ -8,6 +8,7 @@ import { SESSION_TYPES } from "../session-types.js";
 import { blankSession, defaultSessionName } from "../session/session-model.js";
 import { saveSession } from "../session/session-form.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
+import { refineBoxHTML, wireRefineBox } from "../proposal-refine.js";
 
 // ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
 
@@ -288,7 +289,15 @@ async function loadForgePendingSkeleton(token) {
         <button type="button" id="forge-proposal-accept" class="primary-button small">✅ Valider</button>
       </div>
       <p id="forge-proposal-status" class="muted small"></p>
+      ${refineBoxHTML("Ex. : mets du repos jeudi, garde mardi tel quel, allège les jambes")}
     </section>`;
+  wireRefineBox(box, {
+    prefix: `[Affiner Forge ${monday}]`,
+    pendingPath: target.path,
+    pendingSha: file.sha,
+    view: "forge",
+    onUpdated: () => loadForgePendingSkeleton(state.renderToken).catch(() => {}),
+  });
 
   box.querySelectorAll(".forge-proposal-edit").forEach((btn) => {
     btn.addEventListener("click", () => {

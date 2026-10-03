@@ -1708,3 +1708,13 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .pain-episode-evolution { margin: 8px 0 0; color: var(--muted); }
 .pain-episode-notes { margin: 6px 0 0; padding-left: 20px; font-size: 0.88rem; }
 .pain-episode-notes li { margin-bottom: 4px; }
+
+.refine-box { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.refine-title { font-weight: 600; margin: 0 0 8px; }
+.refine-box .refine-send { margin-top: 8px; }
+
+.system-status-card { margin-top: 14px; }
+.system-status-card summary { font-weight: 600; cursor: pointer; }
+.system-status-list { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 8px; }
+.system-status-row { display: flex; gap: 8px; align-items: flex-start; }
+.system-status-row .system-launch-digest { margin-left: 4px; }
