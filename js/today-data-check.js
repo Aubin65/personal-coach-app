@@ -123,7 +123,7 @@ export async function renderTodayDataCheck(token) {
     : "";
 
   box.innerHTML = `
-    <details class="card data-check ${issues ? "has-issues" : "all-ok"}"${issues ? " open" : ""}>
+    <details class="card data-check ${issues ? "has-issues" : "all-ok"}">
       <summary>
         <span class="data-check-badge" aria-hidden="true"></span>
         <span class="data-check-title">${issues ? `Données du jour : ${issues} point${issues > 1 ? "s" : ""} à régler` : "Données du jour reçues"}</span>

@@ -27,7 +27,9 @@ export function ringSVG(fraction) {
  * it's a specific, checkable point in time, not a bare number of
  * uncertain origin ("les points de départ ne sont pas cohérents"). */
 export function statTile(label, current, unit, fraction, help, startValue, startDate) {
-  const valueText = current != null ? `${current}${unit}` : "—";
+  const valueText = current != null
+    ? `<span class="ring-num">${current}</span><span class="ring-unit">${unit.trim()}</span>`
+    : "—";
   const pct = fraction != null ? Math.round(fraction * 100) : null;
   return `
     <div class="stat-tile">

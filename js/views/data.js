@@ -229,6 +229,19 @@ function recentRecords(history, today) {
   return records.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
 }
 
+const PINNED_KEY = "coach_progres_pinned";
+const DEFAULT_PINNED = ["Back Squat", "Bench", "Trap Bar Deadlift"];
+
+/** Exercices suivis (mémorisés sur l'appareil) : par défaut les 3 grands
+ * mouvements ; ceux qui n'existent plus dans l'historique sont ignorés. */
+function pinnedExercises(s) {
+  const known = Object.keys(s.exercise_history || {});
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(PINNED_KEY)); } catch (_) { saved = null; }
+  const list = Array.isArray(saved) ? saved : DEFAULT_PINNED;
+  return list.filter((n) => known.includes(n));
+}
+
 function forceTabHTML(s) {
   const today = todayISO();
   let html = "";
@@ -245,7 +258,8 @@ function forceTabHTML(s) {
 
   html += `<section class="card exercise-card" id="exercise-card"></section>`;
 
-  const records = recentRecords(s.exercise_history, today);
+  const pinned = pinnedExercises(s);
+  const records = recentRecords(Object.fromEntries(Object.entries(s.exercise_history || {}).filter(([n]) => pinned.includes(n))), today);
   html += `
     <section class="card">
       <h2>Records récents</h2>
@@ -253,54 +267,45 @@ function forceTabHTML(s) {
         <li><span class="record-date">${shortDateFr(r.date)}</span>
           <span class="record-name">${escapeHtmlText(r.name)}</span>
           <span class="record-val">${fmtKg(r.load)}${r.reps ? ` × ${r.reps}` : ""}<small>+${fmtKg(r.gain)}</small></span></li>`).join("")}</ul>`
-        : "<p class='muted small'>Pas de nouvelle charge record sur tes dernières séances.</p>"}
-      ${helpHTML("Une charge est un record quand elle dépasse toutes les précédentes de l'exercice parmi ses 10 dernières séances (l'historique tenu par l'app).")}
+        : "<p class='muted small'>Pas de nouvelle charge record sur tes exercices suivis.</p>"}
+      ${helpHTML("Une charge est un record quand elle dépasse toutes les précédentes de l'exercice parmi ses 10 dernières séances (l'historique tenu par l'app). Seuls tes exercices suivis (fiche exercice) sont listés.")}
     </section>`;
 
   html += tonnageMilestoneHTML(s.tonnage || {}, LIFT_LABELS);
   html += tonnageSectionHTML(s.tonnage);
-  html += tonnageHeatmapHTML(s.tonnage && s.tonnage.periods);
 
-  const ACCESSORY_LABELS = { strict_press: "Strict Press", tractions: "Tractions", cmj: "CMJ", sprint: "Sprint" };
-  let accessoryTags = "";
-  for (const [key, label] of Object.entries(ACCESSORY_LABELS)) {
-    const entries = (s.secondary_lifts && s.secondary_lifts[key]) || (s.power_speed_progression && s.power_speed_progression[key]);
-    if (!entries || !entries.length) continue;
-    const last = entries[entries.length - 1];
-    const ex = last.executed || {};
-    const parts = [ex.sets, ex.reps, ex.load].filter((v) => v != null && v !== "").join(" × ");
-    accessoryTags += `<div class="accessory-tag"><span class="accessory-tag-label">${label}</span><span>${escapeHtmlText(parts || "—")}</span><span class="muted small">${shortDateFr(last.date)}</span></div>`;
-  }
-  if (accessoryTags) html += `<section class="card"><h2>Accessoires & explosivité</h2><div class="accessory-tags">${accessoryTags}</div></section>`;
   return html;
 }
 
-/** Fiche exercice : n'importe quel exercice chargé, sa meilleure charge par
- * séance en courbe, le 1RM estimé et les dernières séances. */
+/** Fiche exercice : les exercices SUIVIS (puces), choisis dans une liste de
+ * tous les exercices chargés. Meilleure charge par séance en courbe, 1RM
+ * estimé, dernières séances. Le choix est mémorisé sur l'appareil. */
 function wireExerciseCard(el, s) {
   const card = el.querySelector("#exercise-card");
   if (!card) return;
   const today = todayISO();
-  const options = Object.entries(s.exercise_history || {})
+  const all = Object.entries(s.exercise_history || {})
     .map(([name, entries]) => ({ name, series: exerciseSeries(entries, today) }))
     .filter((o) => o.series.length >= 1)
     .sort((a, b) => b.series.length - a.series.length || a.name.localeCompare(b.name));
-  if (!options.length) { card.remove(); return; }
-  let current = savedChoice(EXERCISE_KEY, "Back Squat");
-  if (!options.some((o) => o.name === current)) current = options[0].name;
+  if (!all.length) { card.remove(); return; }
+  const byName = new Map(all.map((o) => [o.name, o]));
+  let pinned = pinnedExercises(s).filter((n) => byName.has(n));
+  let current = savedChoice(EXERCISE_KEY, pinned[0] || "");
+  let picking = false;
 
-  const draw = () => {
-    const opt = options.find((o) => o.name === current);
+  const persistPinned = () => {
+    try { localStorage.setItem(PINNED_KEY, JSON.stringify(pinned)); } catch (_) { /* confort seulement */ }
+  };
+
+  const detailHTML = (opt) => {
     const series = opt.series;
     const best = series.reduce((a, p) => (p.top.load > a.top.load ? p : a), series[0]);
     const e1rms = series.filter((p) => p.top.e1rm != null);
     const bestE1rm = e1rms.length ? Math.max(...e1rms.map((p) => p.top.e1rm)) : null;
     const first = series[0], last = series[series.length - 1];
     const delta = last.top.load - first.top.load;
-    card.innerHTML = `
-      <div class="card-head"><h2>Fiche exercice</h2></div>
-      <label class="exercise-picker"><span class="sr-only">Exercice</span>
-        <select id="exercise-select">${options.map((o) => `<option value="${escapeAttr(o.name)}"${o.name === current ? " selected" : ""}>${escapeHtmlText(o.name)} (${o.series.length})</option>`).join("")}</select></label>
+    return `
       <div class="mini-stats">
         <div><span>Meilleure charge</span><strong>${fmtKg(best.top.load)}</strong><small>${shortDateFr(best.date)}</small></div>
         <div><span>1RM estimé</span><strong>${bestE1rm != null ? fmtKg(bestE1rm) : "—"}</strong><small>${bestE1rm != null ? "Epley" : "reps &gt; 12"}</small></div>
@@ -314,12 +319,31 @@ function wireExerciseCard(el, s) {
         const load = String(e.load ?? "").split("-").filter((x) => x.trim()).join("-");
         return `<li><span>${shortDateFr(p.date)}</span><span>${escapeHtmlText(repsText || "—")}</span><strong>${escapeHtmlText(load)}${/^[\d.,-]+$/.test(load) ? " kg" : ""}</strong></li>`;
       }).join("")}</ul>`;
+  };
+
+  const draw = () => {
+    if (!pinned.includes(current)) current = pinned[0] || "";
+    const chips = pinned.map((n) => `<button type="button" class="suggestion-chip${n === current ? " active" : ""}" data-ex="${escapeAttr(n)}">${escapeHtmlText(n)}</button>`).join("");
+    const picker = picking ? `
+      <div class="exercise-picklist">
+        <p class="muted small">Coche les exercices que tu veux suivre.</p>
+        ${all.map((o) => `<label class="exercise-pick"><input type="checkbox" data-pick="${escapeAttr(o.name)}"${pinned.includes(o.name) ? " checked" : ""}><span>${escapeHtmlText(o.name)}</span><small class="muted">${o.series.length} séance${o.series.length > 1 ? "s" : ""}</small></label>`).join("")}
+      </div>` : "";
+    card.innerHTML = `
+      <div class="card-head"><h2>Fiche exercice</h2><button type="button" class="link-button" id="exercise-manage">${picking ? "Terminé" : "Choisir"}</button></div>
+      ${chips ? `<div class="exercise-chips">${chips}</div>` : `<p class="muted small">Aucun exercice suivi — touche « Choisir ».</p>`}
+      ${picker}
+      ${!picking && current && byName.has(current) ? detailHTML(byName.get(current)) : ""}`;
     stripHeadingEmojis(card);
-    card.querySelector("#exercise-select").addEventListener("change", (ev) => {
-      current = ev.target.value;
-      saveChoice(EXERCISE_KEY, current);
-      draw();
-    });
+    card.querySelector("#exercise-manage").addEventListener("click", () => { picking = !picking; draw(); });
+    card.querySelectorAll("[data-ex]").forEach((b) => b.addEventListener("click", () => {
+      current = b.dataset.ex; saveChoice(EXERCISE_KEY, current); draw();
+    }));
+    card.querySelectorAll("[data-pick]").forEach((cb) => cb.addEventListener("change", () => {
+      const name = cb.dataset.pick;
+      pinned = cb.checked ? [...pinned, name] : pinned.filter((n) => n !== name);
+      persistPinned();
+    }));
   };
   draw();
 }
@@ -578,155 +602,6 @@ function tonnageSectionHTML(tonnage) {
       </p>
       <div class="tonnage-bars">${bars}</div>
       <p class="muted small">Séries × répétitions × charge, par compartiment — seules les séries avec une charge en kg connue comptent dans le tonnage ; le gainage et les exercices au poids du corps s'affichent en nombre de séries.</p>
-    </section>`;
-}
-
-const TONNAGE_HEATMAP_PERIOD_LABELS = { "1": "Semaine", "3": "3 sem.", "6": "6 sem." };
-
-// Silhouette humaine stylisée (vue de face) — torse et cuisses en formes
-// courbes (épaules/hanches arrondies, cuisses qui se resserrent au genou)
-// plutôt que de simples rectangles, segments qui se touchent sans espace
-// visible entre eux (bras contre torse, cuisses contre bassin...) pour
-// lire comme un seul corps continu plutôt qu'un empilement de blocs, et
-// mains/pieds neutres en bout de membre pour finir la silhouette — sans
-// viser un rendu anatomique réaliste pour autant. Le tirage (haut du
-// dos/trapèzes) est la seule concession : représenté comme une bande
-// étroite près du cou, visible même de face, plutôt que d'exiger une
-// seconde silhouette de dos pour un seul compartiment. Les fessiers
-// occupent la bande de hanches ; les ischios-jambiers, pas vraiment
-// visibles de face, sont suggérés par une fine bande sur le bord externe
-// de chaque cuisse plutôt qu'omis — explosivite_puissance/cardio n'ont
-// eux aucun équivalent anatomique honnête (sprint, vélo...) : affichés à
-// part en badges.
-const HEATMAP_BODY_ZONES = [
-  { cat: "tirage", shape: "rect", x: 26, y: 26, width: 48, height: 10, rx: 5 },
-  {
-    cat: "poussee",
-    shape: "path",
-    d: "M18,32 C18,27 24,25 30,25 L70,25 C76,25 82,27 82,32 L76,66 C76,69 55,70 50,70 C45,70 24,69 24,66 Z",
-  },
-  { cat: "bras", shape: "rect", x: 6, y: 30, width: 14, height: 28, rx: 7 },
-  { cat: "bras", shape: "rect", x: 8, y: 56, width: 11, height: 27, rx: 5 },
-  { cat: "bras", shape: "rect", x: 80, y: 30, width: 14, height: 28, rx: 7 },
-  { cat: "bras", shape: "rect", x: 81, y: 56, width: 11, height: 27, rx: 5 },
-  { cat: "gainage", shape: "rect", x: 29, y: 68, width: 42, height: 28, rx: 11 },
-  { cat: "fessiers", shape: "rect", x: 26, y: 96, width: 48, height: 16, rx: 11 },
-  { cat: "ischios_jambiers", shape: "rect", x: 17, y: 114, width: 9, height: 46, rx: 4 },
-  {
-    cat: "quadriceps",
-    shape: "path",
-    d: "M25,110 C25,107 30,106 34,106 C38,106 43,107 43,110 L41,158 C41,161 27,161 26,158 Z",
-  },
-  {
-    cat: "quadriceps",
-    shape: "path",
-    d: "M57,110 C57,107 62,106 66,106 C70,106 75,107 75,110 L74,158 C73,161 59,161 59,158 Z",
-  },
-  { cat: "ischios_jambiers", shape: "rect", x: 74, y: 114, width: 9, height: 46, rx: 4 },
-  { cat: "mollets", shape: "rect", x: 27, y: 159, width: 18, height: 42, rx: 8 },
-  { cat: "mollets", shape: "rect", x: 55, y: 159, width: 18, height: 42, rx: 8 },
-];
-
-/** rgba() interpolée entre un fond quasi invisible (rien fait sur la
- * période) et une intensité pleine (compartiment le plus travaillé) —
- * même vert que le reste de l'UI tonnage, une seule teinte plutôt qu'une
- * échelle multicolore pour rester lisible pareil en clair et en sombre. */
-function heatFill(fraction) {
-  const alpha = 0.1 + Math.max(0, Math.min(1, fraction)) * 0.85;
-  return `rgba(30, 122, 77, ${alpha.toFixed(2)})`;
-}
-
-/** `maxSets` : nombre de séries par compartiment — plus parlant côté
- * prépa que les répétitions totales pour lire d'un coup d'œil ce qui a
- * été touché. Pas de contour par zone (`stroke`) : les segments se
- * touchent déjà géométriquement, un trait par bloc les aurait fait
- * ressortir comme des cases séparées plutôt qu'un seul corps. */
-function bodyHeatmapSVG(categories, maxSets) {
-  const shapes = HEATMAP_BODY_ZONES.map((zone) => {
-    const sets = (categories[zone.cat] && categories[zone.cat].sets) || 0;
-    const fill = heatFill(maxSets ? sets / maxSets : 0);
-    return zone.shape === "path"
-      ? `<path d="${zone.d}" fill="${fill}" />`
-      : `<rect x="${zone.x}" y="${zone.y}" width="${zone.width}" height="${zone.height}" rx="${zone.rx}" fill="${fill}" />`;
-  }).join("");
-  return `
-    <svg viewBox="0 0 100 210" class="heatmap-body-svg" role="img" aria-label="Silhouette colorée par compartiment travaillé">
-      <circle cx="50" cy="13" r="11" fill="var(--border)" />
-      <path d="M43,21 L57,21 L55,29 L45,29 Z" fill="var(--border)" />
-      ${shapes}
-      <circle cx="13" cy="85" r="6" fill="var(--border)" />
-      <circle cx="87" cy="85" r="6" fill="var(--border)" />
-      <rect x="25" y="199" width="20" height="8" rx="4" fill="var(--border)" />
-      <rect x="55" y="199" width="20" height="8" rx="4" fill="var(--border)" />
-    </svg>`;
-}
-
-/** "Où le corps a-t-il vraiment été sollicité", en un coup d'œil, sur 1/3/6
- * semaines au choix (voir `coach.tonnage.breakdown_over_weeks` et
- * docs/adr/0035) — complète les barres de "Tonnage de la semaine"
- * au-dessus (précises mais limitées à la semaine en cours) avec une
- * lecture visuelle qui lisse le bruit d'une semaine à l'autre. Toujours en
- * nombre de séries, jamais en tonnage kg — seule mesure commune aux
- * compartiments à charge (quadriceps, poussée...) et à ceux presque
- * toujours au poids du corps (gainage, mollets), plus parlant côté prépa
- * que les répétitions totales, même principe que `tonnageSectionHTML`.
- * Le switch de période est un pur radio/label CSS
- * (voir style.css), même esprit zéro-JS que les `<details>` du
- * Calendrier — pas de re-fetch, les 3 fenêtres sont déjà dans
- * `s.tonnage.periods`. */
-function tonnageHeatmapHTML(periods) {
-  if (!periods) return "";
-  const panels = Object.entries(TONNAGE_HEATMAP_PERIOD_LABELS)
-    .map(([key]) => {
-      const period = periods[key];
-      if (!period) return "";
-      const categories = period.categories || {};
-      const maxSets = Math.max(1, ...Object.values(categories).map((c) => c.sets));
-      const badges = ["explosivite_puissance", "cardio"]
-        .map((cat) => {
-          const sets = (categories[cat] && categories[cat].sets) || 0;
-          const icon = cat === "cardio" ? "🫀" : "⚡";
-          return `<div class="heatmap-badge" style="background:${heatFill(sets / maxSets)}">${icon} ${TONNAGE_CATEGORY_LABELS[cat]} <strong>${sets}</strong></div>`;
-        })
-        .join("");
-      const legend = Object.entries(TONNAGE_CATEGORY_LABELS)
-        .filter(([cat]) => cat !== "explosivite_puissance" && cat !== "cardio")
-        .map(([cat, label]) => {
-          const sets = (categories[cat] && categories[cat].sets) || 0;
-          return `
-            <div class="heatmap-legend-row">
-              <span class="heatmap-legend-swatch" style="background:${heatFill(sets / maxSets)}"></span>
-              <span class="heatmap-legend-label">${label}</span>
-              <span class="heatmap-legend-value">${sets} série${sets > 1 ? "s" : ""}</span>
-            </div>`;
-        })
-        .join("");
-      return `
-        <div class="heatmap-panel" data-panel="${key}">
-          ${period.total_sets
-            ? `<div class="heatmap-body-wrap">${bodyHeatmapSVG(categories, maxSets)}</div>
-               <div class="heatmap-badges">${badges}</div>
-               <div class="heatmap-legend">${legend}</div>`
-            : `<p class="muted small">Pas de séance de musculation loguée sur cette période.</p>`}
-        </div>`;
-    })
-    .join("");
-
-  return `
-    <section class="card">
-      <h2>🧍 Heatmap corporelle</h2>
-      <div class="heatmap-period-switch">
-        <input type="radio" name="heatmap-period" id="hm-period-1" checked>
-        <input type="radio" name="heatmap-period" id="hm-period-3">
-        <input type="radio" name="heatmap-period" id="hm-period-6">
-        <div class="heatmap-period-labels">
-          <label for="hm-period-1">Semaine</label>
-          <label for="hm-period-3">3 sem.</label>
-          <label for="hm-period-6">6 sem.</label>
-        </div>
-        ${panels}
-      </div>
-      <p class="muted small">Intensité relative (nombre de séries) par compartiment sur la période choisie — le gainage et les mollets, presque toujours au poids du corps, comptent ici comme les autres.</p>
     </section>`;
 }
 

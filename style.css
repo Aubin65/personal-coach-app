@@ -1086,8 +1086,8 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 /* Citation du jour en tête d'Aujourd'hui, en grand (docs/adr/0079) : carte
    vert terrain, texte en capitales, comme avant la refonte. */
 .credo-card {
-  margin-bottom: 14px;
-  padding: 20px 20px 18px;
+  margin-bottom: 12px;
+  padding: 14px 18px 12px;
   border-radius: var(--radius);
   border-bottom: 3px solid var(--gold);
   background:
@@ -1099,8 +1099,8 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   color: white;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1.4rem;
-  line-height: 1.2;
+  font-size: 1.12rem;
+  line-height: 1.22;
   letter-spacing: 0.01em;
   text-transform: uppercase;
 }
@@ -1939,7 +1939,7 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 
 .digest-card .digest-header { margin: 0 0 6px; }
 .digest-card .digest-header h2 { font-size: 1.15rem; }
-.digest-collapsed { max-height: 380px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
+.digest-collapsed { max-height: 190px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .digest-expand {
   width: 100%; min-height: 44px; margin-top: 8px;
   border: none; border-radius: 12px; background: var(--surface-2); color: var(--text);
@@ -2289,7 +2289,15 @@ body.live-open { overflow: hidden; }
 .stat-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .stat-grid.three .stat-tile { padding: 10px 6px; font-size: 0.78rem; }
 .stat-grid.three .stat-label { font-size: 0.7rem; }
-.stat-grid.three .ring-wrap svg { width: 72px; height: 72px; }
+.stat-grid.three .ring-wrap, .stat-grid.three .ring-wrap svg { width: 78px; height: 78px; }
+.stat-grid.three .ring-value { font-size: 1.05rem; }
+.ring-value { flex-direction: column; gap: 0; line-height: 1.05; }
+.ring-value .ring-unit { font-family: var(--font-body); font-size: 0.62rem; font-weight: 700; color: var(--muted); letter-spacing: 0.04em; }
+.exercise-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; }
+.exercise-picklist { display: flex; flex-direction: column; margin: 6px 0 4px; max-height: 340px; overflow-y: auto; }
+.exercise-pick { display: flex; align-items: center; gap: 10px; min-height: 44px; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
+.exercise-pick span { flex: 1; }
+.exercise-pick input { width: 20px; height: 20px; accent-color: var(--green); }
 .record-list, .exercise-sessions, .pain-mini-list { list-style: none; margin: 0; padding: 0; }
 .record-list li { display: grid; grid-template-columns: 44px 1fr auto; align-items: center; gap: 10px; min-height: 48px; border-bottom: 1px solid var(--border); }
 .record-list li:last-child { border-bottom: none; }
@@ -2308,3 +2316,16 @@ body.live-open { overflow: hidden; }
 .pain-mini-list li > span:last-child { display: flex; flex-direction: column; }
 .pain-mini-list small { color: var(--muted); font-size: 0.8rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.link-button { background: none; border: none; color: var(--green); font-weight: 700; font-size: 0.9rem; min-height: 40px; padding: 0 4px; cursor: pointer; }
+[data-theme="dark"] .link-button, :root:not([data-theme="light"]) .link-button { color: var(--gold); }
+
+/* Check-in fait : une ligne repliée (ADR-0084). */
+.checkin-done { padding: 0; }
+.checkin-done .checkin-adapt-slot:not(:empty) { padding: 12px 16px 0; }
+.checkin-details > summary { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 0 16px; cursor: pointer; list-style: none; }
+.checkin-details > summary::-webkit-details-marker { display: none; }
+.checkin-done-title { flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.checkin-done-title small { color: var(--muted); font-size: 0.8rem; }
+.checkin-details[open] .data-check-chevron { transform: rotate(180deg); }
+.checkin-details > :not(summary) { margin-left: 16px; margin-right: 16px; }
+.checkin-details > :last-child { margin-bottom: 14px; }

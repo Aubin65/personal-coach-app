@@ -454,15 +454,43 @@ async function loadCheckin(token) {
   const mobilityToday = live.mobility && live.mobility.done ? live.mobility : null;
   const alreadyLogged = !!(arrivalStateToday || wellnessToday || mobilityToday);
 
-  box.innerHTML = `
-    <section class="card checkin-card">
-      <div class="card-head"><h2>Check-in du matin</h2>${alreadyLogged ? '<span class="pill pill-ok">Fait</span>' : '<span class="pill pill-warn">À faire</span>'}</div>
+  const slots = `
       <div class="checkin-summary-slot">${alreadyLogged ? checkinSummaryHTML(wellnessToday, mobilityToday, arrivalStateToday) : ""}</div>
-      <div class="checkin-adapt-slot"></div>
       ${checkinFormHTML(wellnessToday, mobilityToday, arrivalStateToday, alreadyLogged)}
       <div class="checkin-history-slot"></div>
-      ${recoveryPatternsHTML((summary.arrival_state_recent || {}).patterns)}
-    </section>`;
+      ${recoveryPatternsHTML((summary.arrival_state_recent || {}).patterns)}`;
+  if (alreadyLogged) {
+    // Fait : une seule ligne ; modifier / effacer / historique dans le détail.
+    const brief = [
+      arrivalStateToday ? (arrivalStateToday.label || ARRIVAL_STATE_LABELS[arrivalStateToday.state] || arrivalStateToday.state) : null,
+      wellnessToday ? `${wellnessToday.score}/100` : null,
+    ].filter(Boolean).join(" · ");
+    box.innerHTML = `
+      <section class="card checkin-card checkin-done">
+        <div class="checkin-adapt-slot"></div>
+        <details class="checkin-details">
+          <summary>
+            <span class="checkin-done-title"><strong>Check-in du matin</strong>${brief ? `<small>${escapeHtmlText(brief)}</small>` : ""}</span>
+            <span class="pill pill-ok">Fait</span>
+            <svg class="data-check-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </summary>
+          ${slots}
+        </details>
+      </section>`;
+  } else {
+    box.innerHTML = `
+      <section class="card checkin-card">
+        <div class="card-head"><h2>Check-in du matin</h2><span class="pill pill-warn">À faire</span></div>
+        <div class="checkin-adapt-slot"></div>
+        ${slots}
+      </section>`;
+    // À faire : juste sous l'indice de forme, avant la séance.
+    const readiness = document.getElementById("today-readiness");
+    if (readiness && readiness.parentNode) {
+      const anchor = document.getElementById("today-data-check") || readiness;
+      anchor.insertAdjacentElement("afterend", box);
+    }
+  }
   const card = box.querySelector(".checkin-card");
   card._history = { summary, today: { date, arrival: arrivalStateToday, wellness: wellnessToday, mobility: mobilityToday } };
   refreshCheckinHistory(card);
