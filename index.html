@@ -88,9 +88,15 @@
 </template>
 
 <template id="tpl-today">
-  <!-- Ordre (docs/adr/0072) : « est-ce que je peux y aller ? » (forme),
+  <!-- Citation en grand tout en haut (retour direct, docs/adr/0079), puis
+       ordre de l'ADR-0072 : « est-ce que je peux y aller ? » (forme),
        check-in, séance du jour, ce qui attend une action (alertes, charge à
        saisir), puis le digest. Les saisies vivent dans le bouton + (ADR-0071). -->
+  <section class="credo-card">
+    <p id="credo-text" class="credo-text"></p>
+    <p id="credo-source" class="credo-source"></p>
+  </section>
+
   <div id="today-readiness"></div>
 
   <div id="today-data-check"></div>
@@ -109,11 +115,6 @@
     <p id="generate-digest-status" class="muted small"></p>
     <div id="today-digest-content" class="markdown-body"></div>
     <button type="button" id="digest-expand" class="digest-expand" hidden>Lire le digest complet</button>
-  </section>
-
-  <section class="credo-card">
-    <p id="credo-text" class="credo-text"></p>
-    <p id="credo-source" class="credo-source"></p>
   </section>
 
   <div id="system-status"></div>
