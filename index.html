@@ -153,6 +153,7 @@
 
   <section class="card" id="week-block-content" hidden>
     <div class="markdown-body"></div>
+    <button type="button" id="week-forge-bloc" class="primary-button ghost small" style="margin-top:12px">🎯 Forge de bloc</button>
   </section>
 
 
@@ -178,11 +179,17 @@
   </div>
 </template>
 
+<template id="tpl-forge-bloc">
+  <div id="forge-bloc-root"></div>
+</template>
+
 <template id="tpl-forge">
   <section class="card">
     <button type="button" id="forge-block-toggle" class="details-toggle">🎯 Objectifs du bloc en cours</button>
     <div id="forge-block-content" class="markdown-body small" hidden></div>
   </section>
+
+  <button type="button" id="forge-bloc-button" class="primary-button ghost small" style="margin-bottom:10px">🎯 Forge de bloc — objectifs et discussion</button>
 
   <div class="forge-week-nav">
     <button type="button" id="forge-prev-week" class="icon-button small" aria-label="Semaine précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>

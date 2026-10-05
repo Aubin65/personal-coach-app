@@ -75,6 +75,8 @@ export async function renderWeek(token) {
   const planningPanel = document.getElementById("week-planning-panel");
   const blockPanel = document.getElementById("week-block-content");
   const historyPanel = document.getElementById("week-history-panel");
+  const forgeBlocBtn = document.getElementById("week-forge-bloc");
+  if (forgeBlocBtn) forgeBlocBtn.addEventListener("click", () => showView("forge-bloc"));
 
   // « Séances » n'est plus un onglet (docs/adr/0077) : son tableau prévu /
   // réalisé vit replié dans Semaine. Un ancien état y retombe.

@@ -31,6 +31,7 @@ export async function renderForge(token) {
     state.forgeMonday = addDaysISO(state.forgeMonday, 7);
     renderForgeContent(state.renderToken).catch(() => {});
   });
+  document.getElementById("forge-bloc-button").addEventListener("click", () => showView("forge-bloc"));
   bindBlockReferenceToggle(document.getElementById("forge-block-toggle"), document.getElementById("forge-block-content"));
 
   document.getElementById("forge-skeleton-button").addEventListener("click", async (e) => {
@@ -238,6 +239,28 @@ async function hasUnansweredForgeRequest() {
   return conversation.slice(lastAssistantIdx + 1).some((t) => t.role === "user" && (t.text || "").startsWith("[Forge]"));
 }
 
+const QUALITY_STATUS = {
+  bien_couvert: { label: "Bien couvert", cls: "ok" },
+  a_renforcer: { label: "À renforcer", cls: "warn" },
+  absent: { label: "Absent", cls: "bad" },
+};
+
+/** « Qualités vs objectifs » (docs/adr/0085) : ce que la semaine proposée
+ * développe réellement au regard des objectifs du bloc (champ `qualities`
+ * du squelette, écrit par le coach — prompts/forge-skeleton.md). */
+function qualitiesHTML(qualities) {
+  if (!Array.isArray(qualities) || !qualities.length) return "";
+  const rows = qualities.filter((q) => q && q.name).map((q) => {
+    const st = QUALITY_STATUS[q.status] || { label: "—", cls: "warn" };
+    return `<li class="quality-row quality-${st.cls}">
+      <span class="quality-dot" aria-hidden="true"></span>
+      <div><strong>${escapeHtmlText(q.name)}</strong> <span class="quality-badge">${st.label}</span>
+        ${q.objective ? `<div class="muted small">Objectif : ${escapeHtmlText(q.objective)}</div>` : ""}
+        ${q.detail ? `<div class="small">${escapeHtmlText(q.detail)}</div>` : ""}</div></li>`;
+  }).join("");
+  return `<div class="quality-block"><p class="small"><strong>Qualités développées vs objectifs du bloc</strong></p><ul class="quality-list">${rows}</ul></div>`;
+}
+
 async function loadForgePendingSkeleton(token) {
   const box = document.getElementById("forge-skeleton-pending");
   const requestBtn = document.getElementById("forge-skeleton-button");
@@ -287,6 +310,7 @@ async function loadForgePendingSkeleton(token) {
       <h2>🧠 Squelette proposé par le coach — à valider</h2>
       <p class="muted small">Semaine du ${formatFrDate(monday)}</p>
       ${week.rationale ? `<p class="small">${escapeHtmlText(week.rationale)}</p>` : ""}
+      ${qualitiesHTML(week.qualities)}
       <ul class="forge-pending-list">${rows || "<li class='muted small'>Aucun jour proposé.</li>"}</ul>
       <div class="proposal-actions">
         <button type="button" id="forge-proposal-reject" class="primary-button ghost small">❌ Refuser</button>

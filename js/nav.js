@@ -2,6 +2,7 @@ import { stopAllSessionTimers } from "./session/session-state.js";
 import { renderToday } from "./views/today.js";
 import { renderWeek } from "./views/week.js";
 import { renderForge } from "./views/forge.js";
+import { renderForgeBloc } from "./views/forge-bloc.js";
 import { renderData } from "./views/data.js";
 import { renderCalendar } from "./views/calendar.js";
 import { renderChat } from "./views/chat.js";
@@ -21,6 +22,7 @@ export const state = {
   sessionDate: null,
   forgeMonday: null,
   forgePrefillDraft: null,
+  forgeBlocLabel: null,
   planningMonday: null,
   sessionReturnTo: null,
   openLiveOnLoad: false, // « Démarrer » d'Aujourd'hui : ouvrir la séance guidée dès le rendu (ADR-0076)
@@ -43,6 +45,7 @@ const views = {
   today: { title: "Aujourd'hui", render: renderToday },
   week: { title: "Plan", render: renderWeek },
   forge: { title: "Plan", render: renderForge },
+  "forge-bloc": { title: "Forge de bloc", render: renderForgeBloc },
   data: { title: "Progrès", render: renderData },
   calendar: { title: "Plan", render: renderCalendar },
   chat: { title: "Coach", render: renderChat },
@@ -60,6 +63,7 @@ const TAB_FOR_VIEW = {
   today: "today",
   week: "week",
   forge: "week",
+  "forge-bloc": "week",
   calendar: "week",
   data: "data",
   chat: "chat",

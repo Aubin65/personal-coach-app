@@ -2329,3 +2329,25 @@ body.live-open { overflow: hidden; }
 .checkin-details[open] .data-check-chevron { transform: rotate(180deg); }
 .checkin-details > :not(summary) { margin-left: 16px; margin-right: 16px; }
 .checkin-details > :last-child { margin-bottom: 14px; }
+
+/* Forge de bloc + qualités du squelette (ADR-0085) */
+.quality-block { margin: 10px 0; }
+.quality-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.quality-row { display: flex; gap: 10px; align-items: flex-start; }
+.quality-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; background: var(--status-ok); }
+.quality-warn .quality-dot { background: var(--status-warn); }
+.quality-bad .quality-dot { background: #C0392B; }
+.quality-badge { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.03em; }
+.bloc-sub { font-size: 1rem; margin: 14px 0 2px; }
+.bloc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.bloc-chat #bloc-thread { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+.bloc-msg { max-width: 92%; padding: 8px 12px; border-radius: 14px; background: var(--bg); }
+.bloc-msg p { margin: 2px 0 0; font-size: 0.92rem; line-height: 1.4; }
+.bloc-msg-who { font-size: 0.7rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+.bloc-msg.from-user { align-self: flex-end; background: var(--surface-2); }
+.bloc-msg.from-coach { align-self: flex-start; border: 1px solid var(--border); }
+.bloc-suggestions { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.bloc-suggestion { padding: 10px 12px; border: 1.5px solid var(--gold); border-radius: var(--radius-sm); }
+.bloc-feelings-matches { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; }
+#forge-bloc-root input[type="text"], #forge-bloc-root input[type="date"], #forge-bloc-root textarea, #forge-bloc-root select { width: 100%; }
+#forge-bloc-root .card-head select { width: auto; }
