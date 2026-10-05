@@ -2003,3 +2003,26 @@ body.live-open { overflow: hidden; }
 .live-rest-choices button.on { opacity: 1; background: var(--card-bg); }
 .live-validate { min-height: 60px; border: none; border-radius: 18px; background: var(--gold); color: #111814; font-size: 1.12rem; font-weight: 800; display: flex; align-items: center; justify-content: center; gap: 10px; cursor: pointer; }
 .live-validate:active { transform: scale(0.98); }
+
+/* ---------- Données du jour (docs/adr/0075) ---------- */
+.data-check { padding: 0; overflow: hidden; }
+.data-check summary { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 0 16px; cursor: pointer; list-style: none; font-weight: 700; font-size: 0.95rem; }
+.data-check summary::-webkit-details-marker { display: none; }
+.data-check-badge { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--status-ok); }
+.data-check.has-issues .data-check-badge { background: var(--status-warn); }
+.data-check.has-issues { border: 1.5px solid var(--gold); }
+.data-check-title { flex: 1; }
+.data-check-chevron { width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s; }
+.data-check[open] .data-check-chevron { transform: rotate(180deg); }
+.data-check-list { list-style: none; margin: 0; padding: 0 16px 6px; }
+.data-check-row { display: flex; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+.data-check-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; background: var(--border); }
+.data-check-row.ok .data-check-dot { background: var(--status-ok); }
+.data-check-row.warn .data-check-dot { background: var(--status-warn); }
+.data-check-text { display: flex; flex-direction: column; gap: 2px; font-size: 0.88rem; line-height: 1.4; }
+.data-check-text strong { font-size: 0.92rem; }
+.data-check-text > span { color: var(--muted); }
+.data-check-row.warn .data-check-text > span { color: var(--text); }
+.data-check-action { align-self: flex-start; display: inline-flex; align-items: center; min-height: 44px; margin-top: 4px; padding: 0 14px; border-radius: var(--radius-sm); background: var(--gold); color: #111814; font-weight: 700; text-decoration: none; }
+.data-check .data-check-relaunch { margin: 0 16px 6px; }
+.data-check-note { margin: 0 16px 12px; }

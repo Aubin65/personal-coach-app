@@ -93,8 +93,13 @@ export async function renderSystemStatus(token) {
     rows.push(rowHTML("warn", "Synchro santé", "aucune donnée du raccourci Santé trouvée. Vérifie le raccourci « Push Santé Vers Coach » (docs/apple-health-shortcut.md)."));
   } else if (daysBetween(healthDate, today) > HEALTH_MAX_LAG_DAYS) {
     rows.push(rowHTML("warn", "Synchro santé", `dernière donnée du ${frDay(healthDate)} (${daysBetween(healthDate, today)} jours). Lance le raccourci à la main ; s'il affiche « partager des éléments Santé n'est pas autorisé », active Réglages → Raccourcis → Avancé → Autoriser le partage de grandes quantités de données.`));
+  } else if (healthDate === today) {
+    rows.push(rowHTML("ok", "Synchro santé", "données d'aujourd'hui reçues."));
   } else {
-    rows.push(rowHTML("ok", "Synchro santé", `dernière donnée du ${frDay(healthDate)}.`));
+    // Un jour de retard reste « normal » pour le circuit (raccourci pas
+    // encore passé ce matin), mais ce n'est plus marqué comme à jour : le
+    // détail du jour est dans « Données du jour » (docs/adr/0075).
+    rows.push(rowHTML("info", "Synchro santé", `dernière donnée du ${frDay(healthDate)} ; celles d'aujourd'hui pas encore reçues.`));
   }
 
   let digestNeedsAction = false;

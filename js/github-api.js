@@ -234,3 +234,27 @@ async function dispatchWorkflowRaw(fileName, ref) {
     throw new Error(`GitHub ${res.status} en déclenchant ${fileName}${detail ? ` — ${detail}` : ""}`);
   }
 }
+
+/** Derniers commits qui ont touché `path` — `[{date, message}]`, du plus
+ * récent au plus ancien (vide sur erreur ou hors-ligne, jamais bloquant).
+ * Sert à « Données du jour » (docs/adr/0075) : l'heure d'arrivée réelle d'un
+ * fichier de données, que l'API contents ne donne pas. */
+export async function ghRecentCommits(path, perPage = 10) {
+  try {
+    const res = await fetch(`${API}/repos/${REPO}/commits?path=${encodeURIComponent(path)}&per_page=${perPage}`, {
+      headers: { Authorization: `Bearer ${getToken()}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) return [];
+    const list = await res.json();
+    if (!Array.isArray(list)) return [];
+    return list
+      .map((item) => {
+        const c = item && item.commit;
+        if (!c) return null;
+        return { date: (c.committer && c.committer.date) || (c.author && c.author.date) || null, message: c.message || "" };
+      })
+      .filter((x) => x && x.date);
+  } catch (_) {
+    return [];
+  }
+}

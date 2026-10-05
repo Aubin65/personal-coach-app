@@ -15,6 +15,7 @@ import { registerQueuedOp, runQueued } from "../offline-queue.js";
 import { READINESS_LEVEL_LABELS, WORKLOAD_ZONE_LABELS } from "./data.js";
 import { formatHoursFr } from "./data-viz.js";
 import { SESSION_TYPES } from "../session-types.js";
+import { renderTodayDataCheck } from "../today-data-check.js";
 
 const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge", prepa_physique: "🏋️ Préparation physique" };
 
@@ -699,6 +700,7 @@ async function loadTodaySession(token) {
 export async function renderToday(token) {
   setupCredo();
   loadReadiness(token).catch(() => {});
+  renderTodayDataCheck(token).catch(() => {});
   loadCheckin(token).catch(() => {});
   loadTodaySession(token).catch(() => {});
   loadActiveAlerts(token).catch(() => {});
