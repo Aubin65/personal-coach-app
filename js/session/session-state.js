@@ -13,9 +13,11 @@ export const sessionRuntime = {
   autoSaveIntervalId: null,
   saveInFlight: false,
   blockTimerIntervalIds: {},
+  liveCleanup: null, // ferme la surcouche « séance guidée » (session-live.js, ADR-0074) si on quitte la vue
 };
 
 export function stopAllSessionTimers() {
+  if (sessionRuntime.liveCleanup) sessionRuntime.liveCleanup();
   if (sessionRuntime.timerIntervalId) {
     clearInterval(sessionRuntime.timerIntervalId);
     sessionRuntime.timerIntervalId = null;

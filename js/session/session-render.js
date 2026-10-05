@@ -10,6 +10,7 @@ import { blankSession, groupExercisesIntoBlocks } from "./session-model.js";
 import { splitTimerHTML, timerBarHTML, startTimerDisplayInterval, startSessionAutoSave, startBlockTimerIntervals } from "./session-timer.js";
 import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEvents, saveSession } from "./session-form.js";
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
+import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 
 // ---------- Session detail : voir/loguer/planifier n'importe quelle date ----------
 // Reachable from Aujourd'hui ("Loguer la séance", aujourd'hui), un jour du
@@ -79,6 +80,7 @@ export function renderSessionContent() {
       <input id="session-name-input" value="${escapeAttr(session.name || "Séance")}">
     </section>
     ${timerBarHTML(date)}
+    ${type === "musculation" && liveExerciseIndices(session).length ? liveModeCtaHTML(session) : ""}
     ${type === "musculation" ? musculationBodyHTML(session) : ""}
     <section class="card">
       <label>${notesLabelFor(type)}</label>
@@ -93,9 +95,26 @@ export function renderSessionContent() {
 
   bindSessionContentEvents();
   bindCancelSession();
+  const liveBtn = document.getElementById("open-live-mode");
+  if (liveBtn) liveBtn.addEventListener("click", () => { openLiveMode().catch(() => {}); });
   startTimerDisplayInterval();
   startSessionAutoSave();
   startBlockTimerIntervals();
+}
+
+/** Entrée du mode séance guidée (docs/adr/0074) — série par série, sous le
+ * pouce ; le formulaire complet reste juste en dessous pour tout le reste. */
+function liveModeCtaHTML(session) {
+  const indices = liveExerciseIndices(session);
+  const started = indices.some((i) => {
+    const ex = session.exercises[i];
+    return ex.executed && (ex.executed.reps || ex.executed.load);
+  });
+  return `
+    <button type="button" id="open-live-mode" class="live-mode-cta">
+      <span class="live-mode-cta-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg></span>
+      <span><strong>${started ? "Reprendre la séance guidée" : "Séance guidée"}</strong><small>Série par série, avec repos automatique</small></span>
+    </button>`;
 }
 
 /** Annuler une séance = la remplacer par un autre type (repos par défaut,
