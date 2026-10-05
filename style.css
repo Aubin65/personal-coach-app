@@ -2361,3 +2361,18 @@ body.live-open { overflow: hidden; }
 .stat-rows span { color: var(--muted); }
 .stat-rows b { font-weight: 700; color: var(--text); white-space: nowrap; }
 .tonnage-milestone-label { min-height: 2.3em; display: flex; align-items: center; justify-content: center; line-height: 1.15; }
+
+/* Forge de bloc : champs qui ne débordent jamais (date iOS comprise) */
+.bloc-grid-2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.bloc-grid-2 > div { min-width: 0; }
+#forge-bloc-root input, #forge-bloc-root textarea, #forge-bloc-root select { box-sizing: border-box; max-width: 100%; min-width: 0; }
+#forge-bloc-root input[type="date"] { -webkit-appearance: none; appearance: none; width: 100%; min-height: 44px; display: block; }
+#forge-bloc-root input[type="date"]::-webkit-date-and-time-value { text-align: left; }
+.bloc-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.bloc-step { padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; background: var(--surface-2); color: var(--muted); }
+.bloc-step.done { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.bloc-facts { margin: 4px 0 8px; padding-left: 18px; font-size: 0.9rem; line-height: 1.5; }
+.suggestion-chip.active[data-quick] { opacity: 0.55; }
+.bloc-themes { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.bloc-theme { display: flex; align-items: center; gap: 8px; }
+.bloc-theme-score { padding: 1px 8px; border-radius: 10px; font-size: 0.72rem; font-weight: 700; background: var(--surface-2); color: var(--muted); }
