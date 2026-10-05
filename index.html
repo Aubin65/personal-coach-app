@@ -6,14 +6,14 @@
 <title>Coach</title>
 <meta name="theme-color" content="#0B3D2C">
 <link rel="manifest" href="manifest.json">
-<link rel="icon" href="icons/icon-192.png">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Coach">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Narrow:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -21,7 +21,8 @@
 <!-- Login screen: shown until a GitHub token is stored -->
 <div id="login-screen" class="screen">
   <div class="login-card">
-    <h1>🏉 Personal Coach</h1>
+    <img src="icons/icon-192.png" class="login-logo" alt="" width="72" height="72">
+    <h1>Personal Coach</h1>
     <p class="muted">Colle ton token GitHub (le même que celui utilisé pour les Raccourcis iOS — accès Contents lecture/écriture sur <code>Aubin65/personal_coach</code>).</p>
     <input id="token-input" type="password" placeholder="github_pat_..." autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
     <button id="login-button" class="primary-button">Se connecter</button>
@@ -34,40 +35,45 @@
 <div id="app" class="screen" hidden>
   <header class="topbar">
     <div class="topbar-leading">
-      <button id="topbar-back" class="icon-button" title="Retour" aria-label="Retour" hidden>◀</button>
+      <button id="topbar-back" class="icon-button" title="Retour" aria-label="Retour" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
       <div class="topbar-titles">
         <span id="topbar-title">Aujourd'hui</span>
         <span id="topbar-sync-status" class="topbar-sync-status"></span>
       </div>
     </div>
     <div class="topbar-actions">
-      <button id="push-subscribe-button" class="icon-button" title="Activer les notifications" aria-label="Activer les notifications" hidden>🔔</button>
-      <button id="refresh-button" class="icon-button" title="Rafraîchir" aria-label="Rafraîchir">⟳</button>
+      <button id="push-subscribe-button" class="icon-button" title="Activer les notifications" aria-label="Activer les notifications" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 21h4"/></svg></button>
+      <button id="refresh-button" class="icon-button" title="Rafraîchir" aria-label="Rafraîchir"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
     </div>
   </header>
 
   <div id="queue-banner" class="queue-banner" hidden></div>
 
+  <!-- Sous-navigation de l'onglet Plan (Semaine / Forge / Matchs), visible
+       uniquement sur ces trois vues — voir docs/adr/0071. -->
+  <nav id="plan-switch" class="plan-switch" aria-label="Sections du plan" hidden>
+    <button type="button" class="plan-switch-item" data-view="week">Semaine</button>
+    <button type="button" class="plan-switch-item" data-view="forge">Forge</button>
+    <button type="button" class="plan-switch-item" data-view="calendar">Matchs</button>
+  </nav>
+
   <main id="content"></main>
 
-  <nav class="bottom-nav">
-    <button class="nav-item active" data-view="today">
-      <span class="nav-icon">🏠</span><span>Aujourd'hui</span>
+  <nav class="bottom-nav" aria-label="Navigation principale">
+    <button type="button" class="nav-item active" data-view="today">
+      <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg><span>Aujourd'hui</span>
     </button>
-    <button class="nav-item" data-view="week">
-      <span class="nav-icon">📅</span><span>Semaine</span>
+    <button type="button" class="nav-item" data-view="week">
+      <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg><span>Plan</span>
     </button>
-    <button class="nav-item" data-view="forge">
-      <span class="nav-icon">🔨</span><span>Forge</span>
+    <button type="button" class="nav-fab" id="nav-add-button" aria-label="Ajouter : séance, note, douleur, check-in…">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
     </button>
-    <button class="nav-item" data-view="data">
-      <span class="nav-icon">📊</span><span>Data</span>
+    <button type="button" class="nav-item" data-view="data">
+      <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg><span>Progrès</span>
     </button>
-    <button class="nav-item" data-view="calendar">
-      <span class="nav-icon">🏉</span><span>Matchs</span>
-    </button>
-    <button class="nav-item" data-view="chat">
-      <span class="nav-icon">💬</span><span>Coach</span>
+    <button type="button" class="nav-item" data-view="chat">
+      <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Coach</span>
     </button>
   </nav>
 </div>

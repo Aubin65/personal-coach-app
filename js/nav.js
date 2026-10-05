@@ -10,6 +10,7 @@ import { renderWriteNote } from "./views/write-note.js";
 import { renderAdjustWeek } from "./views/adjust-week.js";
 import { renderPain } from "./views/pain.js";
 import { loadSyncStatus } from "./sync-status.js";
+import { openAddSheet } from "./add-sheet.js";
 
 // ============================================================================
 // App state / navigation
@@ -38,16 +39,30 @@ export function stale(token) {
 
 const views = {
   today: { title: "Aujourd'hui", render: renderToday },
-  week: { title: "Semaine", render: renderWeek },
-  forge: { title: "Forge", render: renderForge },
-  data: { title: "Data", render: renderData },
-  calendar: { title: "Matchs", render: renderCalendar },
+  week: { title: "Plan", render: renderWeek },
+  forge: { title: "Plan", render: renderForge },
+  data: { title: "Progrès", render: renderData },
+  calendar: { title: "Plan", render: renderCalendar },
   chat: { title: "Coach", render: renderChat },
   session: { title: "Séance", render: renderSession },
   "write-note": { title: "Nouvelle note", render: renderWriteNote },
   "adjust-week": { title: "Ajuster ma semaine", render: renderAdjustWeek },
   pain: { title: "Douleur / gêne", render: renderPain },
 };
+
+// Barre du bas à 4 onglets (docs/adr/0071) : plusieurs vues partagent un
+// même onglet. Semaine, Forge et Matchs vivent sous « Plan » (avec la sous-
+// navigation #plan-switch) ; les vues de saisie ouvertes depuis le bouton +
+// (séance, note, douleur, ajustement) n'allument aucun onglet.
+const TAB_FOR_VIEW = {
+  today: "today",
+  week: "week",
+  forge: "week",
+  calendar: "week",
+  data: "data",
+  chat: "chat",
+};
+const PLAN_VIEWS = new Set(["week", "forge", "calendar"]);
 
 /** `params.date` (ISO) targets the "session" view at an arbitrary date —
  * set from the Aujourd'hui quick action (today), a day-strip/Forge/
@@ -78,9 +93,20 @@ export function showView(name, params = {}) {
   document.getElementById("topbar-title").textContent = views[name].title;
   const backBtn = document.getElementById("topbar-back");
   if (backBtn) backBtn.hidden = !(name === "session" && state.sessionReturnTo);
+  const activeTab = TAB_FOR_VIEW[name];
   document.querySelectorAll(".nav-item").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.view === name);
+    const on = btn.dataset.view === activeTab;
+    btn.classList.toggle("active", on);
+    if (on) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
   });
+  const planSwitch = document.getElementById("plan-switch");
+  if (planSwitch) {
+    planSwitch.hidden = !PLAN_VIEWS.has(name);
+    planSwitch.querySelectorAll(".plan-switch-item").forEach((btn) => {
+      btn.classList.toggle("active", btn.dataset.view === name);
+    });
+  }
   const content = document.getElementById("content");
   content.innerHTML = "";
   const tplId = "tpl-" + name;
@@ -92,9 +118,11 @@ export function showView(name, params = {}) {
   });
 }
 
-document.querySelectorAll(".nav-item").forEach((btn) => {
+document.querySelectorAll(".nav-item, .plan-switch-item").forEach((btn) => {
   btn.addEventListener("click", () => showView(btn.dataset.view));
 });
+
+document.getElementById("nav-add-button").addEventListener("click", openAddSheet);
 
 document.getElementById("topbar-back").addEventListener("click", () => {
   if (state.sessionReturnTo) showView(state.sessionReturnTo);
