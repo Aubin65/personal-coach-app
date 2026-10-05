@@ -1,6 +1,6 @@
 import { ghGetFile } from "../github-api.js";
 import { stale } from "../nav.js";
-import { skeletonHTML, escapeHtmlText } from "../markdown.js";
+import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { statTile, sleepGoalTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -30,7 +30,7 @@ export async function renderData(token) {
   if (stale(token)) return;
   if (!file) { el.innerHTML = "<p class='muted'>Pas encore de résumé exporté.</p>"; return; }
   const s = JSON.parse(file.content);
-  let html = "";
+  let html = kpiGridHTML(s);
 
   html += readinessScoreHTML(s.readiness);
 
@@ -213,6 +213,50 @@ export async function renderData(token) {
 
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
   addSectionJump(el);
+  el.querySelectorAll(".kpi-tile[data-jump]").forEach((tile) => {
+    tile.addEventListener("click", () => {
+      const re = new RegExp(tile.dataset.jump, "i");
+      const target = [...el.querySelectorAll(":scope > section.card")].find((c) => {
+        const h2 = c.querySelector("h2");
+        return (h2 && re.test(h2.textContent)) || c.classList.contains(`${tile.dataset.jump}-card`);
+      });
+      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  });
+}
+
+/** Les 4 chiffres clés en tête de Progrès (maquette C, docs/adr/0078) :
+ * forme, charge aiguë:chronique, sommeil moyen 7 j, tonnage de la semaine —
+ * chacun avec sa tendance, un tap amène à la carte détaillée. N'affiche que
+ * ce qui est disponible (pas de zéro inventé). */
+function kpiGridHTML(s) {
+  const tiles = [];
+  const r = s.readiness;
+  if (r && r.score != null) {
+    tiles.push({ jump: "readiness", label: "Indice de forme", value: String(r.score), trend: READINESS_LEVEL_LABELS[r.level] || r.level, cls: r.level === "vigilance" ? "warn" : r.level === "repos_recommande" ? "alert" : "ok" });
+  }
+  const w = s.workload;
+  if (w && w.ratio != null) {
+    tiles.push({ jump: "aiguë", label: "Charge aiguë:chronique", value: w.ratio.toFixed(2).replace(".", ","), trend: WORKLOAD_ZONE_LABELS[w.zone] || w.zone, cls: w.zone === "zone_optimale" ? "ok" : w.zone === "risque_eleve" ? "alert" : "warn" });
+  }
+  const sl = s.sleep_recent;
+  if (sl && sl.avg_7d != null) {
+    const delta = sl.avg_prior_7d != null ? sl.avg_7d - sl.avg_prior_7d : null;
+    tiles.push({ jump: "sommeil", label: "Sommeil moyen (7 j)", value: formatHoursFr(sl.avg_7d), trend: delta == null ? "" : `${delta >= 0 ? "↗ +" : "↘ −"}${Math.round(Math.abs(delta) * 60)} min`, cls: delta == null || delta >= 0 ? "ok" : "warn" });
+  }
+  const t = s.tonnage;
+  if (t && t.total_tonnage_kg != null) {
+    const prior = t.prior_week && t.prior_week.total_tonnage_kg;
+    const v = t.total_tonnage_kg;
+    tiles.push({ jump: "tonnage", label: "Tonnage semaine", value: v >= 1000 ? `${(v / 1000).toFixed(1).replace(".", ",")} t` : `${Math.round(v)} kg`, trend: prior ? `sem. passée ${prior >= 1000 ? `${(prior / 1000).toFixed(1).replace(".", ",")} t` : `${Math.round(prior)} kg`}` : "", cls: "neutral" });
+  }
+  if (!tiles.length) return "";
+  return `<div class="kpi-grid">${tiles.map((k) => `
+    <button type="button" class="kpi-tile" data-jump="${escapeAttr(k.jump)}">
+      <span class="kpi-label">${escapeHtmlText(k.label)}</span>
+      <span class="kpi-value">${escapeHtmlText(k.value)}</span>
+      ${k.trend ? `<span class="kpi-trend ${k.cls}">${escapeHtmlText(k.trend)}</span>` : ""}
+    </button>`).join("")}</div>`;
 }
 
 /** Barre de raccourcis collante en tête de Progrès (docs/adr/0073) : l'écran

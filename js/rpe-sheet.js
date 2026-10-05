@@ -26,7 +26,7 @@ const DURATION_SHORTCUTS = [30, 45, 60, 75, 90, 105, 120];
 
 /** Résout `{rpe, duration}` à la validation, `null` si l'utilisateur ferme
  * ("Plus tard", croix, tap à côté). */
-export function openRpeSheet({ title, defaultRpe = null, defaultDuration = null }) {
+export function openRpeSheet({ title, defaultRpe = null, defaultDuration = null, recapHTML = "" }) {
   return new Promise((resolve) => {
     let settled = false;
     const finish = (value) => {
@@ -40,15 +40,16 @@ export function openRpeSheet({ title, defaultRpe = null, defaultDuration = null 
     const { el, close } = openSheet(
       `
       <h2>${escapeHtmlText(title)}</h2>
-      <p class="small rpe-sheet-title">Comment c'était ? (RPE)</p>
+      ${recapHTML}
+      <p class="small rpe-sheet-title">Comment c'était ? <span class="muted">RPE 0 à 10</span></p>
       <div class="suggestion-chips rpe-chips">${rpeChips}</div>
       <p class="muted small rpe-description">${defaultRpe != null ? RPE_DESCRIPTIONS[defaultRpe] : "Touche un chiffre — 0 = repos, 10 = maximal."}</p>
-      <p class="small rpe-sheet-title">Durée (min)</p>
+      <p class="small rpe-sheet-title">Durée <span class="muted">en minutes</span></p>
       <div class="suggestion-chips">${durationChips}</div>
       <input type="number" class="rpe-duration-input" min="1" step="1" inputmode="numeric" placeholder="ou une autre durée" value="${defaultDuration ?? ""}">
       <div class="proposal-actions">
-        <button type="button" class="primary-button ghost small rpe-later">Plus tard</button>
-        <button type="button" class="primary-button small rpe-confirm">✅ Valider</button>
+        <button type="button" class="primary-button ghost rpe-later">Plus tard</button>
+        <button type="button" class="primary-button rpe-confirm">Valider</button>
       </div>
       <p class="muted small rpe-status"></p>`,
       { onClose: () => finish(null) },

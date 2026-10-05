@@ -3,7 +3,7 @@ import { escapeAttr, escapeHtmlText, skeletonHTML } from "../markdown.js";
 import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
 import { notesLabelFor, notesPlaceholderFor, renderSessionContent } from "./session-render.js";
 import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName } from "./session-model.js";
-import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows } from "./session-exec.js";
+import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows, hydrateExecRows } from "./session-exec.js";
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
 import { formatFrDate } from "../date-utils.js";
@@ -49,6 +49,33 @@ function rpeHelpDetailsHTML() {
 /** Ouvre la saisie rapide RPE/durée sur la séance en cours d'édition, puis
  * l'enregistre aussitôt (un RPE donné au sortir de la séance ne doit pas
  * dépendre d'un second appui sur "Enregistrer la séance"). */
+/** Récap de fin de séance (maquette C, docs/adr/0078) : durée (chrono),
+ * exercices faits sur prévus, tonnage calculé sur les séries saisies (charge
+ * × reps, seulement quand les deux sont des nombres — même règle que
+ * coach.tonnage : refuser plutôt que deviner). Purement affiché, rien n'est
+ * écrit en plus. */
+function sessionRecapHTML(session) {
+  const exercises = (session.exercises || []).filter((ex) => (ex.name || "").trim());
+  const done = exercises.filter((ex) => ex.executed && (ex.executed.reps || ex.executed.load)).length;
+  let tonnage = 0;
+  for (const ex of exercises) {
+    if ((ex.format || "standard") !== "standard") continue;
+    for (const r of hydrateExecRows(ex.executed || {}, ex.rir)) {
+      const load = parseFloat(String(r.load || "").replace(",", "."));
+      const reps = parseFloat(String(r.reps || "").replace(",", "."));
+      if (Number.isFinite(load) && Number.isFinite(reps) && /^[\d.,]+$/.test(String(r.load).trim()) && /^[\d.,]+$/.test(String(r.reps).trim())) {
+        tonnage += load * reps * ((ex.executed && ex.executed.load_per_hand) ? 2 : 1);
+      }
+    }
+  }
+  const tiles = [];
+  if (session.session_duration_min) tiles.push([`${session.session_duration_min}'`, "durée (chrono)"]);
+  if (exercises.length) tiles.push([`${done}/${exercises.length}`, "exercices"]);
+  if (tonnage > 0) tiles.push([tonnage >= 1000 ? `${(tonnage / 1000).toFixed(1).replace(".", ",")} t` : `${Math.round(tonnage)} kg`, "tonnage"]);
+  if (!tiles.length) return "";
+  return `<div class="session-recap">${tiles.map(([v, l]) => `<div><b>${v}</b><span>${l}</span></div>`).join("")}</div>`;
+}
+
 async function promptRpeAndSave(title) {
   const working = sessionRuntime.working;
   const session = working.session;
@@ -56,6 +83,7 @@ async function promptRpeAndSave(title) {
     title,
     defaultRpe: session.session_rpe ?? null,
     defaultDuration: session.session_duration_min ?? null,
+    recapHTML: title === "Séance terminée" ? sessionRecapHTML(session) : "",
   });
   if (!result || sessionRuntime.working !== working) return;
   session.session_rpe = result.rpe;
