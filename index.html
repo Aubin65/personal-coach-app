@@ -86,44 +86,33 @@
 </template>
 
 <template id="tpl-today">
+  <!-- Ordre (docs/adr/0072) : « est-ce que je peux y aller ? » (forme),
+       check-in, séance du jour, ce qui attend une action (alertes, charge à
+       saisir), puis le digest. Les saisies vivent dans le bouton + (ADR-0071). -->
+  <div id="today-readiness"></div>
+
+  <div id="checkin-content"></div>
+
+  <div id="today-session"></div>
+
+  <div id="active-alerts"></div>
+
+  <div id="quick-load"></div>
+
+  <section class="card digest-card">
+    <div class="digest-header">
+      <h2 id="today-digest-date">Le mot du coach</h2>
+      <button type="button" id="generate-digest-button" class="soft-icon-button" title="Nouveau digest" aria-label="Générer un nouveau digest"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></button>
+    </div>
+    <p id="generate-digest-status" class="muted small"></p>
+    <div id="today-digest-content" class="markdown-body"></div>
+    <button type="button" id="digest-expand" class="digest-expand" hidden>Lire le digest complet</button>
+  </section>
+
   <section class="credo-card">
     <p id="credo-text" class="credo-text"></p>
     <p id="credo-source" class="credo-source"></p>
   </section>
-
-  <button type="button" id="adjust-week-cta" class="cta-banner">
-    <span class="cta-icon">🗣️</span>
-    <span class="cta-text"><strong>Ajuster ma semaine</strong><br>Parle à ton coach, il propose un ajustement à valider</span>
-    <span class="cta-arrow">→</span>
-  </button>
-
-  <div class="big-action-grid" id="today-quick-actions">
-    <button type="button" class="big-action-card log-session" data-action="session">
-      <span class="big-action-icon">📝</span>
-      <span class="big-action-label">Loguer la<br>séance</span>
-    </button>
-    <button type="button" class="big-action-card write-note" data-action="write-note">
-      <span class="big-action-icon">🎙️</span>
-      <span class="big-action-label">Note<br>vocale</span>
-    </button>
-    <button type="button" class="big-action-card log-pain" data-action="pain">
-      <span class="big-action-icon">🩹</span>
-      <span class="big-action-label">Douleur / gêne</span>
-    </button>
-  </div>
-
-  <div id="checkin-content"></div>
-
-  <div id="quick-load"></div>
-
-  <div id="active-alerts"></div>
-
-  <div class="digest-header">
-    <h2 id="today-digest-date">Digest</h2>
-    <button type="button" id="generate-digest-button" class="primary-button ghost small">🔄 Nouveau digest</button>
-  </div>
-  <p id="generate-digest-status" class="muted small"></p>
-  <div id="today-digest-content" class="markdown-body"></div>
 
   <div id="system-status"></div>
 </template>

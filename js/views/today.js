@@ -12,6 +12,9 @@ import { renderSystemStatus, latestDigestDate } from "../system-status.js";
 import { openRpeSheet } from "../rpe-sheet.js";
 import { saveSession } from "../session/session-form.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
+import { READINESS_LEVEL_LABELS, WORKLOAD_ZONE_LABELS } from "./data.js";
+import { formatHoursFr } from "./data-viz.js";
+import { SESSION_TYPES } from "../session-types.js";
 
 const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge", prepa_physique: "🏋️ Préparation physique" };
 
@@ -88,18 +91,23 @@ function wellnessChipsRowHTML(dim, value) {
 }
 
 function checkinFormHTML(wellness, mobility, arrivalState, hidden) {
+  // Tuiles d'arrivée (docs/adr/0072) : un tap suffit pour commencer ; le
+  // reste du check-in (étirements, bien-être, note) se déplie ensuite.
   const arrivalChips = ARRIVAL_STATE_OPTIONS
-    .map((o) => `<button type="button" class="suggestion-chip${arrivalState && arrivalState.state === o.id ? " active" : ""}" data-arrival-state="${o.id}" title="${o.label}">${o.emoji} ${o.label}</button>`)
+    .map((o) => `<button type="button" class="arrival-tile${arrivalState && arrivalState.state === o.id ? " active" : ""}" data-arrival-state="${o.id}"><span class="arrival-dot" aria-hidden="true"></span><span>${o.label}</span></button>`)
     .join("");
+  const showMore = !!(arrivalState || wellness || mobility);
   const mobilityChips = MOBILITY_DONE_OPTIONS
     .map((o) => `<button type="button" class="suggestion-chip${mobility && mobility.done === o.id ? " active" : ""}" data-mobility-done="${o.id}">${o.label}</button>`)
     .join("");
   const wellnessRows = WELLNESS_DIMENSIONS.map((dim) => wellnessChipsRowHTML(dim, wellness ? wellness[dim.key] : null)).join("");
   return `
     <div class="checkin-form"${hidden ? " hidden" : ""}>
-      <p class="small checkin-section-title">Comment tu arrives ce matin</p>
-      <div class="suggestion-chips">${arrivalChips}</div>
-      <p class="small checkin-section-title" style="margin-top:10px">Étirements du matin</p>
+      <p class="checkin-question">Comment tu arrives ce matin ?</p>
+      <div class="arrival-tiles">${arrivalChips}</div>
+      <p class="muted small checkin-more-hint"${showMore ? " hidden" : ""}>Un tap pour commencer. Étirements, bien-être et note suivent.</p>
+      <div class="checkin-more"${showMore ? "" : " hidden"}>
+      <p class="small checkin-section-title" style="margin-top:14px">Étirements du matin</p>
       <div class="suggestion-chips">${mobilityChips}</div>
       <div class="exercise-log-grid full" style="margin-top:8px">
         <div><label>Raideur ressentie (0-10)</label><input type="number" id="checkin-stiffness" min="0" max="10" step="1" value="${mobility && mobility.stiffness != null ? mobility.stiffness : ""}" placeholder="0-10"></div>
@@ -112,8 +120,9 @@ function checkinFormHTML(wellness, mobility, arrivalState, hidden) {
       </div>
       <p class="voice-hint" id="checkin-voice-hint" hidden></p>
       <p class="live-caption" id="checkin-live-caption" hidden></p>
-      <button type="button" class="primary-button small" id="checkin-save" style="margin-top:10px">Enregistrer</button>
+      <button type="button" class="primary-button" id="checkin-save" style="margin-top:12px">Enregistrer</button>
       <p class="muted small" id="checkin-status"></p>
+      </div>
     </div>`;
 }
 
@@ -284,6 +293,12 @@ function wireCheckinForm(card) {
   card.querySelectorAll("[data-arrival-state]").forEach((chip) => {
     chip.addEventListener("click", () => {
       card.querySelectorAll("[data-arrival-state]").forEach((c) => c.classList.toggle("active", c === chip));
+      const more = card.querySelector(".checkin-more");
+      if (more && more.hidden) {
+        more.hidden = false;
+        const hint = card.querySelector(".checkin-more-hint");
+        if (hint) hint.hidden = true;
+      }
     });
   });
 
@@ -409,7 +424,7 @@ async function loadCheckin(token) {
 
   box.innerHTML = `
     <section class="card checkin-card">
-      <h2>🌅 Check-in du matin</h2>
+      <div class="card-head"><h2>Check-in du matin</h2>${alreadyLogged ? '<span class="pill pill-ok">Fait</span>' : '<span class="pill pill-warn">À faire</span>'}</div>
       <div class="checkin-summary-slot">${alreadyLogged ? checkinSummaryHTML(wellnessToday, mobilityToday, arrivalStateToday) : ""}</div>
       <div class="checkin-adapt-slot"></div>
       ${checkinFormHTML(wellnessToday, mobilityToday, arrivalStateToday, alreadyLogged)}
@@ -577,21 +592,118 @@ async function loadActiveAlerts(token) {
   });
 }
 
+// ============================================================================
+// Carte « forme » (docs/adr/0072) — la réponse à « est-ce que je peux y
+// aller aujourd'hui ? » en tête d'écran : score de forme (coach.readiness,
+// précalculé dans summary.json), son niveau, et les deux repères qui le
+// font bouger le plus souvent (sommeil 7 j, zone de charge). Le détail des
+// composantes reste dans Progrès, ouvert d'un tap sur la carte.
+// ============================================================================
+
+const READINESS_RING = { pret: "#7BE0A0", bonne_forme: "#7BE0A0", vigilance: "#E8B857", repos_recommande: "#FF8A80" };
+
+async function loadReadiness(token) {
+  const box = document.getElementById("today-readiness");
+  if (!box) return;
+  const file = await ghGetFile("data/app/summary.json");
+  if (stale(token)) return;
+  let summary = {};
+  try { summary = file ? JSON.parse(file.content) : {}; } catch (_) { summary = {}; }
+  const r = summary.readiness;
+  if (!r || r.score == null) { box.innerHTML = ""; return; }
+  const facts = [];
+  const sleep = summary.sleep_recent;
+  if (sleep && sleep.avg_7d != null) facts.push(`Sommeil ${formatHoursFr(sleep.avg_7d)} (7 j)`);
+  const w = summary.workload;
+  if (w && w.zone) facts.push(`Charge : ${(WORKLOAD_ZONE_LABELS[w.zone] || w.zone).toLowerCase()}`);
+  const circ = 2 * Math.PI * 37;
+  const dash = Math.max(0, Math.min(100, r.score)) / 100 * circ;
+  const asOf = r.date && r.date !== todayISO() ? ` · au ${r.date.slice(8, 10)}/${r.date.slice(5, 7)}` : "";
+  box.innerHTML = `
+    <button type="button" class="readiness-hero" aria-label="Indice de forme ${r.score} sur 100 : ${escapeAttr(READINESS_LEVEL_LABELS[r.level] || r.level)}. Voir le détail dans Progrès">
+      <span class="readiness-hero-ring">
+        <svg viewBox="0 0 88 88" width="88" height="88" aria-hidden="true"><circle cx="44" cy="44" r="37" fill="none" stroke="rgba(255,255,255,0.14)" stroke-width="9"/><circle cx="44" cy="44" r="37" fill="none" stroke="${READINESS_RING[r.level] || "#7BE0A0"}" stroke-width="9" stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)} ${circ.toFixed(1)}" transform="rotate(-90 44 44)"/></svg>
+        <span class="readiness-hero-score">${r.score}</span>
+      </span>
+      <span class="readiness-hero-text">
+        <span class="readiness-hero-kicker">Indice de forme${asOf}</span>
+        <span class="readiness-hero-level">${escapeHtmlText(READINESS_LEVEL_LABELS[r.level] || r.level)}</span>
+        ${facts.length ? `<span class="readiness-hero-facts">${facts.map(escapeHtmlText).join(" · ")}</span>` : ""}
+      </span>
+    </button>`;
+  box.querySelector(".readiness-hero").addEventListener("click", () => showView("data"));
+}
+
+// ============================================================================
+// Séance du jour (docs/adr/0072) — remplace la grille « Loguer la séance /
+// Note vocale / Douleur » (déplacée dans le bouton +) par la séance elle-
+// même : nom, premiers exercices prévus, et un seul bouton pour l'ouvrir.
+// ============================================================================
+
+function plannedLine(ex) {
+  const p = ex.planned || {};
+  const parts = [];
+  if (p.sets && p.reps) parts.push(`${p.sets} × ${p.reps}`);
+  else if (p.reps) parts.push(String(p.reps));
+  if (p.load != null && p.load !== "") parts.push(`${p.load}${/^[\d.,]+$/.test(String(p.load)) ? " kg" : ""}`);
+  return parts.join(" · ");
+}
+
+async function loadTodaySession(token) {
+  const box = document.getElementById("today-session");
+  if (!box) return;
+  const date = todayISO();
+  const day = await findSessionForDate(date);
+  if (stale(token)) return;
+  const session = day && day.session;
+  const open = () => showView("session", { date });
+  if (!session) {
+    box.innerHTML = `
+      <section class="card today-session today-session-empty">
+        <p class="today-session-kicker">Aujourd'hui</p>
+        <h2 class="today-session-name">Rien de prévu</h2>
+        <button type="button" class="primary-button ghost today-session-open">Loguer une séance</button>
+      </section>`;
+    box.querySelector(".today-session-open").addEventListener("click", open);
+    return;
+  }
+  const type = session.type || "musculation";
+  const typeLabel = (SESSION_TYPES[type] && SESSION_TYPES[type].label) || type;
+  if (type === "repos") {
+    box.innerHTML = `
+      <section class="card today-session today-session-rest">
+        <p class="today-session-kicker">Aujourd'hui</p>
+        <h2 class="today-session-name">${escapeHtmlText(session.name || "Repos")}</h2>
+        ${session.notes ? `<p class="muted small">${escapeHtmlText(session.notes)}</p>` : ""}
+        <button type="button" class="primary-button ghost small today-session-open">Voir ou modifier</button>
+      </section>`;
+    box.querySelector(".today-session-open").addEventListener("click", open);
+    return;
+  }
+  const exercises = session.exercises || [];
+  const shown = exercises.slice(0, 3);
+  const done = sessionHasExecuted(session);
+  const meta = [typeLabel];
+  if (session.session_duration_min) meta.push(`${session.session_duration_min} min`);
+  box.innerHTML = `
+    <section class="card today-session">
+      <div class="today-session-tags"><span class="pill pill-gold">Séance du jour</span><span class="muted small">${escapeHtmlText(meta.join(" · "))}</span>${done ? '<span class="pill pill-ok">Loguée</span>' : ""}</div>
+      <h2 class="today-session-name">${escapeHtmlText(session.name || typeLabel)}</h2>
+      ${shown.length ? `<ul class="today-session-list">${shown.map((ex) => `<li><span>${escapeHtmlText(ex.name || "Exercice")}</span><span class="today-session-planned">${escapeHtmlText(plannedLine(ex))}</span></li>`).join("")}${exercises.length > shown.length ? `<li class="muted">+ ${exercises.length - shown.length} exercice${exercises.length - shown.length > 1 ? "s" : ""}</li>` : ""}</ul>` : ""}
+      ${session.notes ? `<p class="today-session-notes">${escapeHtmlText(session.notes)}</p>` : ""}
+      <button type="button" class="primary-button today-session-open">${done ? "Revoir la séance" : "Ouvrir la séance"}</button>
+    </section>`;
+  box.querySelector(".today-session-open").addEventListener("click", open);
+}
+
 export async function renderToday(token) {
   setupCredo();
+  loadReadiness(token).catch(() => {});
   loadCheckin(token).catch(() => {});
+  loadTodaySession(token).catch(() => {});
   loadActiveAlerts(token).catch(() => {});
   loadQuickLoad(token).catch(() => {});
   renderSystemStatus(token).catch(() => {});
-
-  document.getElementById("adjust-week-cta").addEventListener("click", () => showView("adjust-week"));
-
-  document.querySelectorAll("#today-quick-actions [data-action]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const action = btn.dataset.action;
-      showView(action, action === "session" ? { date: todayISO() } : {});
-    });
-  });
 
   const genBtn = document.getElementById("generate-digest-button");
   const genStatus = document.getElementById("generate-digest-status");
@@ -600,7 +712,7 @@ export async function renderToday(token) {
     genStatus.textContent = "Déclenchement…";
     try {
       await ghDispatchWorkflow("daily-digest.yml");
-      genStatus.textContent = "Lancé ✓ — nouveau digest dans quelques minutes, puis ⟳ pour le récupérer.";
+      genStatus.textContent = "Lancé : nouveau digest dans 2 à 3 minutes. Rafraîchis ensuite pour le récupérer.";
     } catch (err) {
       genStatus.textContent = `Échec : ${err.message}`;
     } finally {
@@ -611,8 +723,22 @@ export async function renderToday(token) {
   document.getElementById("today-digest-content").innerHTML = skeletonHTML();
   const digest = await latestFileOnOrBefore("data/digests", ".md", todayISO());
   if (stale(token)) return;
-  document.getElementById("today-digest-date").textContent = digest ? `Digest du ${digest.date}` : "Digest";
-  document.getElementById("today-digest-content").innerHTML = digest
+  const digestBox = document.getElementById("today-digest-content");
+  document.getElementById("today-digest-date").textContent = digest && digest.date !== todayISO()
+    ? `Le mot du coach · ${digest.date.slice(8, 10)}/${digest.date.slice(5, 7)}`
+    : "Le mot du coach";
+  digestBox.innerHTML = digest
     ? renderDigestSections(digest.content)
     : "<p class='muted'>Pas encore de digest généré.</p>";
+  // Replié au-delà d'un écran (docs/adr/0072) : le digest reste entier, mais
+  // ne repousse plus le reste de la page loin sous la ligne de flottaison.
+  const expandBtn = document.getElementById("digest-expand");
+  if (digest && digestBox.scrollHeight > 420) {
+    digestBox.classList.add("digest-collapsed");
+    expandBtn.hidden = false;
+    expandBtn.addEventListener("click", () => {
+      digestBox.classList.remove("digest-collapsed");
+      expandBtn.hidden = true;
+    });
+  }
 }

@@ -7,7 +7,7 @@ import { statTile, sleepGoalTile, sparklineSVG, barChartSVG, formatHoursFr, stat
 
 const SLEEP_TARGET_HOURS = 7.5;
 
-const WORKLOAD_ZONE_LABELS = {
+export const WORKLOAD_ZONE_LABELS = {
   sous_charge: "Sous-charge",
   zone_optimale: "Zone optimale",
   zone_prudente: "Zone prudente",
@@ -214,7 +214,7 @@ export async function renderData(token) {
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
 }
 
-const READINESS_LEVEL_LABELS = {
+export const READINESS_LEVEL_LABELS = {
   pret: "Prêt à pousser",
   bonne_forme: "Bonne forme",
   vigilance: "Vigilance",
