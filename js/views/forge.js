@@ -9,6 +9,7 @@ import { blankSession, defaultSessionName } from "../session/session-model.js";
 import { saveSession } from "../session/session-form.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { refineBoxHTML, wireRefineBox } from "../proposal-refine.js";
+import { loadClubConfig, saveClubWeekdays } from "../club-training.js";
 
 // ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
 
@@ -31,6 +32,7 @@ export async function renderForge(token) {
     state.forgeMonday = addDaysISO(state.forgeMonday, 7);
     renderForgeContent(state.renderToken).catch(() => {});
   });
+  setupClubDays().catch(() => {});
   document.getElementById("forge-bloc-button").addEventListener("click", () => showView("forge-bloc"));
   bindBlockReferenceToggle(document.getElementById("forge-block-toggle"), document.getElementById("forge-block-content"));
 
@@ -237,6 +239,30 @@ async function hasUnansweredForgeRequest() {
   if (!Array.isArray(conversation)) return false;
   const lastAssistantIdx = conversation.map((t) => t.role).lastIndexOf("assistant");
   return conversation.slice(lastAssistantIdx + 1).some((t) => t.role === "user" && (t.text || "").startsWith("[Forge]"));
+}
+
+const WEEKDAY_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+/** Réglage des jours d'entraînement club par défaut (docs/adr/0087). */
+async function setupClubDays() {
+  const box = document.getElementById("club-days");
+  if (!box) return;
+  let days = [...(await loadClubConfig()).weekdays];
+  const draw = () => {
+    box.innerHTML = WEEKDAY_SHORT.map((label, i) => `<button type="button" class="suggestion-chip${days.includes(i + 1) ? " active" : ""}" data-wd="${i + 1}">${label}</button>`).join("");
+    box.querySelectorAll("[data-wd]").forEach((b) => b.addEventListener("click", async () => {
+      const wd = Number(b.dataset.wd);
+      days = days.includes(wd) ? days.filter((d) => d !== wd) : [...days, wd];
+      draw();
+      try {
+        await saveClubWeekdays(days);
+        renderForgeContent(state.renderToken).catch(() => {});
+      } catch (err) {
+        document.getElementById("club-days-hint").textContent = `Échec : ${err.message}`;
+      }
+    }));
+  };
+  draw();
 }
 
 const QUALITY_STATUS = {

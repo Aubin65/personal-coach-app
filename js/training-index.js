@@ -1,5 +1,7 @@
 import { ghGetFile, ghListDir } from "./github-api.js";
 import { sessionHasExecuted } from "./date-utils.js";
+import { blankSession } from "./session/session-model.js";
+import { isClubDay, loadClubConfig } from "./club-training.js";
 
 /** Most recent entry in a directory listing whose name (minus extension)
  * is <= today — mirrors latest_digest/current_plan's file-picking. */
@@ -97,6 +99,13 @@ export async function currentBlockLabel() {
  * views (Séances table, Forge tiles, Historique) that only need to show a
  * name and a status, not full exercise detail. */
 export async function lookupDaySummary(date) {
+  const real = await lookupRealDaySummary(date);
+  if (real.hasSession || !(await isClubDay(date))) return real;
+  const cfg = await loadClubConfig();
+  return { date, name: cfg.name, type: "rugby", hasSession: true, hasExecuted: false, secondaryType: null, virtualClub: true };
+}
+
+async function lookupRealDaySummary(date) {
   const appLogIndex = await loadAppLogIndex();
   const appLogHit = appLogIndex.get(date);
   if (appLogHit) {
@@ -120,6 +129,15 @@ export async function lookupDaySummary(date) {
  * a day (renderSession, Forge's quick-set/skeleton, the prefill picker's
  * clone action) — listing views should use lookupDaySummary instead. */
 export async function findSessionForDate(date) {
+  const real = await findRealSessionForDate(date);
+  if (real.session || !(await isClubDay(date))) return real;
+  // Entraînement club par défaut (docs/adr/0087) : séance rugby vierge, jamais
+  // écrite tant que l'utilisateur ne la logue pas ; `virtualClub` vit sur
+  // l'enveloppe, pas sur la séance (qui est sérialisée telle quelle).
+  return { ...real, session: blankSession(date, "rugby"), virtualClub: true };
+}
+
+async function findRealSessionForDate(date) {
   const appLogIndex = await loadAppLogIndex();
   const appLogHit = appLogIndex.get(date);
   if (appLogHit) return { weekLabel: appLogHit.weekLabel, path: appLogHit.path, session: appLogHit.session };

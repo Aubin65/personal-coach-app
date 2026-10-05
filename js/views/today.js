@@ -14,6 +14,7 @@ import { setupMicButton } from "../voice-input.js";
 import { renderSystemStatus, latestDigestDate } from "../system-status.js";
 import { openRpeSheet } from "../rpe-sheet.js";
 import { saveSession } from "../session/session-form.js";
+import { blankSession } from "../session/session-model.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
 import { READINESS_LEVEL_LABELS, WORKLOAD_ZONE_LABELS } from "./data.js";
 import { formatHoursFr } from "./data-viz.js";
@@ -811,6 +812,7 @@ async function loadTodaySession(token) {
         ${done ? "" : '<button type="button" class="today-session-adapt">Adapter</button>'}
       </div>
       ${type === "musculation" && !done ? '<button type="button" class="today-session-form">Voir le détail de la séance</button>' : ""}
+      ${type === "rugby" && !done && !/match/i.test(session.name || "") ? '<button type="button" class="today-session-cancel delete-link">Annulé ce soir ?</button>' : ""}
     </section>`;
   // « Démarrer » ouvre directement la séance guidée (ADR-0074) ; « Adapter »
   // ouvre « Ajuster ma semaine » pré-rempli pour cette séance (docs/adr/0076).
@@ -820,6 +822,19 @@ async function loadTodaySession(token) {
   if (openBtn) openBtn.addEventListener("click", open);
   const formBtn = box.querySelector(".today-session-form");
   if (formBtn) formBtn.addEventListener("click", open);
+  const cancelBtn = box.querySelector(".today-session-cancel");
+  if (cancelBtn) cancelBtn.addEventListener("click", async () => {
+    if (!window.confirm("Marquer l'entraînement d'aujourd'hui comme annulé (jour de repos) ?")) return;
+    cancelBtn.disabled = true;
+    try {
+      // Une séance réelle l'emporte sur l'entraînement club par défaut (ADR-0087).
+      await saveSession(day.weekLabel || "app", date, { ...blankSession(date, "repos"), name: "Repos", notes: "Entraînement annulé" });
+      loadTodaySession(state.renderToken).catch(() => {});
+    } catch (err) {
+      cancelBtn.disabled = false;
+      window.alert(`Échec : ${err.message}`);
+    }
+  });
   const adaptBtn = box.querySelector(".today-session-adapt");
   if (adaptBtn) adaptBtn.addEventListener("click", () => {
     state.adjustPrefill = `Séance du jour (${session.name || typeLabel}) : `;
