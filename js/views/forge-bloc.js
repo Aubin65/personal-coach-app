@@ -298,14 +298,15 @@ async function drawBloc(root, token) {
         <div class="bloc-suggestion"><div class="small"><strong>${escapeHtmlText(SECTION_LABELS[x.section] || x.section)}</strong>${x.why ? ` — <span class="muted">${escapeHtmlText(x.why)}</span>` : ""}</div>
           <p class="small">${escapeHtmlText(x.text).replace(/\n/g, "<br>")}</p>
           <button type="button" class="primary-button ghost small" data-apply="${i}">Appliquer</button></div>`).join("")}</div>` : ""}
-      <div class="bloc-chips" id="bloc-prompts">${PROMPT_CHIPS.map((p, i) => `<button type="button" class="suggestion-chip" data-prompt="${i}">${escapeHtmlText(p)}</button>`).join("")}</div>
+      <p class="bloc-chat-label">Questions rapides</p>
+      <div class="bloc-prompts" id="bloc-prompts">${PROMPT_CHIPS.map((p, i) => `<button type="button" class="suggestion-chip" data-prompt="${i}">${escapeHtmlText(p)}</button>`).join("")}</div>
       <div class="compose-row">
         <textarea id="bloc-input" rows="2" placeholder="Pose une question ou précise un point…"></textarea>
         <button type="button" class="mic-button" id="bloc-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       </div>
       <p class="voice-hint" id="bloc-voice-hint" hidden></p>
       <p class="live-caption" id="bloc-live-caption" hidden></p>
-      <button type="button" class="primary-button small" id="bloc-send">💬 Envoyer au coach</button>
+      <button type="button" class="primary-button" id="bloc-send">💬 Envoyer au coach</button>
       <p id="bloc-chat-status" class="muted small"></p>
     </section>
 
