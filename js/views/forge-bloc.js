@@ -67,8 +67,10 @@ async function knownLabels() {
 /** Markdown du bloc écrit à la validation — même ossature que B4.md. */
 export function blockMarkdown(label, s, feelings) {
   const lines = [];
-  const title = s.fin_evenement ? ` — jusqu'à ${s.fin_evenement}` : "";
-  lines.push(`# Bloc ${label}${title}`, "");
+  // Titre court (ADR-0093) : la fin visée peut être une phrase entière
+  // (« Dernier match le 22/11 ; S6 en deload ») — elle passe en ligne dédiée.
+  lines.push(`# Bloc ${label}`, "");
+  if (s.fin_evenement) lines.push(`**Fin visée** : ${String(s.fin_evenement).trim()}`, "");
   const frame = [
     s.duree_semaines ? `${s.duree_semaines} semaines` : null,
     s.debut ? `à partir du ${formatFrDate(s.debut)}` : null,
@@ -93,8 +95,11 @@ export function blockMarkdown(label, s, feelings) {
   const themes = concernThemes(feelings).slice(0, 3);
   if (themes.length) {
     lines.push("", "## Ressentis pris en compte (ressentis de match ×3)", "");
+    const quoted = new Set(); // un même extrait cité par deux thèmes n'apparaît qu'une fois
     for (const t of themes) {
       const m = concernMention(t);
+      if (m && quoted.has(m.text)) { lines.push(`- ${THEME_LABELS[t.theme] || t.theme} — (même extrait que ci-dessus)`); continue; }
+      if (m) quoted.add(m.text);
       lines.push(`- ${THEME_LABELS[t.theme] || t.theme}${m ? ` — « ${m.text} » (${SOURCE_LABELS[m.source] || m.source}, ${formatFrDate(m.date)})` : ""}`);
     }
   }
@@ -497,7 +502,12 @@ function wireBloc(root, token, ctx) {
       if (existing && !window.confirm(`${blockPath(label)} existe déjà : le remplacer ?`)) { out.textContent = "Annulé."; btn.disabled = false; return; }
       await saveDraft(label, sections);
       await ghPutFile(blockPath(label), blockMarkdown(label, sections, feelings), `Forge de bloc : ${label} créé`, existing ? existing.sha : null);
-      out.textContent = `Bloc ${label} créé ✓ — visible dans Plan › Bloc.`;
+      out.innerHTML = `Bloc ${escapeHtmlText(label)} créé ✓ <button type="button" class="primary-button ghost small" id="bloc-see-created">Voir dans Plan › Bloc</button>`;
+      out.querySelector("#bloc-see-created").addEventListener("click", () => {
+        state.blockTabLabel = label;
+        state.weekSubTab = "block";
+        showView("week");
+      });
     } catch (err) {
       out.textContent = `Échec : ${err.message}`;
       btn.disabled = false;

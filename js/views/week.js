@@ -2,8 +2,9 @@ import { ghListDir, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js"
 import { state, stale, showView } from "../nav.js";
 import { todayISO, mondayOfWeek, addDaysISO, formatFrDate, sessionDayStatus } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr, renderMarkdown, addTableDataLabels } from "../markdown.js";
-import { renderWeekOverview, parseWeekOverview, splitBlockMarkdown, splitBlockIntro, splitWeekPlanByDay, buildMergedWeekPlan, DAY_NAMES } from "../plan-overview.js";
-import { currentBlockLabel, lookupDaySummary, findSessionForDate } from "../training-index.js";
+import { renderWeekOverview, parseWeekOverview, splitWeekPlanByDay, buildMergedWeekPlan, DAY_NAMES } from "../plan-overview.js";
+import { lookupDaySummary, findSessionForDate } from "../training-index.js";
+import { renderBlockTab } from "./block-view.js";
 import { SESSION_TYPES } from "../session-types.js";
 import { saveSession } from "../session/session-form.js";
 import { refineBoxHTML, wireRefineBox } from "../proposal-refine.js";
@@ -83,8 +84,6 @@ export async function renderWeek(token) {
   const planningPanel = document.getElementById("week-planning-panel");
   const blockPanel = document.getElementById("week-block-content");
   const historyPanel = document.getElementById("week-history-panel");
-  const forgeBlocBtn = document.getElementById("week-forge-bloc");
-  if (forgeBlocBtn) forgeBlocBtn.addEventListener("click", () => showView("forge-bloc"));
 
   // « Séances » n'est plus un onglet (docs/adr/0077) : son tableau prévu /
   // réalisé vit replié dans Semaine. Un ancien état y retombe.
@@ -95,6 +94,10 @@ export async function renderWeek(token) {
     blockPanel.hidden = state.weekSubTab !== "block";
     historyPanel.hidden = state.weekSubTab !== "history";
     if (state.weekSubTab === "history") loadPlanHistory(token);
+    if (state.weekSubTab === "block" && !blockPanel.dataset.loaded) {
+      blockPanel.dataset.loaded = "1";
+      renderBlockTab(blockPanel, token).catch((err) => { blockPanel.innerHTML = `<p class="error-text">${err.message}</p>`; });
+    }
   };
   tabs.forEach((t) => t.addEventListener("click", () => { state.weekSubTab = t.dataset.weekTab; applyTab(); }));
   applyTab();
@@ -135,25 +138,6 @@ export async function renderWeek(token) {
   loadPendingSessionAdjustments(token).catch(() => {});
   renderWeekPlanning(token).catch(() => {});
 
-  const blockContentEl = blockPanel.querySelector(".markdown-body");
-  blockContentEl.innerHTML = skeletonHTML();
-  const blockLabel = await currentBlockLabel();
-  if (stale(token)) return;
-  if (blockLabel) {
-    const blockFile = await ghGetFile(`data/blocks/${blockLabel}.md`);
-    if (stale(token)) return;
-    if (blockFile) {
-      const { overview } = splitBlockMarkdown(blockFile.content);
-      const { intro, rest } = splitBlockIntro(overview);
-      blockContentEl.innerHTML = renderMarkdown(intro) + (rest
-        ? `<details class="block-overview-details"><summary>📋 Bilan et objectifs détaillés</summary>${renderMarkdown(rest)}</details>`
-        : "");
-    } else {
-      blockContentEl.innerHTML = "<p class='muted'>Pas de fichier de bloc.</p>";
-    }
-  } else {
-    blockContentEl.innerHTML = "<p class='muted'>Pas de bloc en cours.</p>";
-  }
 }
 
 /** "Séances" tab — a compact forecast/actual table for the week currently
