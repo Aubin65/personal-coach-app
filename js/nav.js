@@ -106,7 +106,12 @@ export function showView(name, params = {}) {
   if (planSwitch) {
     planSwitch.hidden = !PLAN_VIEWS.has(name);
     planSwitch.querySelectorAll(".plan-switch-item").forEach((btn) => {
-      btn.classList.toggle("active", btn.dataset.view === name);
+      // Semaine / Bloc / Historique sont trois sous-onglets de la vue week ;
+      // la Forge (ouverte par « Modifier ») reste rattachée à Semaine.
+      const on = btn.dataset.subtab
+        ? (name === "week" && btn.dataset.subtab === state.weekSubTab) || (name === "forge" && btn.dataset.subtab === "planning")
+        : btn.dataset.view === name;
+      btn.classList.toggle("active", on);
     });
   }
   const content = document.getElementById("content");
@@ -121,7 +126,10 @@ export function showView(name, params = {}) {
 }
 
 document.querySelectorAll(".nav-item, .plan-switch-item").forEach((btn) => {
-  btn.addEventListener("click", () => showView(btn.dataset.view));
+  btn.addEventListener("click", () => {
+    if (btn.dataset.subtab) state.weekSubTab = btn.dataset.subtab;
+    showView(btn.dataset.view);
+  });
 });
 
 document.getElementById("nav-add-button").addEventListener("click", openAddSheet);

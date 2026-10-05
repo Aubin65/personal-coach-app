@@ -155,41 +155,64 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
     : [];
   if (token !== undefined && stale(token)) return;
 
+  // Semaine en liste verticale (maquette C, docs/adr/0077) : les 7 jours
+  // lisibles d'un coup d'œil, sans défilement horizontal — titre, statut,
+  // aujourd'hui encadré, match en vert foncé, repos en pointillés. Un tap
+  // ouvre toujours le panneau du jour (showDayOverviewPanel) juste dessous.
   let stripHTML = "";
   if (days.length) {
-    stripHTML += '<div class="day-strip">';
+    stripHTML += '<div class="week-list">';
     for (const d of days) {
       const isToday = normalizeDM(d.date) === todayDM;
       const dayIdx = DAY_NAMES.indexOf(d.day);
       const iso = mondayISO && dayIdx !== -1 ? addDaysISO(mondayISO, dayIdx) : null;
       const summary = dayIdx !== -1 ? daySummaries[dayIdx] : null;
-      const icon = summary && summary.hasSession && summary.type && SESSION_TYPES[summary.type]
-        ? SESSION_TYPES[summary.type].icon
-        : dayIconFor(d.title);
       const title = summary && summary.hasSession && summary.name ? summary.name : d.title;
-      const secondaryIcon = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
-        ? `<span class="day-icon-secondary" title="+ ${escapeAttr(SESSION_TYPES[summary.secondaryType].label)}">${SESSION_TYPES[summary.secondaryType].icon}</span>`
+      const type = summary && summary.hasSession && summary.type
+        ? summary.type
+        : /repos/i.test(d.title) ? "repos" : /rugby|club|match/i.test(d.title) ? "rugby" : "musculation";
+      const isMatch = /match/i.test(title) || /match/i.test(d.title);
+      const kind = type === "repos" ? "rest" : isMatch ? "match" : type;
+      let status;
+      if (type === "repos") status = "Repos";
+      else if (summary && summary.hasExecuted) status = "Fait";
+      else if (iso && iso > todayISOStr) status = summary && summary.hasSession ? "Prévu" : "À venir";
+      else status = summary && summary.hasSession ? "Prévu" : "Non loggé";
+      const typeLabel = SESSION_TYPES[type] && type !== "repos" ? SESSION_TYPES[type].label.replace(/\s*\(.*\)$/, "") : "";
+      const secondary = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
+        ? ` · + ${SESSION_TYPES[summary.secondaryType].label.replace(/\s*\(.*\)$/, "").toLowerCase()}`
         : "";
+      const pill = isToday
+        ? '<span class="week-day-pill today">Aujourd\'hui</span>'
+        : status === "Fait" ? '<span class="week-day-pill done">Fait</span>' : "";
+      const sub = type === "repos" ? "" : `${status}${typeLabel && !isMatch ? ` · ${typeLabel}` : ""}${secondary}`;
       stripHTML += `
-        <button type="button" class="day-card${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
-          <div class="day-name">${d.day.slice(0, 3)}</div>
-          <div class="day-date">${d.date}</div>
-          <div class="day-icon">${icon}${secondaryIcon}</div>
-          <div class="day-title">${title.slice(0, 28)}</div>
+        <button type="button" class="week-day kind-${kind}${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
+          <span class="week-day-label"><small>${d.day.slice(0, 3)}</small><b>${parseInt(d.date.split("/")[0], 10)}</b></span>
+          <span class="week-day-card">
+            <span class="week-day-dot" aria-hidden="true"></span>
+            <span class="week-day-text"><strong>${escapeHtmlText(title)}</strong>${sub ? `<small>${escapeHtmlText(sub)}</small>` : ""}</span>
+            ${pill}
+          </span>
         </button>`;
     }
     stripHTML += "</div>";
   }
   dayStripEl.innerHTML = stripHTML;
-  dayStripEl.querySelectorAll(".day-card[data-date]").forEach((btn) => {
+  dayStripEl.querySelectorAll(".week-day[data-date]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      dayStripEl.querySelectorAll(".day-card").forEach((c) => c.classList.toggle("is-selected", c === btn));
-      showDayOverviewPanel(state.renderToken, btn.dataset.date).catch(() => {});
+      dayStripEl.querySelectorAll(".week-day").forEach((c) => c.classList.toggle("is-selected", c === btn));
+      showDayOverviewPanel(state.renderToken, btn.dataset.date)
+        .then(() => {
+          const panel = document.getElementById("day-overview-panel");
+          if (panel) panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        })
+        .catch(() => {});
     });
   });
 
   highlightsEl.innerHTML = highlights.length
-    ? `<div class="highlights-card"><h2>🎯 Objectifs clés de la semaine</h2><ul>${highlights
+    ? `<div class="highlights-card"><h2>Objectifs clés de la semaine</h2><ul>${highlights
         .map((h) => `<li>${h.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")}</li>`)
         .join("")}</ul></div>`
     : "";

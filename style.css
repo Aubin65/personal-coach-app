@@ -844,7 +844,7 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   margin-bottom: 8px;
   box-shadow: var(--shadow);
 }
-.calendar-match.is-past { opacity: 0.55; }
+.calendar-match.is-past { opacity: 0.85; }
 .calendar-match.is-next { border-color: var(--gold); border-width: 2px; background: var(--gold-pale); }
 .calendar-match-summary {
   display: flex;
@@ -2079,3 +2079,76 @@ body.live-open { overflow: hidden; }
 .pain-level-btn.tier-mid { background: #FAF0DA; }
 .pain-level-btn.tier-high { background: #FBE3E1; }
 .pain-level-btn.active { background: var(--green); color: white; box-shadow: 0 0 0 2px var(--gold); }
+
+/* ---------- Alignement maquette C : Plan et Matchs (docs/adr/0077) ---------- */
+.week-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0 10px; }
+.week-nav-text { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.week-nav-title { font-size: 1.05rem; font-weight: 800; }
+.week-nav-sub { font-size: 0.82rem; color: var(--muted); }
+.week-edit-button, .week-adjust-button {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; min-height: 48px; margin: 0 0 12px; border-radius: 16px; cursor: pointer;
+  font-size: 0.95rem; font-weight: 700; color: var(--text);
+}
+.week-edit-button { border: 1.5px solid var(--border); background: var(--card-bg); }
+.week-adjust-button { border: none; background: var(--surface-2); margin-top: 4px; }
+.week-edit-button svg, .week-adjust-button svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.week-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.week-day { display: grid; grid-template-columns: 46px 1fr; gap: 10px; align-items: stretch; width: 100%; padding: 0; border: none; background: none; color: var(--text); text-align: left; cursor: pointer; }
+.week-day-label { display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.week-day-label small { font-size: 0.72rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+.week-day-label b { font-family: var(--font-display); font-size: 1.35rem; font-weight: 700; }
+.week-day-card { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 14px; border-radius: 18px; background: var(--card-bg); border: 2px solid transparent; }
+.week-day-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--gold); }
+.week-day.kind-rugby .week-day-dot { background: #3B7BD8; }
+.week-day.kind-autre .week-day-dot { background: var(--status-ok); }
+.week-day-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.week-day-text strong { font-size: 0.95rem; line-height: 1.25; }
+.week-day-text small { font-size: 0.8rem; color: var(--muted); }
+.week-day-pill { flex-shrink: 0; padding: 3px 9px; border-radius: 9px; font-size: 0.74rem; font-weight: 700; white-space: nowrap; }
+.week-day-pill.today { background: var(--text); color: var(--bg); }
+.week-day-pill.done { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.week-day.is-today .week-day-card { border-color: var(--text); }
+.week-day.is-selected .week-day-card { border-color: var(--gold); }
+.week-day.kind-rest .week-day-card { background: transparent; border: 1.5px dashed var(--border); }
+.week-day.kind-rest .week-day-dot { background: var(--border); }
+.week-day.kind-rest .week-day-text strong { color: var(--muted); font-weight: 600; }
+.week-day.kind-match .week-day-card { background: var(--green); color: white; }
+.week-day.kind-match .week-day-dot { background: #7BE0A0; }
+.week-day.kind-match .week-day-text small { color: #C9DCD0; }
+.week-sessions-details { padding: 0 16px; }
+.week-sessions-details > summary { min-height: 52px; display: flex; align-items: center; font-weight: 700; cursor: pointer; }
+.week-sessions-details[open] > summary { margin-bottom: 4px; }
+.week-sessions-details #week-sessions-content { padding-bottom: 14px; }
+
+.proposal-kicker { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
+.plan-day-diff { display: flex; flex-direction: column; gap: 2px; min-width: 0; font-family: var(--font-body); }
+.plan-day-when { font-size: 0.75rem; font-weight: 700; color: var(--muted); text-transform: uppercase; }
+.plan-day-diff s { font-size: 0.85rem; font-weight: 500; color: var(--muted); }
+.plan-day-diff b { font-size: 0.98rem; }
+.plan-day-proposal-header { min-height: 52px; }
+
+.next-match { margin-bottom: 14px; padding: 18px; border-radius: 24px; border-bottom: 3px solid var(--gold); background: var(--green); color: white; display: flex; flex-direction: column; gap: 14px; }
+.next-match-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.next-match-kicker { font-size: 0.75rem; font-weight: 800; letter-spacing: 0.05em; text-transform: uppercase; color: #E8B857; }
+.next-match-opp { margin: 2px 0 0; font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; line-height: 1; text-transform: uppercase; }
+.next-match-countdown { font-family: var(--font-display); font-size: 1.8rem; font-weight: 700; line-height: 1; color: #E8B857; white-space: nowrap; }
+.next-match-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.next-match-facts > div { padding: 10px 12px; border-radius: 14px; background: rgba(255,255,255,0.1); display: flex; flex-direction: column; gap: 2px; }
+.next-match-facts span { font-size: 0.75rem; color: #C9DCD0; }
+.next-match-facts b { font-size: 0.95rem; }
+.next-match-note { margin: 0; font-size: 0.86rem; color: #E4ECE7; }
+.calendar-section-label { margin: 16px 4px 4px; font-size: 0.8rem; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.calendar-section-label:first-child { margin-top: 0; }
+.calendar-match-status .calendar-match-score { font-size: 0.85rem; }
+.calendar-rest > summary { cursor: pointer; list-style: none; min-height: 44px; display: flex; align-items: center; }
+.calendar-rest > summary::-webkit-details-marker { display: none; }
+.calendar-rest > summary::after { content: " ▾"; margin-left: 4px; }
+.calendar-rest[open] > summary::after { content: " ▴"; }
+.history-session { display: flex; align-items: center; gap: 12px; }
+.history-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; background: var(--gold); }
+.history-session.type-rugby .history-dot { background: #3B7BD8; }
+.history-session.type-repos .history-dot { background: var(--border); }
+.history-session.type-autre .history-dot { background: var(--status-ok); }
+.history-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }

@@ -34,6 +34,32 @@ const CONTACT_LABELS = Object.fromEntries(CONTACT_INTENSITIES.map((c) => [c.id, 
 
 /** "Septembre 2026" from an ISO date's year/month — the month-group
  * header for the Calendrier tab. */
+const WEEKDAYS_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
+const MONTHS_LONG_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+/** Carte « Prochain match » (maquette C, docs/adr/0077) : adversaire, compte
+ * à rebours J-x, date, lieu, et si tu joues ou non. */
+function nextMatchHeroHTML(g, today, nextPlayed) {
+  const days = Math.round((new Date(`${g.date}T12:00:00`) - new Date(`${today}T12:00:00`)) / 86400000);
+  const countdown = days === 0 ? "Aujourd'hui" : days === 1 ? "Demain" : `J-${days}`;
+  const d = new Date(`${g.date}T12:00:00`);
+  const dateLong = `${WEEKDAYS_FR[d.getDay()]} ${d.getDate()} ${MONTHS_LONG_FR[d.getMonth()]}`;
+  const premiere = g.byTeam["Première"];
+  const playing = premiere ? !!premiere.user_is_playing : !!nextPlayed;
+  return `
+    <section class="next-match">
+      <div class="next-match-head">
+        <div><span class="next-match-kicker">Prochain match</span><h2 class="next-match-opp">vs ${escapeHtmlText(g.opponent)}</h2></div>
+        <span class="next-match-countdown">${countdown}</span>
+      </div>
+      <div class="next-match-facts">
+        <div><span>Date</span><b>${dateLong.charAt(0).toUpperCase() + dateLong.slice(1)}</b></div>
+        <div><span>Lieu</span><b>${escapeHtmlText(g.home_away || "")}</b></div>
+      </div>
+      <p class="next-match-note">${escapeHtmlText(g.phase ? `Phase ${g.phase.toLowerCase()}` : "")}${playing ? " · tu es dans le groupe" : " · tu ne joues pas encore en Première"}</p>
+    </section>`;
+}
+
 function monthLabelFr(iso) {
   const [y, m] = iso.split("-").map(Number);
   return `${MONTH_NAMES_FR[m - 1]} ${y}`;
@@ -98,10 +124,34 @@ export async function renderCalendar(token) {
     return scoreHtml + note;
   };
 
-  let html = "<div class='calendar-list'>";
-  for (const monthGroups of byMonth.values()) {
-    html += `<div class="calendar-month-label">${monthLabelFr(monthGroups[0].date)}</div>`;
-    for (const g of monthGroups) {
+  // Maquette C (docs/adr/0077) : carte « Prochain match » en tête, puis les
+  // matchs à venir, puis les matchs joués (du plus récent au plus ancien)
+  // avec le bilan victoires / défaites de la Première.
+  const nextGroup = [...groups.values()].find((g) => g.date === nextDate);
+  const playedPremiere = matches.filter((m) => m.team !== "Réserve" && m.score_for != null && m.score_against != null);
+  const wins = playedPremiere.filter((m) => m.result === "victoire").length;
+  const losses = playedPremiere.filter((m) => m.result === "défaite").length;
+  const draws = playedPremiere.filter((m) => m.result === "nul").length;
+  let html = nextGroup ? nextMatchHeroHTML(nextGroup, today, nextPlayed) : "";
+  const upcomingAll = [...groups.values()].filter((g) => g.date >= today && g !== nextGroup);
+  const past = [...groups.values()].filter((g) => g.date < today).reverse();
+  // Les 3 prochains matchs, puis les matchs joués (résultats récents
+  // d'abord), puis le reste de la saison replié : la liste complète restait
+  // sinon devant les résultats.
+  const sections = [];
+  if (upcomingAll.length) sections.push({ label: "À venir", groups: upcomingAll.slice(0, 3) });
+  if (past.length) sections.push({ label: `Joués${playedPremiere.length ? ` · ${wins} V · ${losses} D${draws ? ` · ${draws} N` : ""}` : ""}`, groups: past });
+  if (upcomingAll.length > 3) sections.push({ label: `Suite de la saison · ${upcomingAll.length - 3} matchs`, groups: upcomingAll.slice(3), collapsed: true });
+  html += "<div class='calendar-list'>";
+  for (const section of sections) {
+    if (section.collapsed) html += `<details class="calendar-rest"><summary class="calendar-section-label">${escapeHtmlText(section.label)}</summary>`;
+    else html += `<div class="calendar-section-label">${escapeHtmlText(section.label)}</div>`;
+    let lastMonth = null;
+    for (const g of section.groups) {
+      if (g.date.slice(0, 7) !== lastMonth) {
+        lastMonth = g.date.slice(0, 7);
+        html += `<div class="calendar-month-label">${monthLabelFr(g.date)}</div>`;
+      }
       const isPast = g.date < today;
       // "Déjà joué" au sens du composer de performance : today inclus (le
       // match du jour peut déjà être logué le soir même), contrairement à
@@ -111,7 +161,13 @@ export async function renderCalendar(token) {
       const premiere = g.byTeam["Première"];
       const reserve = g.byTeam["Réserve"];
       const anyScore = [premiere, reserve].some((m) => m && m.score_for != null && m.score_against != null);
-      const summaryStatus = anyScore ? "🏉" : isPast ? "✓" : isNext ? "▶" : "";
+      // Score de la Première (sinon de la Réserve) directement sur la ligne,
+      // comme sur la maquette, plutôt qu'une icône à déplier pour le voir.
+      const scored = [premiere, reserve].find((m) => m && m.score_for != null && m.score_against != null);
+      const scoreClass = scored ? (scored.result === "victoire" ? "is-win" : scored.result === "défaite" ? "is-loss" : "is-draw") : "";
+      const summaryStatus = scored
+        ? `<span class="calendar-match-score ${scoreClass}">${scored.score_for}–${scored.score_against}</span>`
+        : anyScore ? "" : isPast ? '<span class="muted small">résultat à venir</span>' : "";
       html += `
         <details class="calendar-match${isPast ? " is-past" : ""}${isNext ? " is-next" : ""}">
           <summary class="calendar-match-summary">
@@ -134,6 +190,7 @@ export async function renderCalendar(token) {
           </div>
         </details>`;
     }
+    if (section.collapsed) html += "</details>";
   }
   html += "</div>";
   el.innerHTML = html;

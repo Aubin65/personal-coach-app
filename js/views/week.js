@@ -8,6 +8,25 @@ import { SESSION_TYPES } from "../session-types.js";
 import { saveSession } from "../session/session-form.js";
 import { refineBoxHTML, wireRefineBox } from "../proposal-refine.js";
 
+/** Numéro de semaine ISO 8601 d'une date (`YYYY-MM-DD`). */
+function isoWeekNumber(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  const dayNum = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil(((date - yearStart) / 86400000 + 1) / 7);
+}
+
+const MONTHS_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+/** « 5 – 11 octobre » ou « 28 septembre – 4 octobre ». */
+function weekRangeFr(monday) {
+  const sunday = addDaysISO(monday, 6);
+  const [, m1, d1] = monday.split("-").map(Number);
+  const [, m2, d2] = sunday.split("-").map(Number);
+  return m1 === m2 ? `${d1} – ${d2} ${MONTHS_FR[m2 - 1]}` : `${d1} ${MONTHS_FR[m1 - 1]} – ${d2} ${MONTHS_FR[m2 - 1]}`;
+}
+
 async function listPlans() {
   const entries = (await ghListDir("data/plans")).filter((e) => e.type === "file" && e.name.endsWith(".md"));
   return entries.map((e) => ({ date: e.name.slice(0, -3), path: e.path })).sort((a, b) => b.date.localeCompare(a.date));
@@ -24,7 +43,8 @@ async function listPlans() {
  * older one. */
 export async function renderWeekPlanning(token) {
   const monday = state.planningMonday;
-  document.getElementById("planning-week-label").textContent = `Semaine du ${formatFrDate(monday)}`;
+  document.getElementById("planning-week-label").textContent = `Semaine ${isoWeekNumber(monday)}`;
+  document.getElementById("planning-week-sub").textContent = weekRangeFr(monday);
   document.getElementById("week-day-strip").innerHTML = skeletonHTML();
   document.getElementById("week-highlights").innerHTML = "";
   document.getElementById("day-overview-panel").innerHTML = "";
@@ -54,14 +74,15 @@ export async function renderWeek(token) {
   const tabs = document.querySelectorAll("#week-tabs .segment");
   const planningPanel = document.getElementById("week-planning-panel");
   const blockPanel = document.getElementById("week-block-content");
-  const sessionsPanel = document.getElementById("week-sessions-content");
   const historyPanel = document.getElementById("week-history-panel");
 
+  // « Séances » n'est plus un onglet (docs/adr/0077) : son tableau prévu /
+  // réalisé vit replié dans Semaine. Un ancien état y retombe.
+  if (!["planning", "block", "history"].includes(state.weekSubTab)) state.weekSubTab = "planning";
   const applyTab = () => {
     tabs.forEach((t) => t.classList.toggle("active", t.dataset.weekTab === state.weekSubTab));
     planningPanel.hidden = state.weekSubTab !== "planning";
     blockPanel.hidden = state.weekSubTab !== "block";
-    sessionsPanel.hidden = state.weekSubTab !== "sessions";
     historyPanel.hidden = state.weekSubTab !== "history";
     if (state.weekSubTab === "history") loadPlanHistory(token);
   };
@@ -69,6 +90,10 @@ export async function renderWeek(token) {
   applyTab();
 
   document.getElementById("adjust-week-button").addEventListener("click", () => showView("adjust-week"));
+  document.getElementById("week-edit-button").addEventListener("click", () => {
+    state.forgeMonday = state.planningMonday;
+    showView("forge");
+  });
 
   if (!state.planningMonday) state.planningMonday = mondayOfWeek(todayISO());
   document.getElementById("planning-prev-week").addEventListener("click", () => {
@@ -239,8 +264,8 @@ async function loadPendingProposal(token) {
       <details class="plan-day-proposal" data-day="${escapeAttr(pd.day)}">
         <summary class="plan-day-proposal-header">
           <input type="checkbox" class="plan-day-accept" checked>
-          <span>${escapeHtmlText(pd.day)} ${escapeHtmlText(pd.date)}${pd.title ? ` — ${escapeHtmlText(pd.title)}` : ""}</span>
-          <span class="plan-day-tag">${cd ? "🔄 modifié" : "🆕 nouveau"}</span>
+          <span class="plan-day-diff"><span class="plan-day-when">${escapeHtmlText(pd.day)} ${escapeHtmlText(pd.date)}</span>${cd && cd.title && cd.title !== pd.title ? `<s>${escapeHtmlText(cd.title)}</s>` : ""}<b>${escapeHtmlText(pd.title || "")}</b></span>
+          <span class="plan-day-tag">${cd ? "modifié" : "nouveau"}</span>
         </summary>
         <div class="markdown-body small">${renderMarkdown(pd.body)}</div>
         ${cd ? `
@@ -253,8 +278,8 @@ async function loadPendingProposal(token) {
 
   box.innerHTML = `
     <section class="card pending-proposal-card">
-      <h2>🗒️ Proposition du coach — à valider</h2>
-      <p class="muted small">Semaine du ${monday}</p>
+      <p class="proposal-kicker"><span class="pill pill-gold">Proposition du coach</span><span class="muted small">Semaine du ${monday}</span></p>
+      <p class="muted small">Avant → après, jour par jour. Décoche ce que tu ne veux pas garder.</p>
       ${pendingSplit.intro.trim() ? `<div class="markdown-body">${renderMarkdown(pendingSplit.intro)}</div>` : ""}
       ${dayCardsHTML || "<p class='muted small'>Aucun jour modifié par rapport au planning actuel.</p>"}
       ${unchangedDayNames.length ? `<p class="muted small">Jours inchangés, repris tels quels : ${unchangedDayNames.join(", ")}.</p>` : ""}
@@ -424,8 +449,8 @@ async function loadPlanHistoryList(token) {
   container.innerHTML = plans
     .map((p, i) => `
       <button class="history-item" data-idx="${i}">
-        <div class="history-date">Semaine du ${p.date}</div>
-        <div class="history-sub">Appuie pour voir le contenu</div>
+        <div class="history-date">Semaine ${isoWeekNumber(p.date)} · ${weekRangeFr(p.date)}</div>
+        <div class="history-sub">${i === 0 ? "Planning en cours · " : ""}toucher pour relire</div>
       </button>
       <div class="markdown-body history-detail" data-idx="${i}" hidden></div>`)
     .join("");
@@ -470,12 +495,15 @@ async function renderSessionHistoryWeek(token) {
     .map((date, i) => {
       const s = summaries[i];
       if (!s.hasSession) return "";
-      const icon = SESSION_TYPES[s.type] ? SESSION_TYPES[s.type].icon : "🏋️";
-      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today);
+      // Statut en pastille plutôt qu'en emoji (maquette C, ADR-0077).
+      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today).replace(/^\S+\s+/, "");
+      const pill = s.type === "repos" ? "" : status === "Fait" ? "pill-ok" : date < today ? "pill-alert" : "pill-gold";
+      const statusLabel = s.type === "repos" ? "" : date < today && status !== "Fait" ? "Non loggée" : status;
       return `
-        <button class="history-item" data-date="${date}">
-          <div class="history-date">${icon} ${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
-          <div class="history-sub">${escapeHtmlText(s.name || "Séance")} · ${status}</div>
+        <button class="history-item history-session type-${escapeAttr(s.type || "musculation")}" data-date="${date}">
+          <span class="history-dot" aria-hidden="true"></span>
+          <span class="history-main"><span class="history-date">${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</span><span class="history-sub">${escapeHtmlText(s.name || "Séance")}</span></span>
+          ${statusLabel ? `<span class="pill ${pill}">${escapeHtmlText(statusLabel)}</span>` : ""}
         </button>`;
     })
     .join("");

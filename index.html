@@ -49,12 +49,14 @@
 
   <div id="queue-banner" class="queue-banner" hidden></div>
 
-  <!-- Sous-navigation de l'onglet Plan (Semaine / Forge / Matchs), visible
-       uniquement sur ces trois vues — voir docs/adr/0071. -->
+  <!-- Sous-navigation de l'onglet Plan (Semaine / Bloc / Matchs /
+       Historique, maquette C — docs/adr/0077) ; la Forge s'ouvre par
+       « Modifier » depuis Semaine. Voir aussi docs/adr/0071. -->
   <nav id="plan-switch" class="plan-switch" aria-label="Sections du plan" hidden>
-    <button type="button" class="plan-switch-item" data-view="week">Semaine</button>
-    <button type="button" class="plan-switch-item" data-view="forge">Forge</button>
+    <button type="button" class="plan-switch-item" data-view="week" data-subtab="planning">Semaine</button>
+    <button type="button" class="plan-switch-item" data-view="week" data-subtab="block">Bloc</button>
     <button type="button" class="plan-switch-item" data-view="calendar">Matchs</button>
+    <button type="button" class="plan-switch-item" data-view="week" data-subtab="history">Historique</button>
   </nav>
 
   <main id="content"></main>
@@ -120,33 +122,36 @@
 <template id="tpl-week">
   <div id="week-pending-session-adjustments"></div>
 
-  <div class="segmented" id="week-tabs">
+  <!-- Sous-onglets pilotés par #plan-switch (docs/adr/0077) ; gardés en
+       DOM caché pour que renderWeek garde un seul mécanisme d'onglets. -->
+  <div class="segmented" id="week-tabs" hidden>
     <button class="segment active" data-week-tab="planning">Planning</button>
     <button class="segment" data-week-tab="block">Bloc</button>
-    <button class="segment" data-week-tab="sessions">Séances</button>
     <button class="segment" data-week-tab="history">Historique</button>
   </div>
 
   <div id="week-planning-panel">
     <div id="pending-proposal"></div>
-    <div class="forge-week-nav">
+    <div class="week-nav">
       <button type="button" id="planning-prev-week" class="icon-button small" aria-label="Semaine précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
-      <span id="planning-week-label" class="forge-week-label"></span>
+      <div class="week-nav-text"><span id="planning-week-label" class="week-nav-title"></span><span id="planning-week-sub" class="week-nav-sub"></span></div>
       <button type="button" id="planning-next-week" class="icon-button small" aria-label="Semaine suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
+    <button type="button" id="week-edit-button" class="week-edit-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Modifier cette semaine (Forge)</button>
     <div id="week-day-strip"></div>
     <div id="day-overview-panel"></div>
     <div id="week-highlights"></div>
-    <section class="card">
-      <button class="primary-button ghost small" id="adjust-week-button">✏️ Ajuster ma semaine</button>
-    </section>
+    <details class="card week-sessions-details">
+      <summary>Prévu / réalisé, jour par jour</summary>
+      <div id="week-sessions-content"></div>
+    </details>
+    <button type="button" class="week-adjust-button" id="adjust-week-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg>Demander un ajustement au coach</button>
   </div>
 
   <section class="card" id="week-block-content" hidden>
     <div class="markdown-body"></div>
   </section>
 
-  <section class="card" id="week-sessions-content" hidden></section>
 
   <div id="week-history-panel" hidden>
     <section class="card">
