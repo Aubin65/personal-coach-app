@@ -89,7 +89,7 @@
 
 <template id="tpl-today">
   <!-- Citation en grand tout en haut (retour direct, docs/adr/0079), puis
-       ordre de l'ADR-0072 : « est-ce que je peux y aller ? » (forme),
+       ordre de l'ADR-0072 (allégé par l'ADR-0089) : « est-ce que je peux y aller ? » (forme),
        check-in, séance du jour, ce qui attend une action (alertes, charge à
        saisir), puis le digest. Les saisies vivent dans le bouton + (ADR-0071). -->
   <section class="credo-card">
@@ -99,15 +99,9 @@
 
   <div id="today-readiness"></div>
 
-  <div id="today-data-check"></div>
-
   <div id="today-session"></div>
 
   <div id="today-todo"></div>
-
-  <!-- Le check-in remonte juste sous la forme tant qu'il n'est pas fait
-       (today.js), sinon il reste ici, replié (ADR-0084). -->
-  <div id="checkin-content"></div>
 
   <section class="card digest-card">
     <div class="digest-header">
@@ -119,7 +113,15 @@
     <button type="button" id="digest-expand" class="digest-expand" hidden>Lire le digest complet</button>
   </section>
 
-  <div id="system-status"></div>
+  <!-- Intendance regroupée en bas, dans une seule carte à lignes repliées
+       (ADR-0089) : données reçues, check-in fait, état du système. Un point
+       à régler (données manquantes) ou un check-in à faire remonte sous la
+       forme (today.js / today-data-check.js). -->
+  <div class="today-admin">
+    <div id="today-data-check"></div>
+    <div id="checkin-content"></div>
+    <div id="system-status"></div>
+  </div>
 </template>
 
 <template id="tpl-week">

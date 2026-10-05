@@ -485,12 +485,9 @@ async function loadCheckin(token) {
         <div class="checkin-adapt-slot"></div>
         ${slots}
       </section>`;
-    // À faire : juste sous l'indice de forme, avant la séance.
+    // À faire : juste sous l'indice de forme, avant la séance (ADR-0089).
     const readiness = document.getElementById("today-readiness");
-    if (readiness && readiness.parentNode) {
-      const anchor = document.getElementById("today-data-check") || readiness;
-      anchor.insertAdjacentElement("afterend", box);
-    }
+    if (readiness && readiness.parentNode) readiness.insertAdjacentElement("afterend", box);
   }
   const card = box.querySelector(".checkin-card");
   card._history = { summary, today: { date, arrival: arrivalStateToday, wellness: wellnessToday, mobility: mobilityToday } };
@@ -787,9 +784,9 @@ async function loadTodaySession(token) {
     box.innerHTML = `
       <section class="card today-session today-session-rest">
         <div class="today-session-title">${kindIconHTML("repos")}<div><p class="today-session-kicker">Aujourd'hui</p>
-        <h2 class="today-session-name">${escapeHtmlText(session.name || "Repos")}</h2></div></div>
+        <h2 class="today-session-name">${escapeHtmlText(session.name || "Repos")}</h2></div>
+        <button type="button" class="today-session-open today-rest-edit">Modifier</button></div>
         ${session.notes ? `<p class="muted small">${escapeHtmlText(session.notes)}</p>` : ""}
-        <button type="button" class="primary-button ghost small today-session-open">Voir ou modifier</button>
       </section>`;
     box.querySelector(".today-session-open").addEventListener("click", open);
     return;

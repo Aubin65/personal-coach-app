@@ -96,7 +96,7 @@ export async function renderTodayDataCheck(token) {
   }
 
   if (s.checkin) rows.push(row("ok", "Check-in", "fait."));
-  else rows.push(row("info", "Check-in", "à faire, juste en dessous."));
+  else rows.push(row("info", "Check-in", "à faire, sous l'indice de forme."));
 
   let relaunch = false;
   if (!s.digest.exists) {
@@ -133,6 +133,11 @@ export async function renderTodayDataCheck(token) {
       ${relaunchHTML}
       <p class="muted small data-check-note"></p>
     </details>`;
+
+  // Un point à régler remonte sous l'indice de forme ; sinon la ligne reste
+  // dans le bloc « intendance » du bas (ADR-0089).
+  const readiness = document.getElementById("today-readiness");
+  if (issues && readiness && readiness.parentNode) readiness.insertAdjacentElement("afterend", box);
 
   const btn = box.querySelector(".data-check-relaunch");
   if (btn) {
