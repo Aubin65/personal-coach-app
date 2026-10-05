@@ -97,9 +97,7 @@
 
   <div id="today-session"></div>
 
-  <div id="active-alerts"></div>
-
-  <div id="quick-load"></div>
+  <div id="today-todo"></div>
 
   <section class="card digest-card">
     <div class="digest-header">
@@ -205,6 +203,12 @@
   <div class="chat-log" id="chat-log"></div>
   <p class="live-caption" id="chat-live-caption" hidden></p>
   <p class="voice-hint" id="chat-voice-hint" hidden></p>
+  <div class="chat-suggestions" id="chat-suggestions">
+    <button type="button" class="chat-suggestion" data-prompt="Adapte ma séance du jour : ">Adapter ma séance</button>
+    <button type="button" class="chat-suggestion" data-prompt="Fais-moi le bilan de ma semaine.">Bilan de la semaine</button>
+    <button type="button" class="chat-suggestion" data-prompt="Quel plan de récupération après le match ?">Récup après match</button>
+    <button type="button" class="chat-suggestion" data-prompt="Comment je me situe par rapport aux objectifs du bloc ?">Objectifs du bloc</button>
+  </div>
   <form class="chat-input-row" id="chat-form">
     <input id="chat-input" type="text" placeholder="Écris ou dicte ta question…" autocomplete="off" aria-label="Message au coach">
     <button type="button" class="mic-button" id="chat-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -253,14 +257,15 @@
 
 <template id="tpl-pain">
   <section class="card">
-    <h2>🩹 Loguer une douleur / gêne</h2>
-    <p class="muted small">Zone, niveau 0-10, une note si besoin — pour pouvoir relire plus tard comment ça a évolué et ce qui avait aidé la dernière fois.</p>
+    <h2>Douleur / gêne</h2>
+    <p class="pain-q">Où ?</p>
     <div id="pain-zone-chips" class="suggestion-chips"></div>
     <div id="pain-side-toggle" class="suggestion-chips" hidden></div>
-    <div class="exercise-log-grid" style="margin-top:10px">
-      <div><label>Niveau (0-10)</label><input type="number" id="pain-level" min="0" max="10" step="1" placeholder="0-10"></div>
-      <div><label>Date</label><input type="date" id="pain-date"></div>
-    </div>
+    <div class="pain-level-head"><span class="pain-level-title">Niveau</span><span id="pain-level-label" class="pain-level-label">touche un chiffre</span></div>
+    <div id="pain-level-grid" class="pain-level-grid" role="group" aria-label="Niveau de douleur de 0 à 10"></div>
+    <input type="hidden" id="pain-level">
+    <label for="pain-date">Date</label>
+    <input type="date" id="pain-date">
     <div class="compose-row" style="margin-top:10px">
       <textarea id="pain-note" rows="3" placeholder="Contexte : après quel exercice/mouvement, ce qui a aidé…"></textarea>
       <button type="button" id="pain-mic" class="mic-button" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>

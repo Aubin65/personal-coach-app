@@ -112,7 +112,40 @@ registerQueuedOp("pain", async ({ date, entry }) => {
   });
 });
 
+// Grille de niveau 0-10 (docs/adr/0076, maquette C) à la place d'un champ
+// numérique : un tap, couleur par palier, libellé du palier. La valeur vit
+// toujours dans #pain-level (champ caché) lu par « Enregistrer ».
+const PAIN_LEVEL_LABELS = ["aucune gêne", "légère", "légère", "légère", "modérée", "modérée", "modérée", "forte", "forte", "très forte", "très forte"];
+function painTier(n) { return n === 0 ? "none" : n <= 3 ? "low" : n <= 6 ? "mid" : "high"; }
+
+function wirePainLevelGrid() {
+  const grid = document.getElementById("pain-level-grid");
+  const input = document.getElementById("pain-level");
+  const label = document.getElementById("pain-level-label");
+  if (!grid || !input) return;
+  grid.innerHTML = Array.from({ length: 11 }, (_, n) => `<button type="button" class="pain-level-btn tier-${painTier(n)}" data-level="${n}" aria-pressed="false">${n}</button>`).join("");
+  grid.querySelectorAll("[data-level]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      input.value = btn.dataset.level;
+      grid.querySelectorAll("[data-level]").forEach((b) => {
+        const on = b === btn;
+        b.classList.toggle("active", on);
+        b.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      label.textContent = `${btn.dataset.level} · ${PAIN_LEVEL_LABELS[+btn.dataset.level]}`;
+    });
+  });
+}
+
+function resetPainLevelGrid() {
+  const grid = document.getElementById("pain-level-grid");
+  if (grid) grid.querySelectorAll("[data-level]").forEach((b) => { b.classList.remove("active"); b.setAttribute("aria-pressed", "false"); });
+  const label = document.getElementById("pain-level-label");
+  if (label) label.textContent = "touche un chiffre";
+}
+
 export async function renderPain(token) {
+  wirePainLevelGrid();
   setupMicButton(
     document.getElementById("pain-mic"),
     document.getElementById("pain-voice-hint"),
@@ -138,7 +171,7 @@ export async function renderPain(token) {
     const dateEl = document.getElementById("pain-date");
     const noteEl = document.getElementById("pain-note");
     if (!selectedZone) { statusEl.textContent = "Choisis une zone."; return; }
-    if (levelEl.value === "") { statusEl.textContent = "Indique un niveau (0-10)."; return; }
+    if (levelEl.value === "") { statusEl.textContent = "Choisis un niveau de 0 à 10."; return; }
     const date = dateEl.value || todayISO();
     const entry = {
       zone: selectedZone,
@@ -152,6 +185,7 @@ export async function renderPain(token) {
     try {
       const outcome = await runQueued("pain", { date, entry }, { label: "Douleur" });
       levelEl.value = "";
+      resetPainLevelGrid();
       noteEl.value = "";
       statusEl.textContent = outcome.queued ? "Gardée sur le téléphone — envoi dès que le réseau revient." : "Enregistrée ✓";
       loadPainHistory(state.renderToken).catch(() => {});

@@ -1,12 +1,14 @@
 import { openSheet } from "./sheet.js";
 import { showView } from "./nav.js";
 import { todayISO } from "./date-utils.js";
+import { loadTargetsForQuickLoad, promptSessionLoad } from "./views/today.js";
 
 // Feuille du bouton « + » de la barre du bas (docs/adr/0071) : un seul point
 // d'entrée pour toutes les saisies, qui étaient éparpillées entre la grille
 // d'actions d'Aujourd'hui, le bandeau « Ajuster ma semaine » et l'onglet
 // Coach. Chaque entrée ne fait que naviguer vers la vue existante — aucune
-// logique de saisie n'est dupliquée ici.
+// logique de saisie n'est dupliquée ici. Seule exception, « RPE + durée »
+// (ADR-0076) réutilise la saisie express d'Aujourd'hui (promptSessionLoad).
 
 const ICONS = {
   mic: '<svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>',
@@ -15,6 +17,7 @@ const ICONS = {
   sun: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
   adjust: '<svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
 };
 
 /** Ouvre la vue Aujourd'hui puis amène le check-in à l'écran une fois rendu
@@ -45,6 +48,10 @@ export function openAddSheet() {
         <span class="add-sheet-ico gold">${ICONS.session}</span>
         <span><strong>Loguer la séance</strong><small>Celle d'aujourd'hui</small></span>
       </button>
+      <button type="button" class="add-sheet-tile" data-add="rpe">
+        <span class="add-sheet-ico gold">${ICONS.clock}</span>
+        <span><strong>RPE + durée</strong><small>Saisie express</small></span>
+      </button>
       <button type="button" class="add-sheet-tile" data-add="pain">
         <span class="add-sheet-ico red">${ICONS.pain}</span>
         <span><strong>Douleur / gêne</strong><small>Zone, côté, niveau</small></span>
@@ -53,12 +60,10 @@ export function openAddSheet() {
         <span class="add-sheet-ico green">${ICONS.sun}</span>
         <span><strong>Check-in</strong><small>Arrivée, bien-être</small></span>
       </button>
-      <button type="button" class="add-sheet-tile" data-add="adjust">
-        <span class="add-sheet-ico gold">${ICONS.adjust}</span>
-        <span><strong>Ajuster ma semaine</strong><small>Le coach propose</small></span>
-      </button>
     </div>
+    <button type="button" class="add-sheet-row" data-add="adjust">${ICONS.adjust}Ajuster ma semaine</button>
     <button type="button" class="add-sheet-row" data-add="chat">${ICONS.chat}Poser une question au coach</button>
+    <p class="muted small add-sheet-status" hidden></p>
   `);
   const actions = {
     note: () => showView("write-note"),
@@ -68,7 +73,25 @@ export function openAddSheet() {
     adjust: () => showView("adjust-week"),
     chat: () => showView("chat"),
   };
+  // RPE + durée (docs/adr/0076) : séance d'aujourd'hui ou d'hier sans
+  // charge, sinon celle du jour. La feuille d'ajout reste ouverte s'il n'y a
+  // rien à compléter, avec une explication.
+  const rpeBtn = el.querySelector('[data-add="rpe"]');
+  rpeBtn.addEventListener("click", async () => {
+    const status = el.querySelector(".add-sheet-status");
+    rpeBtn.disabled = true;
+    const targets = await loadTargetsForQuickLoad().catch(() => []);
+    rpeBtn.disabled = false;
+    if (!targets.length) {
+      status.hidden = false;
+      status.textContent = "Aucune séance d'hier ou d'aujourd'hui à compléter.";
+      return;
+    }
+    close();
+    try { await promptSessionLoad(targets[0]); } catch (err) { window.alert(`Échec de l'enregistrement : ${err.message}`); }
+  });
   el.querySelectorAll("[data-add]").forEach((btn) => {
+    if (btn.dataset.add === "rpe") return;
     btn.addEventListener("click", () => {
       close();
       actions[btn.dataset.add]();

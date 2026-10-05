@@ -70,6 +70,16 @@ export async function renderChat(token) {
   if (micBtn) {
     setupMicButton(micBtn, document.getElementById("chat-voice-hint"), document.getElementById("chat-input"), document.getElementById("chat-live-caption"));
   }
+  // Suggestions rapides (docs/adr/0076) : préremplissent le champ, sans
+  // envoyer — le texte reste modifiable avant « Envoyer ».
+  document.querySelectorAll("#chat-suggestions [data-prompt]").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      const input = document.getElementById("chat-input");
+      input.value = chip.dataset.prompt;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    });
+  });
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (micBtn && micBtn.classList.contains("recording")) micBtn.click();

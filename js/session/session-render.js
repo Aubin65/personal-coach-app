@@ -45,6 +45,11 @@ export async function renderSession(token) {
       : found.session ? JSON.parse(JSON.stringify(found.session)) : null,
   };
   renderSessionContent();
+  if (state.openLiveOnLoad) {
+    state.openLiveOnLoad = false;
+    const session = sessionRuntime.working.session;
+    if (session && (session.type || "musculation") === "musculation" && liveExerciseIndices(session).length) openLiveMode().catch(() => {});
+  }
 }
 
 export function renderSessionContent() {

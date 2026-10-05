@@ -39,7 +39,7 @@ export function openRpeSheet({ title, defaultRpe = null, defaultDuration = null 
     const durationChips = DURATION_SHORTCUTS.map((m) => `<button type="button" class="suggestion-chip duration-chip" data-minutes="${m}">${m}</button>`).join("");
     const { el, close } = openSheet(
       `
-      <h2>⚡ ${escapeHtmlText(title)}</h2>
+      <h2>${escapeHtmlText(title)}</h2>
       <p class="small rpe-sheet-title">Comment c'était ? (RPE)</p>
       <div class="suggestion-chips rpe-chips">${rpeChips}</div>
       <p class="muted small rpe-description">${defaultRpe != null ? RPE_DESCRIPTIONS[defaultRpe] : "Touche un chiffre — 0 = repos, 10 = maximal."}</p>

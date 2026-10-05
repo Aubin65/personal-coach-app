@@ -23,6 +23,8 @@ export const state = {
   forgePrefillDraft: null,
   planningMonday: null,
   sessionReturnTo: null,
+  openLiveOnLoad: false, // « Démarrer » d'Aujourd'hui : ouvrir la séance guidée dès le rendu (ADR-0076)
+  adjustPrefill: null, // « Adapter » d'Aujourd'hui : texte de départ d'« Ajuster ma semaine » (ADR-0076)
   // Bumped on every navigation; each async render function captures it and
   // checks `stale(token)` after an await before touching the DOM. Without
   // this, an async render that resolves after the user has already

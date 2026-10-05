@@ -1,4 +1,4 @@
-import { showView } from "../nav.js";
+import { showView, state } from "../nav.js";
 import { setupMicButton } from "../voice-input.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 
@@ -16,6 +16,14 @@ export async function renderAdjustWeek() {
     document.getElementById("adjust-text"),
     document.getElementById("adjust-live-caption")
   );
+
+  if (state.adjustPrefill) {
+    const textEl = document.getElementById("adjust-text");
+    textEl.value = state.adjustPrefill;
+    state.adjustPrefill = null;
+    textEl.focus();
+    textEl.setSelectionRange(textEl.value.length, textEl.value.length);
+  }
 
   const chipsEl = document.getElementById("adjust-suggestions");
   chipsEl.innerHTML = ADJUST_SUGGESTIONS.map((s) => `<button type="button" class="suggestion-chip">${s}</button>`).join("");

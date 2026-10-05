@@ -4,7 +4,8 @@ import { todayISO, addDaysISO, sessionHasExecuted } from "../date-utils.js";
 import { findSessionForDate } from "../training-index.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
-import { ghDispatchWorkflow, ghGetFile, ghPutJSON } from "../github-api.js";
+import { ghDispatchWorkflow, ghGetFile, ghPutJSON, ghListDir } from "../github-api.js";
+import { openSheet } from "../sheet.js";
 import { latestFileOnOrBefore } from "../training-index.js";
 import { renderDigestSections } from "../plan-overview.js";
 import { setupMicButton } from "../voice-input.js";
@@ -17,7 +18,7 @@ import { formatHoursFr } from "./data-viz.js";
 import { SESSION_TYPES } from "../session-types.js";
 import { renderTodayDataCheck } from "../today-data-check.js";
 
-const ALERT_CATEGORY_LABELS = { blessure: "🩹 Blessure/douleur", sommeil: "😴 Sommeil", poids: "⚖️ Poids", charge: "📈 Charge", prepa_physique: "🏋️ Préparation physique" };
+const ALERT_CATEGORY_LABELS = { blessure: "blessure / douleur", sommeil: "sommeil", poids: "poids", charge: "charge", prepa_physique: "préparation physique" };
 
 // ============================================================================
 // Check-in du matin (docs/adr/0065) — retour direct : "questionnaire de
@@ -465,7 +466,7 @@ function hasLoggedExerciseValues(session) {
  * sens : pas de repos, ni RPE ni durée déjà là, pas ignorée. Une
  * musculation sans aucun chiffre saisi est probablement non faite (ou en
  * cours de log dans la vue séance) : pas de relance. */
-async function pendingLoadSessions() {
+export async function pendingLoadSessions() {
   const today = todayISO();
   const found = [];
   for (const date of [today, addDaysISO(today, -1)]) {
@@ -482,112 +483,165 @@ async function pendingLoadSessions() {
   return found;
 }
 
-function quickLoadRowHTML({ date, session }) {
-  const icon = { musculation: "🏋️", rugby: "🏉", autre: "🏃" }[session.type || "musculation"];
-  const when = date === todayISO() ? "aujourd'hui" : "hier";
-  return `
-    <div class="quick-load-row" data-date="${date}">
-      <p class="small"><strong>${icon} ${escapeHtmlText(session.name || "Séance")}</strong> — ${when}</p>
-      <div class="proposal-actions">
-        <button type="button" class="primary-button ghost small quick-load-dismiss">Ignorer</button>
-        <button type="button" class="primary-button small quick-load-enter">⚡ Saisir RPE + durée</button>
-      </div>
-      <p class="muted small quick-load-status"></p>
-    </div>`;
+// ============================================================================
+// « À faire » (docs/adr/0076, maquette C) — une seule carte pour tout ce qui
+// attend une action : alertes actives, séances sans RPE/durée, propositions du
+// coach en attente (planning, ajustement de séance, squelette Forge). Avant,
+// trois cartes séparées (alertes repliées, « Charge à saisir », et rien du
+// tout pour les propositions, visibles seulement dans Semaine). Chaque ligne
+// ouvre l'action ; le détail d'une alerte s'ouvre dans une feuille.
+// ============================================================================
+
+const TODO_ICONS = {
+  alert: '<svg viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></svg>',
+  clock: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  arrow: '<svg viewBox="0 0 24 24"><path d="M4 12h12M12 6l6 6-6 6"/></svg>',
+  chevron: '<svg viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  close: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+};
+
+function frShortDate(iso) {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 }
 
-async function loadQuickLoad(token) {
-  const box = document.getElementById("quick-load");
-  if (!box) return;
+/** Ouvre la saisie RPE + durée d'une séance et l'enregistre. Exportée pour le
+ * bouton + (add-sheet.js). Renvoie le résultat ou `null` si fermée. */
+export async function promptSessionLoad(item) {
+  const label = item.date === todayISO() ? "aujourd'hui" : item.date === addDaysISO(todayISO(), -1) ? "hier" : frShortDate(item.date);
+  const result = await openRpeSheet({ title: `${item.session.name || "Séance"} — ${label}` });
+  if (!result) return null;
+  const updated = { ...item.session, session_rpe: result.rpe, session_duration_min: result.duration };
+  const outcome = await saveSession(item.weekLabel || "app", item.date, updated);
+  return { ...result, queued: !!(outcome && outcome.queued) };
+}
+
+/** Séances d'aujourd'hui / hier sans charge, sinon la séance du jour (pour le
+ * bouton + : une saisie express doit toujours avoir une cible). */
+export async function loadTargetsForQuickLoad() {
   const pending = await pendingLoadSessions();
-  if (stale(token)) return;
-  if (!pending.length) { box.innerHTML = ""; return; }
-
-  box.innerHTML = `
-    <section class="card quick-load-card">
-      <h2>⚡ Charge à saisir</h2>
-      <p class="muted small">Sans RPE ni durée, la séance ne compte pas dans ton suivi de charge.</p>
-      ${pending.map(quickLoadRowHTML).join("")}
-    </section>`;
-
-  pending.forEach((item) => {
-    const row = box.querySelector(`.quick-load-row[data-date="${item.date}"]`);
-    const statusEl = row.querySelector(".quick-load-status");
-    row.querySelector(".quick-load-dismiss").addEventListener("click", () => {
-      try { localStorage.setItem(quickLoadDismissKey(item.date), "1"); } catch (_) {}
-      row.remove();
-      if (!box.querySelector(".quick-load-row")) box.innerHTML = "";
-    });
-    row.querySelector(".quick-load-enter").addEventListener("click", async () => {
-      const result = await openRpeSheet({ title: `${item.session.name || "Séance"} — ${item.date === todayISO() ? "aujourd'hui" : "hier"}` });
-      if (!result) return;
-      statusEl.textContent = "Enregistrement…";
-      try {
-        const updated = { ...item.session, session_rpe: result.rpe, session_duration_min: result.duration };
-        const outcome = await saveSession(item.weekLabel || "app", item.date, updated);
-        row.querySelector(".proposal-actions").remove();
-        row.querySelector("p.small").insertAdjacentHTML("afterend", `<p class="small">✅ RPE ${result.rpe} · ${result.duration} min ${outcome && outcome.queued ? "gardés sur le téléphone, envoi au retour du réseau" : "enregistrés"}.</p>`);
-        statusEl.textContent = "";
-      } catch (err) {
-        statusEl.textContent = `Échec : ${err.message}`;
-      }
-    });
-  });
+  if (pending.length) return pending;
+  const date = todayISO();
+  const day = await findSessionForDate(date);
+  const session = day && day.session;
+  if (session && (session.type || "musculation") !== "repos") return [{ date, session, weekLabel: day.weekLabel }];
+  return [];
 }
 
-/** Persistent alert cards — direct request : toutes les alertes
- * (`data/alerts/active.json`, les 4 catégories) sur Aujourd'hui, la
- * première chose vue en ouvrant l'app, et plus du tout dans Semaine
- * (déplacé depuis là, voir docs/adr/0045/0052/0053) — repliées par
- * défaut (`<details>`, direct request : "trop verbeuses à l'écran",
- * surtout avec plusieurs alertes empilées).
- * `resolution: "auto"` entries (sommeil, poids, charge) sont gérées
- * entièrement par `coach.alerts.sync_active_alerts` et disparaissent
- * d'elles-mêmes une fois le signal levé — pas de bouton de résolution
- * pour celles-ci, cliquer n'y changerait rien tant que le signal reste
- * vrai. `resolution: "manual_or_note"` (jugement du coach, ex. une
- * blessure) peut aussi être levée par le coach depuis une note vocale,
- * mais garde toujours un bouton manuel, le coach ne détecte pas
- * forcément la résolution tout seul. */
-async function loadActiveAlerts(token) {
-  const box = document.getElementById("active-alerts");
-  const file = await ghGetFile("data/alerts/active.json");
-  if (stale(token)) return;
-  let alerts = [];
-  if (file) { try { alerts = JSON.parse(file.content); } catch (_) { alerts = []; } }
-  if (!Array.isArray(alerts) || alerts.length === 0) { box.innerHTML = ""; return; }
+async function pendingProposals() {
+  const [plans, sessions] = await Promise.all([
+    ghListDir("data/plans/pending").catch(() => []),
+    ghListDir("data/training/app-log/pending").catch(() => []),
+  ]);
+  const out = [];
+  plans.filter((e) => e.type === "file" && e.name.endsWith(".md")).forEach((e) => {
+    out.push({ kind: "plan", title: "Le coach propose un nouveau planning", detail: `Semaine du ${frShortDate(e.name.slice(0, 10))} · à valider dans Plan`, go: () => showView("week") });
+  });
+  sessions.filter((e) => e.type === "file" && e.name.endsWith(".json")).forEach((e) => {
+    const m = e.name.match(/(\d{4}-\d{2}-\d{2})/);
+    const date = m ? m[1] : null;
+    if (e.name.startsWith("adjust-")) {
+      out.push({ kind: "adjust", title: `Le coach propose d'ajuster la séance${date ? ` du ${frShortDate(date)}` : ""}`, detail: "À valider dans Plan", go: () => showView("week") });
+    } else {
+      out.push({ kind: "skeleton", title: "Le coach a préparé une trame de semaine", detail: "À valider dans la Forge", go: () => showView("forge") });
+    }
+  });
+  return out;
+}
 
-  box.innerHTML = alerts
-    .map((a) => `
-      <details class="card alert-card" data-alert-id="${escapeAttr(a.id || "")}">
-        <summary>⚠️ ${ALERT_CATEGORY_LABELS[a.category] || "Alerte"}</summary>
-        <p>${escapeHtmlText(a.message || "")}</p>
-        ${Array.isArray(a.advice) && a.advice.length ? `<ul class="alert-advice">${a.advice.map((adv) => `<li>${escapeHtmlText(adv)}</li>`).join("")}</ul>` : ""}
-        ${a.resolution === "manual_or_note"
-          ? `<div class="proposal-actions">
-              <button type="button" class="primary-button ghost small alert-dismiss">✅ Marquer comme résolu</button>
-            </div>
-            <p class="muted small alert-status"></p>`
-          : `<p class="muted small">Se lève automatiquement une fois la situation revenue à la normale.</p>`}
-      </details>`)
-    .join("");
-
-  box.querySelectorAll(".alert-dismiss").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const card = btn.closest(".alert-card");
-      const alertId = card.dataset.alertId;
-      const statusEl = card.querySelector(".alert-status");
-      btn.disabled = true;
+function openAlertSheet(alert, onResolved) {
+  const manual = alert.resolution === "manual_or_note";
+  const { el, close } = openSheet(`
+    <p class="alert-sheet-kicker">Alerte · ${escapeHtmlText(ALERT_CATEGORY_LABELS[alert.category] || "Alerte")}</p>
+    <h2>${escapeHtmlText(alert.title || (ALERT_CATEGORY_LABELS[alert.category] ? ALERT_CATEGORY_LABELS[alert.category][0].toUpperCase() + ALERT_CATEGORY_LABELS[alert.category].slice(1) : "Alerte"))}</h2>
+    <p class="alert-sheet-message">${escapeHtmlText(alert.message || "")}</p>
+    ${Array.isArray(alert.advice) && alert.advice.length ? `<p class="alert-sheet-sub">Ce que conseille le coach</p><ol class="alert-sheet-advice">${alert.advice.map((a) => `<li>${escapeHtmlText(a)}</li>`).join("")}</ol>` : ""}
+    <div class="alert-sheet-actions">
+      ${manual ? '<button type="button" class="primary-button ghost alert-sheet-resolve">Marquer résolu</button>' : ""}
+      <button type="button" class="primary-button alert-sheet-plan">Voir le plan</button>
+    </div>
+    <p class="muted small alert-sheet-status">${manual ? "" : "L'alerte se lève toute seule quand la situation revient à la normale."}</p>
+  `);
+  el.querySelector(".alert-sheet-plan").addEventListener("click", () => { close(); showView("week"); });
+  const resolveBtn = el.querySelector(".alert-sheet-resolve");
+  if (resolveBtn) {
+    resolveBtn.addEventListener("click", async () => {
+      const statusEl = el.querySelector(".alert-sheet-status");
+      resolveBtn.disabled = true;
       statusEl.textContent = "Mise à jour…";
       try {
         await ghPutJSON("data/alerts/active.json", [], "Alerte levée depuis l'app", (current) => {
           const list = Array.isArray(current) ? current : [];
-          return list.filter((entry) => entry.id !== alertId);
+          return list.filter((entry) => entry.id !== alert.id);
         });
-        loadActiveAlerts(state.renderToken).catch(() => {});
+        close();
+        onResolved();
       } catch (err) {
         statusEl.textContent = `Échec : ${err.message}`;
-        btn.disabled = false;
+        resolveBtn.disabled = false;
+      }
+    });
+  }
+}
+
+async function loadTodo(token) {
+  const box = document.getElementById("today-todo");
+  if (!box) return;
+  const [alertsFile, loads, proposals] = await Promise.all([
+    ghGetFile("data/alerts/active.json").catch(() => null),
+    pendingLoadSessions().catch(() => []),
+    pendingProposals().catch(() => []),
+  ]);
+  if (stale(token)) return;
+  let alerts = [];
+  if (alertsFile) { try { alerts = JSON.parse(alertsFile.content); } catch (_) { alerts = []; } }
+  if (!Array.isArray(alerts)) alerts = [];
+
+  const rows = [];
+  alerts.forEach((a, i) => rows.push(`
+    <li class="todo-row"><button type="button" class="todo-main" data-todo="alert" data-i="${i}">
+      <span class="todo-ico red">${TODO_ICONS.alert}</span>
+      <span class="todo-text"><strong class="todo-alert-title">Alerte : ${escapeHtmlText(ALERT_CATEGORY_LABELS[a.category] || "à lire")}</strong><small>${escapeHtmlText((a.message || "").slice(0, 90))}${(a.message || "").length > 90 ? "…" : ""}</small></span>
+      <span class="todo-chevron">${TODO_ICONS.chevron}</span>
+    </button></li>`));
+  loads.forEach((item, i) => rows.push(`
+    <li class="todo-row" data-load-date="${item.date}"><button type="button" class="todo-main" data-todo="load" data-i="${i}">
+      <span class="todo-ico gold">${TODO_ICONS.clock}</span>
+      <span class="todo-text"><strong>RPE et durée : ${escapeHtmlText(item.session.name || "séance")}</strong><small class="todo-load-status">${item.date === todayISO() ? "Aujourd'hui" : "Hier"} · sinon la séance ne compte pas dans ta charge</small></span>
+      <span class="todo-chevron">${TODO_ICONS.chevron}</span>
+    </button><button type="button" class="todo-dismiss" data-todo="dismiss" data-i="${i}" aria-label="Ignorer cette saisie">${TODO_ICONS.close}</button></li>`));
+  proposals.forEach((p, i) => rows.push(`
+    <li class="todo-row"><button type="button" class="todo-main" data-todo="proposal" data-i="${i}">
+      <span class="todo-ico green">${TODO_ICONS.arrow}</span>
+      <span class="todo-text"><strong>${escapeHtmlText(p.title)}</strong><small>${escapeHtmlText(p.detail)}</small></span>
+      <span class="todo-chevron">${TODO_ICONS.chevron}</span>
+    </button></li>`));
+
+  if (!rows.length) { box.innerHTML = ""; return; }
+  box.innerHTML = `
+    <section class="card todo-card">
+      <h2>À faire <span class="todo-count">· ${rows.length}</span></h2>
+      <ul class="todo-list">${rows.join("")}</ul>
+    </section>`;
+
+  box.querySelectorAll("[data-todo]").forEach((btn) => {
+    const i = +btn.dataset.i;
+    btn.addEventListener("click", async () => {
+      const kind = btn.dataset.todo;
+      if (kind === "alert") openAlertSheet(alerts[i], () => loadTodo(state.renderToken).catch(() => {}));
+      else if (kind === "proposal") proposals[i].go();
+      else if (kind === "dismiss") {
+        try { localStorage.setItem(quickLoadDismissKey(loads[i].date), "1"); } catch (_) {}
+        loadTodo(state.renderToken).catch(() => {});
+      } else if (kind === "load") {
+        const status = btn.querySelector(".todo-load-status");
+        try {
+          const r = await promptSessionLoad(loads[i]);
+          if (!r) return;
+          status.textContent = `RPE ${r.rpe} · ${r.duration} min ${r.queued ? "gardés sur le téléphone" : "enregistrés"}`;
+          setTimeout(() => loadTodo(state.renderToken).catch(() => {}), 1200);
+        } catch (err) {
+          status.textContent = `Échec : ${err.message}`;
+        }
       }
     });
   });
@@ -692,9 +746,27 @@ async function loadTodaySession(token) {
       <h2 class="today-session-name">${escapeHtmlText(session.name || typeLabel)}</h2>
       ${shown.length ? `<ul class="today-session-list">${shown.map((ex) => `<li><span>${escapeHtmlText(ex.name || "Exercice")}</span><span class="today-session-planned">${escapeHtmlText(plannedLine(ex))}</span></li>`).join("")}${exercises.length > shown.length ? `<li class="muted">+ ${exercises.length - shown.length} exercice${exercises.length - shown.length > 1 ? "s" : ""}</li>` : ""}</ul>` : ""}
       ${session.notes ? `<p class="today-session-notes">${escapeHtmlText(session.notes)}</p>` : ""}
-      <button type="button" class="primary-button today-session-open">${done ? "Revoir la séance" : "Ouvrir la séance"}</button>
+      <div class="today-session-actions">
+        ${type === "musculation" && !done
+          ? `<button type="button" class="primary-button today-session-start"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l13-7.5z"/></svg>Démarrer</button>`
+          : `<button type="button" class="primary-button today-session-open">${done ? "Revoir la séance" : "Ouvrir la séance"}</button>`}
+        ${done ? "" : '<button type="button" class="today-session-adapt">Adapter</button>'}
+      </div>
+      ${type === "musculation" && !done ? '<button type="button" class="today-session-form">Voir le détail de la séance</button>' : ""}
     </section>`;
-  box.querySelector(".today-session-open").addEventListener("click", open);
+  // « Démarrer » ouvre directement la séance guidée (ADR-0074) ; « Adapter »
+  // ouvre « Ajuster ma semaine » pré-rempli pour cette séance (docs/adr/0076).
+  const startBtn = box.querySelector(".today-session-start");
+  if (startBtn) startBtn.addEventListener("click", () => { state.openLiveOnLoad = true; open(); });
+  const openBtn = box.querySelector(".today-session-open");
+  if (openBtn) openBtn.addEventListener("click", open);
+  const formBtn = box.querySelector(".today-session-form");
+  if (formBtn) formBtn.addEventListener("click", open);
+  const adaptBtn = box.querySelector(".today-session-adapt");
+  if (adaptBtn) adaptBtn.addEventListener("click", () => {
+    state.adjustPrefill = `Séance du jour (${session.name || typeLabel}) : `;
+    showView("adjust-week");
+  });
 }
 
 export async function renderToday(token) {
@@ -703,8 +775,7 @@ export async function renderToday(token) {
   renderTodayDataCheck(token).catch(() => {});
   loadCheckin(token).catch(() => {});
   loadTodaySession(token).catch(() => {});
-  loadActiveAlerts(token).catch(() => {});
-  loadQuickLoad(token).catch(() => {});
+  loadTodo(token).catch(() => {});
   renderSystemStatus(token).catch(() => {});
 
   const genBtn = document.getElementById("generate-digest-button");
