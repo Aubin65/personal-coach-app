@@ -168,7 +168,9 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
       const planDay = planDays.find((d) => DAY_NAMES.indexOf(d.day) === i);
       const plannedLabel = planDay ? planDay.title : "—";
       const s = summaries[i];
-      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today);
+      // Repos : posé comme séance de type « repos », ou prévu « Repos » au plan sans rien de logué.
+      const restDay = s.type === "repos" || (!s.hasSession && /^\s*repos/i.test(plannedLabel));
+      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today, restDay ? "repos" : s.type);
       return `
         <tr class="week-table-row" data-date="${date}">
           <td>${DAY_NAMES[i].slice(0, 3)} ${date.slice(8, 10)}/${date.slice(5, 7)}</td>
@@ -498,7 +500,7 @@ async function renderSessionHistoryWeek(token) {
       const s = summaries[i];
       if (!s.hasSession) return "";
       // Statut en pastille plutôt qu'en emoji (maquette C, ADR-0077).
-      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today).replace(/^\S+\s+/, "");
+      const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today, s.type).replace(/^\S+\s+/, "");
       const pill = s.type === "repos" ? "" : status === "Fait" ? "pill-ok" : date < today ? "pill-alert" : "pill-gold";
       const statusLabel = s.type === "repos" ? "" : date < today && status !== "Fait" ? "Non loggée" : status;
       return `

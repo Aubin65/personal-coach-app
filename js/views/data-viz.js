@@ -38,9 +38,11 @@ export function statTile(label, current, unit, fraction, help, startValue, start
         ${ringSVG(fraction)}
         <div class="ring-value">${valueText}</div>
       </div>
-      ${pct != null ? `<div class="stat-pct">${pct}% de l'objectif</div>` : ""}
-      ${startValue != null ? `<div class="stat-start muted small">Départ ${startValue}${unit}${startDate ? ` (${shortDateFr(startDate)})` : ""}</div>` : ""}
-      ${help ? `<div class="stat-help">${help}</div>` : ""}
+      <div class="stat-pct">${pct != null ? `${pct} %` : "—"}</div>
+      <div class="stat-rows">
+        ${startValue != null ? `<div${startDate ? ` title="Relevé du ${shortDateFr(startDate)}"` : ""}><span>Départ</span><b>${startValue}${unit.trim() ? ` ${unit.trim()}` : ""}</b></div>` : ""}
+        ${help ? `<div><span>Cible</span><b>${help}</b></div>` : ""}
+      </div>
     </div>`;
 }
 

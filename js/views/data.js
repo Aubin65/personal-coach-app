@@ -252,7 +252,7 @@ function forceTabHTML(s) {
     if (!entry) continue;
     const best = entry.recent_best;
     tiles += statTile(label, best ? best.load : null, " kg", entry.progress_fraction,
-      entry.target ? `Cible 4RM : ${entry.target.four_rm.toFixed(1)} kg` : "Pas de cible calculable", entry.baseline_load, entry.baseline_date);
+      entry.target ? `${entry.target.four_rm.toFixed(1).replace(".", ",")} kg` : "—", entry.baseline_load, entry.baseline_date);
   }
   if (tiles) html += `<section class="card"><h2>Trajectoire de force</h2><div class="stat-grid three">${tiles}</div></section>`;
 

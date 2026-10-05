@@ -115,7 +115,9 @@ export function sessionIsBlankSkeleton(session) {
  * sync artifact (e.g. a template row carried over with last week's values
  * before being overwritten) could otherwise make an unplayed future day
  * look completed. */
-export function sessionDayStatus(date, hasSession, hasExecuted, today) {
+export function sessionDayStatus(date, hasSession, hasExecuted, today, type = null) {
+  // Un jour de repos n'est ni « à faire » ni « à logger » : jamais « Planifié ».
+  if (type === "repos") return "😴 Repos";
   if (date > today) return hasSession ? "📝 Planifié" : "⏳ À venir";
   if (hasExecuted) return "✅ Fait";
   if (hasSession) return "📝 Planifié";

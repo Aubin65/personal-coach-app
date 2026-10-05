@@ -94,7 +94,7 @@ function forgeDayRowHTML(date, dayIndex, s, today) {
       <button type="button" class="forge-day-tile" data-date="${date}">
         <div class="forge-day-name">${DAY_NAMES[dayIndex]} ${date.slice(8, 10)}/${date.slice(5, 7)}</div>
         <div class="forge-day-session">${label}</div>
-        <div class="forge-day-status">${sessionDayStatus(date, s.hasSession, s.hasExecuted, today)}</div>
+        <div class="forge-day-status">${sessionDayStatus(date, s.hasSession, s.hasExecuted, today, s.type)}</div>
       </button>
       <div class="forge-quick-types">${quickTypeButtonsHTML(date, type)}</div>
     </div>`;
