@@ -90,11 +90,11 @@ export function blockMarkdown(label, s, feelings) {
   }
   if (s.contraintes && s.contraintes.trim()) lines.push("", "## Contraintes et gênes", "", s.contraintes.trim());
   if (s.jalons && s.jalons.trim()) lines.push("", "## Jalons et tests", "", s.jalons.trim());
-  const themes = ((feelings && feelings.themes) || []).slice(0, 3);
+  const themes = concernThemes(feelings).slice(0, 3);
   if (themes.length) {
     lines.push("", "## Ressentis pris en compte (ressentis de match ×3)", "");
     for (const t of themes) {
-      const m = t.mentions[0];
+      const m = concernMention(t);
       lines.push(`- ${THEME_LABELS[t.theme] || t.theme}${m ? ` — « ${m.text} » (${SOURCE_LABELS[m.source] || m.source}, ${formatFrDate(m.date)})` : ""}`);
     }
   }
@@ -104,20 +104,31 @@ export function blockMarkdown(label, s, feelings) {
 const THEME_LABELS = { contact: "Contact", fatigue: "Fatigue / épuisement", conditionnement: "Conditionnement", force: "Force", vitesse: "Vitesse / explosivité", douleur: "Douleur / gêne" };
 const SOURCE_LABELS = { match: "match", session: "séance / note", checkin: "check-in", pain: "douleur" };
 
+// Ce qui inquiète (mentions négatives/neutres) vs points forts ressentis
+// (mentions positives, ex. « pas fatigué », « bien au contact ») — ADR-0091.
+function concernThemes(f) {
+  return ((f && f.themes) || []).filter((t) => (t.score || 0) > 0);
+}
+function concernMention(t) {
+  return (t.mentions || []).find((m) => m.polarity !== "positif") || (t.mentions || [])[0];
+}
+
 function feelingsHTML(f) {
-  const themes = (f && f.themes) || [];
-  if (!f || (!themes.length && !(f.matches || []).length)) {
+  const themes = concernThemes(f);
+  const strengths = ((f && f.themes) || []).filter((t) => !(t.score > 0) && t.positive_score > 0);
+  if (!f || (!themes.length && !strengths.length && !(f.matches || []).length)) {
     return `<p class="muted small">Pas encore de ressenti exprimé (notes de match, de séance, notes vocales).</p>`;
   }
   const rows = themes.slice(0, 4).map((t) => {
-    const m = t.mentions[0];
+    const m = concernMention(t);
     return `<li><span class="bloc-theme"><strong>${escapeHtmlText(THEME_LABELS[t.theme] || t.theme)}</strong>
         <span class="bloc-theme-score" title="Poids cumulé : un ressenti de match compte ×3">${t.score % 1 ? t.score.toFixed(1) : t.score}</span></span>
       ${m ? `<div class="muted small">« ${escapeHtmlText(m.text)} » <em>(${escapeHtmlText(SOURCE_LABELS[m.source] || m.source)}, ${escapeHtmlText(formatFrDate(m.date))})</em></div>` : ""}</li>`;
   }).join("");
   return `
     ${rows ? `<ul class="bloc-themes">${rows}</ul>` : ""}
-    <p class="muted small">Les ressentis exprimés après un match comptent trois fois plus. Le RPE (matchs ${f.rpe && f.rpe.matches != null ? f.rpe.matches : "—"}, séances ${f.rpe && f.rpe.sessions != null ? f.rpe.sessions : "—"}) n'est pas pondéré.</p>`;
+    ${strengths.length ? `<p class="small">Points forts ressentis : ${strengths.map((t) => escapeHtmlText(THEME_LABELS[t.theme] || t.theme)).join(", ")}.</p>` : ""}
+    <p class="muted small">Les ressentis exprimés après un match comptent trois fois plus.${f.classified_share != null ? ` Textes lus par le coach : ${Math.round(f.classified_share * 100)} % (le reste par mots-clés).` : ""} Le RPE (matchs ${f.rpe && f.rpe.matches != null ? f.rpe.matches : "—"}, séances ${f.rpe && f.rpe.sessions != null ? f.rpe.sessions : "—"}) n'est pas pondéré.</p>`;
 }
 
 function threadHTML(messages) {
@@ -196,9 +207,9 @@ function startingPoint(sum, matches) {
     if (names.length) { facts.push(`Gênes récentes : ${names.join(", ")}`); quick.push(`Gérer la gêne (${names[0]}) : zéro douleur à l'entraînement`); }
   }
   if (matches[0]) quick.push(`Être prêt pour le match du ${frShort(matches[0].date)}`);
-  const top = ((sum.feelings || {}).themes || []).filter((t) => t.score >= 3 && ["contact", "conditionnement", "force", "vitesse"].includes(t.theme)).slice(0, 2);
+  const top = concernThemes(sum.feelings).filter((t) => t.score >= 3 && ["contact", "conditionnement", "force", "vitesse"].includes(t.theme)).slice(0, 2);
   for (const t of top) quick.push(`Travailler : ${(THEME_LABELS[t.theme] || t.theme).toLowerCase()} (ressenti de match)`);
-  const tired = ((sum.feelings || {}).themes || []).find((t) => t.theme === "fatigue" && t.score >= 3);
+  const tired = concernThemes(sum.feelings).find((t) => t.theme === "fatigue" && t.score >= 3);
   if (tired) facts.push("Fatigue exprimée après match : prévoir une semaine d'accroche progressive");
   return { facts, quick };
 }

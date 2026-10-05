@@ -264,3 +264,23 @@ export async function ghRecentCommits(path, perPage = 10) {
     return [];
   }
 }
+
+/** Derniers runs d'un workflow — `[{status, conclusion, event, at, url}]`, du
+ * plus récent au plus ancien, ou `null` si l'API Actions est inaccessible
+ * (token sans permission Actions en lecture, hors-ligne). Sert à « État du
+ * système » (docs/adr/0091) : un workflow cassé (YAML invalide, job en échec)
+ * ou qui ne tourne plus ne se voyait nulle part dans l'app. */
+export async function ghWorkflowRuns(fileName, perPage = 5) {
+  try {
+    const res = await fetch(`${API}/repos/${REPO}/actions/workflows/${fileName}/runs?per_page=${perPage}&exclude_pull_requests=true`, {
+      cache: "no-cache",
+      headers: { Authorization: `Bearer ${getToken()}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) return null;
+    const body = await res.json();
+    if (!body || !Array.isArray(body.workflow_runs)) return null;
+    return body.workflow_runs.map((r) => ({ status: r.status, conclusion: r.conclusion, event: r.event, at: r.created_at, url: r.html_url }));
+  } catch (_) {
+    return null;
+  }
+}

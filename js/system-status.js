@@ -1,4 +1,4 @@
-import { ghListDir, ghGetFile, ghDispatchWorkflow, lastDispatchResult } from "./github-api.js";
+import { ghListDir, ghGetFile, ghDispatchWorkflow, lastDispatchResult, ghWorkflowRuns } from "./github-api.js";
 import { escapeHtmlText } from "./markdown.js";
 import { todayISO } from "./date-utils.js";
 import { stale } from "./nav.js";
@@ -16,6 +16,54 @@ const HEALTH_FILES_TO_SCAN = 5;
 const HEALTH_MAX_LAG_DAYS = 1;
 const DIGEST_EXPECTED_AFTER_HOUR = 9;
 const CHAT_PENDING_WARN_MINUTES = 20;
+
+// Automatisations surveillées (docs/adr/0091) : écart maximal toléré depuis le
+// dernier run, quel qu'en soit le résultat. Les crons retentent toutes les 15
+// min sur une fenêtre (le gate saute les runs inutiles, qui comptent quand même
+// comme « a tourné ») ; GitHub espace les schedules sur un dépôt peu actif,
+// d'où des marges larges. deploy-app et app-smoke (push/PR) ne sont pas suivis.
+export const WATCHED_WORKFLOWS = [
+  { file: "daily-digest.yml", label: "Digest du matin", maxGapHours: 30 },
+  { file: "app-chat.yml", label: "Réponses du coach", maxGapHours: 8 },
+  { file: "checkin-reminder.yml", label: "Rappel check-in", maxGapHours: 30 },
+  { file: "pre-session-reminder.yml", label: "Rappel avant séance", maxGapHours: 30 },
+  { file: "log-reminder.yml", label: "Rappel du soir (logs)", maxGapHours: 30 },
+  { file: "weekly-plan.yml", label: "Plan de la semaine", maxGapHours: 8 * 24 },
+  { file: "match-results.yml", label: "Résultats de match", maxGapHours: 8 * 24 },
+  // Ne tourne que quand un fichier contrôlé change : seul un échec compte
+  // (ex. le coach a poussé un JSON invalide), pas l'ancienneté.
+  { file: "tests.yml", label: "Contrôles (tests, fichiers du coach)", maxGapHours: Infinity },
+];
+
+/** Diagnostic d'un workflow à partir de ses derniers runs (pur, testable) :
+ * `{state: "ok"|"failed"|"late"|"unknown", run}`. Le run le plus récent
+ * terminé décide : un échec (y compris un fichier YAML invalide, qui produit
+ * des runs en échec sur `push`) prime sur l'ancienneté. */
+export function workflowHealth(runs, maxGapHours, now = Date.now()) {
+  if (!Array.isArray(runs)) return { state: "unknown", run: null };
+  if (!runs.length) return { state: "late", run: null };
+  const done = runs.find((r) => r.status === "completed");
+  if (done && done.conclusion && !["success", "skipped", "cancelled", "neutral"].includes(done.conclusion)) return { state: "failed", run: done };
+  const last = runs[0];
+  const gapH = (now - new Date(last.at).getTime()) / 3600000;
+  return gapH > maxGapHours ? { state: "late", run: last } : { state: "ok", run: last };
+}
+
+async function workflowRows() {
+  const results = await Promise.all(WATCHED_WORKFLOWS.map(async (w) => ({ w, health: workflowHealth(await ghWorkflowRuns(w.file), w.maxGapHours) })));
+  if (results.every((r) => r.health.state === "unknown")) {
+    return [rowHTML("info", "Automatisations", "état illisible : le token n'a sans doute pas la permission Actions en lecture (docs/app-deploy.md).")];
+  }
+  const problems = results.filter((r) => r.health.state === "failed" || r.health.state === "late");
+  if (!problems.length) return [rowHTML("ok", "Automatisations", `${results.length} workflows tournent normalement.`)];
+  return problems.map(({ w, health }) => {
+    const when = health.run ? `${frDay(health.run.at.slice(0, 10))} à ${frTime(health.run.at)}` : null;
+    const link = health.run && health.run.url ? ` <a href="${health.run.url}" target="_blank" rel="noopener">voir le run</a>` : "";
+    return health.state === "failed"
+      ? rowHTML("warn", w.label, `dernier run en échec (${when}).${link}`)
+      : rowHTML("warn", w.label, when ? `n'a pas tourné depuis le ${when}.${link}` : "aucun run trouvé.");
+  });
+}
 
 function daysBetween(fromIso, toIso) {
   return Math.round((new Date(`${toIso}T12:00:00`) - new Date(`${fromIso}T12:00:00`)) / 86400000);
@@ -78,10 +126,11 @@ export async function renderSystemStatus(token) {
   const today = todayISO();
   const hour = new Date().getHours();
 
-  const [healthDate, digestDate, chatMinutes] = await Promise.all([
+  const [healthDate, digestDate, chatMinutes, automationRows] = await Promise.all([
     latestHealthSyncDate().catch(() => undefined),
     latestDigestDate(today).catch(() => undefined),
     unansweredChatMinutes().catch(() => null),
+    workflowRows().catch(() => []),
   ]);
   if (stale(token)) return;
 
@@ -126,6 +175,8 @@ export async function renderSystemStatus(token) {
   if (chatMinutes != null && chatMinutes >= CHAT_PENDING_WARN_MINUTES) {
     rows.push(rowHTML("warn", "Coach", `ton dernier message attend une réponse depuis ${chatMinutes} min.`));
   }
+
+  rows.push(...automationRows);
 
   const warnings = rows.filter((r) => r.includes('class="system-status-row warn"')).length;
   box.innerHTML = `
