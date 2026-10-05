@@ -31,7 +31,13 @@ function b64DecodeUtf8(b64) {
 }
 
 async function ghRequest(path, options = {}) {
+  // Lecture toujours revalidée (ETag, 304 gratuit) : l'API GitHub autorise
+  // 60 s de cache navigateur, assez pour relire un contenu et un `sha`
+  // périmés juste après une écriture — d'où des 409 et un écran qui ne
+  // reflète pas la saisie qu'on vient de faire (ADR-0082).
+  const isRead = !options.method || options.method === "GET";
   const res = await fetch(`${API}/repos/${REPO}/contents/${path}`, {
+    ...(isRead ? { cache: "no-cache" } : {}),
     ...options,
     headers: {
       Authorization: `Bearer ${getToken()}`,

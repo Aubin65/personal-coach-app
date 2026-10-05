@@ -6,7 +6,7 @@
 // byte-comparing this file against the installed one, so if this file's
 // bytes don't change, no update is ever detected and clients stay on the
 // old cached shell indefinitely, however much app.js/style.css changed.
-const CACHE_NAME = "coach-shell-v72";
+const CACHE_NAME = "coach-shell-v73";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -26,6 +26,7 @@ const SHELL_FILES = [
   "./js/training-index.js",
   "./js/session-types.js",
   "./js/credo.js",
+  "./js/session-icons.js",
   "./js/proposal-refine.js",
   "./js/system-status.js",
   "./js/offline-queue.js",
@@ -58,7 +59,10 @@ const SHELL_FILES = [
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES))
+    // cache: "reload" — sans ça, addAll passe par le cache HTTP du
+    // navigateur (GitHub Pages : max-age=600) et une nouvelle version peut
+    // figer un ancien index.html / JS jusqu'au prochain bump (ADR-0082).
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_FILES.map((f) => new Request(f, { cache: "reload" }))))
   );
   self.skipWaiting();
 });

@@ -1,4 +1,5 @@
 import { skeletonHTML, escapeAttr, escapeHtmlText, renderMarkdown } from "./markdown.js";
+import { kindIconHTML } from "./session-icons.js";
 import { state, stale, showView } from "./nav.js";
 import { lookupDaySummary, findSessionForDate, currentBlockLabel } from "./training-index.js";
 import { addDaysISO, formatFrDate, todayISO } from "./date-utils.js";
@@ -178,7 +179,7 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
       else if (summary && summary.hasExecuted) status = "Fait";
       else if (iso && iso > todayISOStr) status = summary && summary.hasSession ? "Prévu" : "À venir";
       else status = summary && summary.hasSession ? "Prévu" : "Non loggé";
-      const typeLabel = SESSION_TYPES[type] && type !== "repos" ? SESSION_TYPES[type].label.replace(/\s*\(.*\)$/, "") : "";
+      const typeLabel = type === "rugby" ? "Rugby" : SESSION_TYPES[type] && type !== "repos" ? SESSION_TYPES[type].label.replace(/\s*\(.*\)$/, "") : "";
       const secondary = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
         ? ` · + ${SESSION_TYPES[summary.secondaryType].label.replace(/\s*\(.*\)$/, "").toLowerCase()}`
         : "";
@@ -186,11 +187,27 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
         ? '<span class="week-day-pill today">Aujourd\'hui</span>'
         : status === "Fait" ? '<span class="week-day-pill done">Fait</span>' : "";
       const sub = type === "repos" ? "" : `${status}${typeLabel && !isMatch ? ` · ${typeLabel}` : ""}${secondary}`;
-      stripHTML += `
+      const iconKind = type === "repos" ? "repos" : isMatch ? "match" : type;
+      // Repos (docs/adr/0082) : une ligne basse et calme plutôt qu'une carte
+      // vide en pointillés — lune, « Repos », et le détail du plan s'il en
+      // donne un (« Repos actif », « mobilité »…), sinon « Récupération ».
+      const restDetail = type === "repos"
+        ? (summary && summary.hasSession && summary.name && !/^repos$/i.test(summary.name.trim()) ? summary.name : (!/^repos$/i.test(d.title.trim()) ? d.title : "Récupération"))
+        : "";
+      const secondaryIcon = summary && summary.secondaryType ? kindIconHTML(summary.secondaryType, "mini") : "";
+      stripHTML += type === "repos" ? `
+        <button type="button" class="week-day kind-rest${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
+          <span class="week-day-label"><small>${d.day.slice(0, 3)}</small><b>${parseInt(d.date.split("/")[0], 10)}</b></span>
+          <span class="week-day-card">
+            ${kindIconHTML("repos")}
+            <span class="week-day-text"><strong>Repos</strong>${restDetail && !/^repos$/i.test(restDetail) ? `<small>${escapeHtmlText(restDetail)}</small>` : ""}</span>
+            ${pill}
+          </span>
+        </button>` : `
         <button type="button" class="week-day kind-${kind}${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <span class="week-day-label"><small>${d.day.slice(0, 3)}</small><b>${parseInt(d.date.split("/")[0], 10)}</b></span>
           <span class="week-day-card">
-            <span class="week-day-dot" aria-hidden="true"></span>
+            <span class="week-day-icons">${kindIconHTML(iconKind)}${secondaryIcon}</span>
             <span class="week-day-text"><strong>${escapeHtmlText(title)}</strong>${sub ? `<small>${escapeHtmlText(sub)}</small>` : ""}</span>
             ${pill}
           </span>

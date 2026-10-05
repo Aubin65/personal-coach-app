@@ -18,6 +18,41 @@ export function setSessionTimerStart(date, iso) {
   } catch (_) { /* stockage indisponible — le timer tourne quand même pour ce rendu, juste pas persistant */ }
 }
 
+// ---------- Lancement / annulation d'une séance (docs/adr/0082) ----------
+// Au lancement, on garde une copie de la séance telle qu'elle était : « Annuler
+// la séance » (appui accidentel sur Démarrer) y revient exactement, chrono
+// compris. Même stockage que le chrono, pour survivre à un rechargement.
+const snapshotKey = (date) => `coach_session_snapshot_${date}`;
+const autosavedKey = (date) => `coach_session_autosaved_${date}`;
+
+export function startSessionRun(date, session) {
+  setSessionTimerStart(date, new Date().toISOString());
+  try {
+    localStorage.setItem(snapshotKey(date), JSON.stringify(session ?? null));
+    localStorage.removeItem(autosavedKey(date));
+  } catch (_) { /* sans stockage, l'annulation repartira d'une séance vide */ }
+}
+
+/** `undefined` si aucune copie (lancement d'une ancienne version de l'app). */
+export function getSessionSnapshot(date) {
+  try {
+    const raw = localStorage.getItem(snapshotKey(date));
+    return raw == null ? undefined : JSON.parse(raw);
+  } catch (_) { return undefined; }
+}
+
+export function sessionWasAutosaved(date) {
+  try { return localStorage.getItem(autosavedKey(date)) === "1"; } catch (_) { return false; }
+}
+
+export function clearSessionRun(date) {
+  setSessionTimerStart(date, null);
+  try {
+    localStorage.removeItem(snapshotKey(date));
+    localStorage.removeItem(autosavedKey(date));
+  } catch (_) { /* rien à nettoyer */ }
+}
+
 export function formatDurationMs(ms) {
   const totalSec = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(totalSec / 3600);
@@ -53,7 +88,10 @@ export function timerBarHTML(date) {
         <div class="timer-label">Séance en cours</div>
         <div class="timer-display" id="timer-display">${formatElapsed(startedAt)}</div>
       </div>
-      <button type="button" id="stop-timer" class="timer-stop-button">⏹ Terminer</button>
+      <div class="timer-actions">
+        <button type="button" id="stop-timer" class="timer-stop-button">⏹ Terminer</button>
+        <button type="button" id="cancel-run" class="timer-cancel-button">Annuler</button>
+      </div>
     </section>`;
 }
 
@@ -110,6 +148,7 @@ export function startSessionAutoSave() {
     sessionRuntime.saveInFlight = true;
     try {
       await saveSession(sessionRuntime.working.weekLabel, sessionRuntime.working.date, sessionRuntime.working.session);
+      try { localStorage.setItem(autosavedKey(sessionRuntime.working.date), "1"); } catch (_) {}
       const statusEl = document.getElementById("session-status");
       if (statusEl) {
         const hhmm = new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });

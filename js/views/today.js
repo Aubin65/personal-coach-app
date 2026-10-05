@@ -1,4 +1,5 @@
 import { setupCredo } from "../credo.js";
+import { kindIconHTML } from "../session-icons.js";
 import { showView, stale, state } from "../nav.js";
 import { todayISO, addDaysISO, sessionHasExecuted } from "../date-utils.js";
 import { findSessionForDate } from "../training-index.js";
@@ -76,7 +77,10 @@ function checkinSummaryHTML(wellness, mobility, arrivalState) {
   return `
     <div class="checkin-summary">
       <p class="small">${parts.join(" · ") || "Check-in fait aujourd'hui."}</p>
-      <button type="button" class="primary-button ghost small checkin-edit">✏️ Modifier</button>
+      <div class="checkin-summary-actions">
+        <button type="button" class="primary-button ghost small checkin-edit">Modifier</button>
+        <button type="button" class="delete-link checkin-delete">Effacer</button>
+      </div>
     </div>`;
 }
 
@@ -260,7 +264,30 @@ function recoveryPatternsHTML(patterns) {
 /** (Re)branche "✏️ Modifier" — appelé au rendu initial et après une
  * sauvegarde qui remplace le contenu du slot résumé (le nouveau bouton
  * n'a pas encore d'écouteur, même motif que calendar.js). */
+registerQueuedOp("checkinDelete", async ({ date }) => {
+  await ghPutJSON(`data/health/${date}.json`, { date }, `App : check-in du ${date} effacé`, (current) => {
+    const base = current || { date };
+    delete base.arrival_state;
+    delete base.wellness;
+    delete base.mobility;
+    return base;
+  });
+});
+
 function wireCheckinEditButton(card) {
+  const deleteBtn = card.querySelector(".checkin-delete");
+  if (deleteBtn) deleteBtn.addEventListener("click", async () => {
+    if (!window.confirm("Effacer le check-in d'aujourd'hui (arrivée, bien-être, étirements) ?")) return;
+    deleteBtn.disabled = true;
+    try {
+      await runQueued("checkinDelete", { date: todayISO() }, { key: `checkin:${todayISO()}`, label: "Effacer le check-in" });
+      loadCheckin(state.renderToken).catch(() => {});
+      loadReadiness(state.renderToken).catch(() => {});
+    } catch (err) {
+      deleteBtn.disabled = false;
+      window.alert(`Échec : ${err.message}`);
+    }
+  });
   const editBtn = card.querySelector(".checkin-edit");
   if (!editBtn) return;
   editBtn.addEventListener("click", () => {
@@ -727,8 +754,8 @@ async function loadTodaySession(token) {
   if (type === "repos") {
     box.innerHTML = `
       <section class="card today-session today-session-rest">
-        <p class="today-session-kicker">Aujourd'hui</p>
-        <h2 class="today-session-name">${escapeHtmlText(session.name || "Repos")}</h2>
+        <div class="today-session-title">${kindIconHTML("repos")}<div><p class="today-session-kicker">Aujourd'hui</p>
+        <h2 class="today-session-name">${escapeHtmlText(session.name || "Repos")}</h2></div></div>
         ${session.notes ? `<p class="muted small">${escapeHtmlText(session.notes)}</p>` : ""}
         <button type="button" class="primary-button ghost small today-session-open">Voir ou modifier</button>
       </section>`;
@@ -743,7 +770,7 @@ async function loadTodaySession(token) {
   box.innerHTML = `
     <section class="card today-session">
       <div class="today-session-tags"><span class="pill pill-gold">Séance du jour</span><span class="muted small">${escapeHtmlText(meta.join(" · "))}</span>${done ? '<span class="pill pill-ok">Loguée</span>' : ""}</div>
-      <h2 class="today-session-name">${escapeHtmlText(session.name || typeLabel)}</h2>
+      <div class="today-session-title">${kindIconHTML(/match/i.test(session.name || "") ? "match" : type)}<h2 class="today-session-name">${escapeHtmlText(session.name || typeLabel)}</h2></div>
       ${shown.length ? `<ul class="today-session-list">${shown.map((ex) => `<li><span>${escapeHtmlText(ex.name || "Exercice")}</span><span class="today-session-planned">${escapeHtmlText(plannedLine(ex))}</span></li>`).join("")}${exercises.length > shown.length ? `<li class="muted">+ ${exercises.length - shown.length} exercice${exercises.length - shown.length > 1 ? "s" : ""}</li>` : ""}</ul>` : ""}
       ${session.notes ? `<p class="today-session-notes">${escapeHtmlText(session.notes)}</p>` : ""}
       <div class="today-session-actions">

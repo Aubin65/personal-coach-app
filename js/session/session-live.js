@@ -1,7 +1,7 @@
 import { sessionRuntime } from "./session-state.js";
 import { renderSessionContent } from "./session-render.js";
-import { syncFormIntoSession } from "./session-form.js";
-import { getSessionTimerStart, setSessionTimerStart, formatElapsed, formatDurationMs } from "./session-timer.js";
+import { syncFormIntoSession, cancelSessionRun } from "./session-form.js";
+import { getSessionTimerStart, startSessionRun, formatElapsed, formatDurationMs } from "./session-timer.js";
 import { hydrateExecRows, hydrateSetRows, serializeExecRows } from "./session-exec.js";
 import { ghGetFile } from "../github-api.js";
 import { normalizeName } from "../exercise-stats.js";
@@ -24,6 +24,14 @@ import { escapeHtmlText, escapeAttr } from "../markdown.js";
 //
 // Les blocs AMRAP / EMOM / Circuit / For Time ne sont pas proposés ici : leur
 // résultat se saisit au niveau du bloc, dans le formulaire.
+//
+// Navigation série par série (docs/adr/0082) : `live.cursor` désigne la série
+// affichée dans l'exercice courant — une série faite (modifiable, supprimable)
+// ou la prochaine à faire (`cursor === rows.length`). « Valider » passe à la
+// série suivante du même exercice ; changer d'exercice est un geste explicite
+// (« Exercice suivant », ou la liste des exercices). « + Ajouter une série »
+// relève l'objectif de l'exercice pour la séance (montée en charge, série en
+// plus) sans toucher au prévu.
 // ============================================================================
 
 const REST_KEY = "coach_live_rest_seconds";
@@ -57,6 +65,17 @@ function plannedCount(ex) {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Nombre de séries visé pour cet exercice pendant la séance : le prévu,
+ * relevé par « + Ajouter une série », et jamais moins que ce qui est déjà
+ * fait. `null` si ni prévu ni ajout (exercice libre). */
+function targetCount(ex, idx) {
+  const planned = plannedCount(ex);
+  const extra = live && live.targets[idx] != null ? live.targets[idx] : null;
+  const base = extra != null ? Math.max(extra, planned || 0) : planned;
+  if (base == null) return null;
+  return Math.max(base, doneRows(ex).length);
+}
+
 function plannedLine(ex) {
   const p = ex.planned || {};
   const parts = [];
@@ -77,6 +96,15 @@ function draftFor(ex) {
   const p = ex.planned || {};
   const reps = hydrateSetRows(p.sets, p.reps);
   return { load: p.load != null ? String(p.load) : "", reps: reps.length ? reps[0] : "", rir: "" };
+}
+
+function draftAtCursor(ex) {
+  const rows = doneRows(ex);
+  if (live.cursor < rows.length) {
+    const r = rows[live.cursor];
+    return { load: r.load || "", reps: r.reps || "", rir: r.rir || "" };
+  }
+  return draftFor(ex);
 }
 
 function lastTimeText(name) {
@@ -167,6 +195,28 @@ function tick() {
   if (fill) fill.style.width = `${Math.min(100, 100 - (left / (live.restTotal * 1000)) * 100)}%`;
 }
 
+function fmtLoad(load) {
+  if (!load) return "";
+  return `${load}${/^[\d.,]+$/.test(load) ? " kg" : ""}`;
+}
+
+function pickerHTML(session) {
+  return `
+    <div class="live-picker">
+      <div class="live-picker-head"><strong>Aller à l'exercice</strong><button type="button" class="live-link" data-live="picker-close">Fermer</button></div>
+      <ol class="live-picker-list">${live.indices.map((i, k) => {
+        const e = session.exercises[i];
+        const n = doneRows(e).length;
+        const t = targetCount(e, i);
+        const state = t != null ? (n >= t ? "done" : n > 0 ? "partial" : "") : (n > 0 ? "done" : "");
+        return `<li><button type="button" class="${k === live.pos ? "current" : ""} ${state}" data-goto="${k}">
+          <span class="live-picker-num">${k + 1}</span>
+          <span class="live-picker-name">${escapeHtmlText(e.name)}</span>
+          <span class="live-picker-count">${n}${t != null ? ` / ${t}` : ""}</span></button></li>`;
+      }).join("")}</ol>
+    </div>`;
+}
+
 function render() {
   const { session } = sessionRuntime.working;
   const indices = live.indices;
@@ -174,18 +224,65 @@ function render() {
   const idx = indices[pos];
   const ex = session.exercises[idx];
   const rows = doneRows(ex);
-  const target = plannedCount(ex);
-  const reached = target != null && rows.length >= target;
+  const target = targetCount(ex, idx);
+  if (live.cursor > rows.length) live.cursor = rows.length;
+  const editing = live.cursor < rows.length;
+  const reached = !editing && target != null && rows.length >= target;
+  const isLastEx = pos === indices.length - 1;
+  const setNo = live.cursor + 1;
   const d = live.draft;
   const segs = indices.map((i, k) => {
     const e = session.exercises[i];
-    const t = plannedCount(e);
+    const t = targetCount(e, i);
     const n = doneRows(e).length;
     const cls = k === pos ? "current" : (t != null ? n >= t : n > 0) ? "done" : "";
     return `<span class="live-seg ${cls}"></span>`;
   }).join("");
   const supersetNote = ex.superset_with_previous ? '<span class="pill pill-gold">En superset avec le précédent</span>' : "";
   const lastTime = lastTimeText(ex.name);
+  const ofTarget = target != null ? ` / ${target}` : "";
+
+  const doneList = rows.length ? `<ol class="live-done">${rows.map((r, i) => `
+      <li><button type="button" class="${i === live.cursor ? "editing" : ""}" data-set="${i}" aria-label="Modifier la série ${i + 1}">
+        <span class="live-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></span>
+        <span>Série ${i + 1}</span>
+        <span class="live-done-val">${escapeHtmlText([fmtLoad(r.load), r.reps ? `× ${r.reps}` : ""].filter(Boolean).join(" "))}</span>
+        <span class="live-done-rir">${r.rir !== "" && r.rir != null ? `RIR ${escapeHtmlText(r.rir)}` : ""}</span>
+      </button></li>`).join("")}</ol>` : "";
+
+  const setCard = reached ? `
+      <button type="button" class="live-add-set big" data-live="add-set"><span aria-hidden="true">+</span>Ajouter une série<small>montée en charge, série en plus…</small></button>` : `
+      <section class="live-set${editing ? " editing" : ""}">
+        <div class="live-set-head">
+          <strong>${editing ? `Modifier la série ${setNo}` : `Série ${setNo}${ofTarget}`}</strong>
+          <span>${editing ? "déjà validée" : rows.length ? "pré-rempli avec la série précédente" : "pré-rempli avec le prévu"}</span>
+        </div>
+        <div class="live-steppers">
+          <label class="live-stepper"><span>Charge${(ex.planned || {}).load_per_hand ? " / main" : ""}</span>
+            <span class="live-stepper-row"><button type="button" data-live="load-" aria-label="Moins 2,5">−</button><input type="text" inputmode="decimal" id="live-load" value="${escapeAttr(d.load)}" aria-label="Charge"><button type="button" data-live="load+" aria-label="Plus 2,5">+</button></span></label>
+          <label class="live-stepper"><span>Reps / temps</span>
+            <span class="live-stepper-row"><button type="button" data-live="reps-" aria-label="Moins une rep">−</button><input type="text" inputmode="numeric" id="live-reps" value="${escapeAttr(d.reps)}" aria-label="Reps"><button type="button" data-live="reps+" aria-label="Plus une rep">+</button></span></label>
+        </div>
+        <div class="live-rir"><span>Reps en réserve (RIR)</span>
+          <div class="live-rir-row">${RIR_CHOICES.map((v) => `<button type="button" class="${d.rir === v ? "on" : ""}" data-rir="${v}">${v === "4" ? "4+" : v}</button>`).join("")}</div>
+        </div>
+        <div class="live-set-actions">
+          ${editing
+            ? `<button type="button" class="live-link danger" data-live="delete-set">Supprimer cette série</button><button type="button" class="live-link" data-live="cancel-edit">Annuler</button>`
+            : `<button type="button" class="live-link" data-live="add-set">+ Ajouter une série</button>`}
+        </div>
+      </section>`;
+
+  // Navigation série par série ; le changement d'exercice est toujours
+  // nommé comme tel (jamais un « Suivant » ambigu).
+  const prevLabel = live.cursor > 0 ? "← Série précédente" : pos > 0 ? "← Exercice précédent" : "";
+  const nextLabel = editing ? "Série suivante →" : !isLastEx ? "Exercice suivant →" : "";
+
+  let primary;
+  if (editing) primary = `<button type="button" class="live-validate" data-live="save-edit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Enregistrer la série ${setNo}</button>`;
+  else if (reached && !isLastEx) primary = `<button type="button" class="live-validate" data-live="next-ex">Exercice suivant →</button>`;
+  else if (reached) primary = `<button type="button" class="live-validate" data-live="finish">Terminer la séance</button>`;
+  else primary = `<button type="button" class="live-validate" data-live="validate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Valider la série ${setNo}${ofTarget}</button>`;
 
   live.el.innerHTML = `
     <header class="live-head">
@@ -198,31 +295,21 @@ function render() {
     </header>
     <div class="live-segs" aria-hidden="true">${segs}</div>
     <main class="live-body">
+      ${live.picker ? pickerHTML(session) : `
       <div class="live-ex-head">
-        <p class="live-kicker">Exercice ${pos + 1} / ${indices.length}${plannedLine(ex) ? ` · objectif ${escapeHtmlText(plannedLine(ex))}` : ""}</p>
+        <button type="button" class="live-kicker" data-live="picker">Exercice ${pos + 1} / ${indices.length}${plannedLine(ex) ? ` · objectif ${escapeHtmlText(plannedLine(ex))}` : ""} <span aria-hidden="true">▾</span></button>
         <h2 class="live-ex-name">${escapeHtmlText(ex.name)}</h2>
         ${supersetNote}
         ${lastTime ? `<p class="live-last">${escapeHtmlText(lastTime)}</p>` : ""}
         ${ex.notes ? `<p class="live-notes">${escapeHtmlText(ex.notes)}</p>` : ""}
       </div>
-      ${rows.length ? `<ol class="live-done">${rows.map((r, i) => `<li><span class="live-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></span><span>Série ${i + 1}</span><span class="live-done-val">${escapeHtmlText([r.load ? `${r.load}${/^[\d.,]+$/.test(r.load) ? " kg" : ""}` : "", r.reps ? `× ${r.reps}` : ""].filter(Boolean).join(" "))}</span><span class="live-done-rir">${r.rir !== "" && r.rir != null ? `RIR ${escapeHtmlText(r.rir)}` : ""}</span></li>`).join("")}</ol>
-        <button type="button" class="live-undo" data-live="undo">Annuler la dernière série</button>` : ""}
-      <section class="live-set${reached ? " extra" : ""}">
-        <div class="live-set-head"><strong>Série ${rows.length + 1}${reached ? " (en plus)" : ""}</strong><span>${rows.length ? "pré-rempli avec la série précédente" : "pré-rempli avec le prévu"}</span></div>
-        <div class="live-steppers">
-          <label class="live-stepper"><span>Charge${(ex.planned || {}).load_per_hand ? " / main" : ""}</span>
-            <span class="live-stepper-row"><button type="button" data-live="load-" aria-label="Moins 2,5">−</button><input type="text" inputmode="decimal" id="live-load" value="${escapeAttr(d.load)}" aria-label="Charge"><button type="button" data-live="load+" aria-label="Plus 2,5">+</button></span></label>
-          <label class="live-stepper"><span>Reps / temps</span>
-            <span class="live-stepper-row"><button type="button" data-live="reps-" aria-label="Moins une rep">−</button><input type="text" inputmode="numeric" id="live-reps" value="${escapeAttr(d.reps)}" aria-label="Reps"><button type="button" data-live="reps+" aria-label="Plus une rep">+</button></span></label>
-        </div>
-        <div class="live-rir"><span>Reps en réserve (RIR)</span>
-          <div class="live-rir-row">${RIR_CHOICES.map((v) => `<button type="button" class="${d.rir === v ? "on" : ""}" data-rir="${v}">${v === "4" ? "4+" : v}</button>`).join("")}</div>
-        </div>
-      </section>
+      ${doneList}
+      ${setCard}
       <div class="live-nav">
-        <button type="button" data-live="prev"${pos === 0 ? " disabled" : ""}>← Précédent</button>
-        <button type="button" data-live="next"${pos === indices.length - 1 ? " disabled" : ""}>Suivant →</button>
+        ${prevLabel ? `<button type="button" data-live="prev">${prevLabel}</button>` : "<span></span>"}
+        ${nextLabel ? `<button type="button" data-live="next">${nextLabel}</button>` : "<span></span>"}
       </div>
+      <button type="button" class="live-cancel-run" data-live="cancel-run">Annuler la séance</button>`}
     </main>
     <footer class="live-foot">
       <div class="live-rest" id="live-rest" hidden>
@@ -230,15 +317,13 @@ function render() {
         <span class="live-rest-time">Repos</span>
         <div class="live-rest-choices">${REST_CHOICES.map((s) => `<button type="button" class="${s === live.restTotal ? "on" : ""}" data-rest="${s}">${s < 60 ? s + " s" : (s / 60).toString().replace(".", ",") + " min"}</button>`).join("")}<button type="button" data-live="skip-rest">Passer</button></div>
       </div>
-      ${reached && pos < indices.length - 1
-        ? `<button type="button" class="live-validate" data-live="next">Exercice suivant →</button>`
-        : `<button type="button" class="live-validate" data-live="validate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Valider la série ${rows.length + 1}</button>`}
+      ${live.picker ? "" : primary}
     </footer>`;
 
   const loadInput = live.el.querySelector("#live-load");
   const repsInput = live.el.querySelector("#live-reps");
-  loadInput.addEventListener("input", () => { live.draft.load = loadInput.value; });
-  repsInput.addEventListener("input", () => { live.draft.reps = repsInput.value; });
+  if (loadInput) loadInput.addEventListener("input", () => { live.draft.load = loadInput.value; });
+  if (repsInput) repsInput.addEventListener("input", () => { live.draft.reps = repsInput.value; });
   live.el.querySelectorAll("[data-rir]").forEach((b) => b.addEventListener("click", () => {
     live.draft.rir = live.draft.rir === b.dataset.rir ? "" : b.dataset.rir;
     render();
@@ -250,22 +335,53 @@ function render() {
     if (live.restEnd) { live.restEnd = live.restStart + s * 1000; live.beeped = false; }
     render();
   }));
+  live.el.querySelectorAll("[data-set]").forEach((b) => b.addEventListener("click", () => {
+    const i = parseInt(b.dataset.set, 10);
+    setCursor(live.cursor === i ? doneRows(ex).length : i);
+  }));
+  live.el.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => {
+    live.picker = false;
+    goTo(parseInt(b.dataset.goto, 10));
+  }));
   live.el.querySelectorAll("[data-live]").forEach((b) => b.addEventListener("click", () => action(b.dataset.live)));
   tick();
 }
 
-function goTo(pos) {
-  live.pos = pos;
-  const ex = sessionRuntime.working.session.exercises[live.indices[pos]];
-  live.draft = draftFor(ex);
+function scrollTop() {
   live.el.scrollTop = 0;
   const body = live.el.querySelector(".live-body");
   if (body) body.scrollTop = 0;
+}
+
+function setCursor(cursor) {
+  const ex = sessionRuntime.working.session.exercises[live.indices[live.pos]];
+  live.cursor = cursor;
+  live.draft = draftAtCursor(ex);
   render();
 }
 
+/** Ouvre un exercice ; `atEnd` place le curseur sur sa dernière série faite
+ * (retour arrière depuis l'exercice suivant), sinon sur la prochaine à faire. */
+function goTo(pos, atEnd = false) {
+  live.pos = pos;
+  const ex = sessionRuntime.working.session.exercises[live.indices[pos]];
+  const n = doneRows(ex).length;
+  live.cursor = atEnd && n > 0 ? n - 1 : n;
+  live.draft = draftAtCursor(ex);
+  render();
+  scrollTop();
+}
+
+function startRest() {
+  live.restStart = Date.now();
+  live.restEnd = live.restStart + live.restTotal * 1000;
+  live.beeped = false;
+}
+
 function action(name) {
-  const ex = sessionRuntime.working.session.exercises[live.indices[live.pos]];
+  const idx = live.indices[live.pos];
+  const ex = sessionRuntime.working.session.exercises[idx];
+  const rows = doneRows(ex);
   switch (name) {
     case "close": closeLiveMode(); break;
     case "finish": {
@@ -274,30 +390,56 @@ function action(name) {
       if (stop) stop.click();
       break;
     }
+    case "cancel-run": {
+      cancelSessionRun().catch(() => {});
+      break;
+    }
+    case "picker": live.picker = true; render(); scrollTop(); break;
+    case "picker-close": live.picker = false; render(); break;
     case "load-": live.draft.load = step(live.draft.load, -2.5); render(); break;
     case "load+": live.draft.load = step(live.draft.load, 2.5); render(); break;
     case "reps-": live.draft.reps = step(live.draft.reps, -1); render(); break;
     case "reps+": live.draft.reps = step(live.draft.reps, 1); render(); break;
-    case "prev": if (live.pos > 0) goTo(live.pos - 1); break;
-    case "next": if (live.pos < live.indices.length - 1) goTo(live.pos + 1); break;
+    case "prev":
+      if (live.cursor > 0) setCursor(live.cursor - 1);
+      else if (live.pos > 0) goTo(live.pos - 1, true);
+      break;
+    case "next":
+      if (live.cursor < rows.length) setCursor(live.cursor + 1);
+      else if (live.pos < live.indices.length - 1) goTo(live.pos + 1);
+      break;
+    case "next-ex": if (live.pos < live.indices.length - 1) goTo(live.pos + 1); break;
     case "skip-rest": live.restEnd = null; render(); break;
-    case "undo": {
-      const rows = doneRows(ex);
-      rows.pop();
+    case "add-set": {
+      const current = targetCount(ex, idx);
+      live.targets[idx] = Math.max(current || 0, rows.length) + 1;
+      setCursor(rows.length);
+      break;
+    }
+    case "cancel-edit": setCursor(rows.length); break;
+    case "delete-set": {
+      if (live.cursor >= rows.length) return;
+      rows.splice(live.cursor, 1);
       writeRows(ex, rows);
-      live.draft = draftFor(ex);
-      render();
+      // L'objectif ajouté suit la suppression, sans descendre sous le prévu.
+      if (live.targets[idx] != null) live.targets[idx] = Math.max(plannedCount(ex) || 0, live.targets[idx] - 1);
+      setCursor(rows.length);
+      break;
+    }
+    case "save-edit": {
+      if (live.cursor >= rows.length) return;
+      rows[live.cursor] = { load: (live.draft.load || "").trim(), reps: (live.draft.reps || "").trim(), rir: live.draft.rir || "" };
+      writeRows(ex, rows);
+      setCursor(rows.length);
       break;
     }
     case "validate": {
       if (!(live.draft.reps || "").trim() && !(live.draft.load || "").trim()) return;
       ensureAudio();
-      const rows = doneRows(ex);
       rows.push({ load: (live.draft.load || "").trim(), reps: (live.draft.reps || "").trim(), rir: live.draft.rir || "" });
       writeRows(ex, rows);
-      live.restStart = Date.now();
-      live.restEnd = live.restStart + live.restTotal * 1000;
-      live.beeped = false;
+      startRest();
+      live.cursor = rows.length;
       live.draft = draftFor(ex);
       render();
       break;
@@ -323,7 +465,7 @@ export async function openLiveMode() {
   const indices = liveExerciseIndices(session);
   if (!indices.length) return;
   if (!getSessionTimerStart(date)) {
-    setSessionTimerStart(date, new Date().toISOString());
+    startSessionRun(date, session);
     renderSessionContent();
   }
   const firstOpen = indices.findIndex((i) => {
@@ -338,7 +480,7 @@ export async function openLiveMode() {
   el.setAttribute("aria-label", "Séance guidée");
   document.body.appendChild(el);
   document.body.classList.add("live-open");
-  live = { el, indices, pos: 0, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, audio: null };
+  live = { el, indices, pos: 0, cursor: 0, targets: {}, picker: false, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, audio: null };
   live.interval = setInterval(tick, 500);
   sessionRuntime.liveCleanup = closeLiveMode;
   goTo(firstOpen >= 0 ? firstOpen : 0);

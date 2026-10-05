@@ -7,8 +7,8 @@ import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeEx
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
 import { formatFrDate } from "../date-utils.js";
-import { setSessionTimerStart, getSessionTimerStart, setBlockTimerState, getBlockTimerState, formatDurationMs } from "./session-timer.js";
-import { ghPutJSON } from "../github-api.js";
+import { getSessionTimerStart, setBlockTimerState, getBlockTimerState, formatDurationMs, startSessionRun, clearSessionRun, getSessionSnapshot, sessionWasAutosaved } from "./session-timer.js";
+import { ghPutJSON, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js";
 import { openExerciseSheet } from "../exercise-sheet.js";
 import { openRpeSheet } from "../rpe-sheet.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
@@ -109,6 +109,7 @@ export function workloadSectionHTML(session) {
         <div><label>RPE (0-10)</label><input type="number" min="0" max="10" step="1" id="session-rpe" value="${session.session_rpe ?? ""}"></div>
         <div><label>Durée (min)</label><input type="number" min="0" step="5" id="session-duration" value="${session.session_duration_min ?? ""}"></div>
       </div>
+      ${session.session_rpe != null || session.session_duration_min != null ? '<button type="button" id="clear-load" class="delete-link">Effacer RPE et durée</button>' : ""}
       ${rpeHelpDetailsHTML()}
     </section>`;
 }
@@ -475,9 +476,12 @@ export function bindSessionContentEvents() {
 
   const startTimerBtn = document.getElementById("start-timer");
   if (startTimerBtn) startTimerBtn.addEventListener("click", () => {
-    setSessionTimerStart(sessionRuntime.working.date, new Date().toISOString());
+    syncFormIntoSession();
+    startSessionRun(sessionRuntime.working.date, sessionRuntime.working.session);
     renderSessionContent();
   });
+  const cancelRunBtn = document.getElementById("cancel-run");
+  if (cancelRunBtn) cancelRunBtn.addEventListener("click", () => { cancelSessionRun().catch(() => {}); });
   const stopTimerBtn = document.getElementById("stop-timer");
   if (stopTimerBtn) stopTimerBtn.addEventListener("click", async () => {
     if (!confirm("Terminer la séance ? La durée sera remplie automatiquement (encore modifiable ensuite).")) return;
@@ -486,12 +490,30 @@ export function bindSessionContentEvents() {
     if (startedAt) {
       sessionRuntime.working.session.session_duration_min = Math.max(1, Math.round((Date.now() - new Date(startedAt).getTime()) / 60000));
     }
-    setSessionTimerStart(sessionRuntime.working.date, null);
+    clearSessionRun(sessionRuntime.working.date);
     renderSessionContent();
     // Le RPE se demande tout de suite, durée déjà remplie : c'est le moment
     // où il est le plus juste, et le seul chiffre qui manquait au calcul de
     // charge (docs/adr/0070).
     await promptRpeAndSave("Séance terminée");
+  });
+
+  const clearLoadBtn = document.getElementById("clear-load");
+  if (clearLoadBtn) clearLoadBtn.addEventListener("click", async () => {
+    if (!window.confirm("Effacer le RPE et la durée de cette séance ? Elle ne comptera plus dans la charge aiguë:chronique.")) return;
+    syncFormIntoSession();
+    const { weekLabel, date, session } = sessionRuntime.working;
+    session.session_rpe = null;
+    session.session_duration_min = null;
+    renderSessionContent();
+    const statusEl = document.getElementById("session-status");
+    try {
+      await saveSession(weekLabel, date, session);
+      await runQueued("clearSessionLoad", { date }, { label: `Charge du ${formatFrDate(date)}` });
+      if (statusEl) statusEl.textContent = "RPE et durée effacés ✓";
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Échec : ${err.message}`;
+    }
   });
 
   const quickRpeBtn = document.getElementById("quick-rpe-button");
@@ -557,6 +579,37 @@ export function bindSessionContentEvents() {
   });
 }
 
+/** « Annuler la séance » après un lancement (appui accidentel sur Démarrer,
+ * séance finalement pas faite) : arrête le chrono et remet la séance telle
+ * qu'elle était au lancement. Si l'auto-sauvegarde a déjà écrit entre-temps,
+ * la version d'avant est réécrite (ou la séance retirée si elle n'existait
+ * pas) — docs/adr/0082. Renvoie false si l'utilisateur renonce. */
+export async function cancelSessionRun() {
+  const working = sessionRuntime.working;
+  if (!working) return false;
+  if (!confirm("Annuler la séance en cours ? Le chrono s'arrête et tout ce qui a été saisi depuis le lancement est effacé.")) return false;
+  const { date, weekLabel } = working;
+  const snapshot = getSessionSnapshot(date);
+  const autosaved = sessionWasAutosaved(date);
+  if (sessionRuntime.liveCleanup) sessionRuntime.liveCleanup();
+  clearSessionRun(date);
+  if (snapshot !== undefined) working.session = snapshot ? JSON.parse(JSON.stringify(snapshot)) : null;
+  renderSessionContent();
+  const statusEl = document.getElementById("session-status");
+  if (autosaved) {
+    try {
+      if (working.session) await saveSession(weekLabel, date, working.session);
+      else await deleteSession(date);
+      if (statusEl) statusEl.textContent = "Séance annulée — version d'avant le lancement remise.";
+    } catch (err) {
+      if (statusEl) statusEl.textContent = `Séance annulée ici, mais échec de l'écriture : ${err.message}`;
+    }
+  } else if (statusEl) {
+    statusEl.textContent = "Séance annulée — rien n'a été enregistré.";
+  }
+  return true;
+}
+
 /** Overwrites the whole session for `date` in data/training/app-log/<date>.json
  * — replaces the old per-exercise overlay (a partial merge could never
  * represent a reordered or resized exercise list coherently). Schema
@@ -608,10 +661,67 @@ async function performSaveSession({ weekLabel, date, session }) {
 
 registerQueuedOp("saveSession", performSaveSession);
 
+/** Retire la séance d'une date de data/training/app-log/<date>.json (le
+ * fichier disparaît s'il ne contenait qu'elle) et sa charge de
+ * data/health/<date>.json, pour qu'elle ne compte plus dans l'ACWR. Le reste
+ * du fichier santé (check-in, douleur, mesures) est gardé — docs/adr/0082. */
+async function performDeleteSession({ date }) {
+  const path = `data/training/app-log/${date}.json`;
+  const current = await ghGetFile(path);
+  if (current) {
+    const base = JSON.parse(current.content);
+    const rest = (base.sessions || []).filter((s) => s.date !== date);
+    const message = `App : séance du ${date} supprimée`;
+    if (rest.length) await ghPutFile(path, JSON.stringify({ ...base, sessions: rest }, null, 2), message, current.sha);
+    else await ghDeleteFile(path, message, current.sha);
+  }
+  invalidateAppLogIndex();
+  const health = await ghGetFile(`data/health/${date}.json`);
+  if (health) {
+    const record = JSON.parse(health.content);
+    if (["session_rpe", "session_duration_min", "session_loads"].some((k) => k in record)) {
+      await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date} supprimée`, (cur) => {
+        const next = cur || { date };
+        delete next.session_rpe;
+        delete next.session_duration_min;
+        delete next.session_loads;
+        return next;
+      });
+    }
+  }
+}
+
+registerQueuedOp("deleteSession", performDeleteSession);
+
+// Effacer une charge saisie : saveSession n'écrit dans data/health que les
+// valeurs présentes, il faut donc retirer explicitement l'ancienne.
+registerQueuedOp("clearSessionLoad", async ({ date }) => {
+  const health = await ghGetFile(`data/health/${date}.json`);
+  if (!health) return;
+  const record = JSON.parse(health.content);
+  if (!["session_rpe", "session_duration_min", "session_loads"].some((k) => k in record)) return;
+  await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date} effacée`, (cur) => {
+    const next = cur || { date };
+    delete next.session_rpe;
+    delete next.session_duration_min;
+    delete next.session_loads;
+    return next;
+  });
+});
+
+/** Même file d'attente hors-ligne que saveSession (même clé : une
+ * suppression remplace une sauvegarde encore en attente pour cette date). */
+export async function deleteSession(date) {
+  return runQueued("deleteSession", { date }, { key: `session:${date}`, label: `Suppression de la séance du ${formatFrDate(date)}` });
+}
+
 /** Enregistre la séance d'une date. Sans réseau, la saisie est gardée sur le
  * téléphone puis renvoyée au retour de la connexion (offline-queue.js) —
  * `{queued: true}` dans ce cas, `{queued: false}` sinon. Une seule saisie en
  * attente par date : chaque appel porte la séance complète. */
 export async function saveSession(weekLabel, date, session) {
-  return runQueued("saveSession", { weekLabel, date, session }, { key: `session:${date}`, label: `Séance du ${formatFrDate(date)}` });
+  const outcome = await runQueued("saveSession", { weekLabel, date, session }, { key: `session:${date}`, label: `Séance du ${formatFrDate(date)}` });
+  // La séance vit désormais dans app-log : elle devient supprimable.
+  if (sessionRuntime.working && sessionRuntime.working.date === date) sessionRuntime.working.path = `data/training/app-log/${date}.json`;
+  return outcome;
 }

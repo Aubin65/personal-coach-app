@@ -7,8 +7,8 @@ import { queuedEntryByKey } from "../offline-queue.js";
 import { ghPutJSON } from "../github-api.js";
 import { SESSION_TYPES, EXERCISE_FORMATS, BLOCK_TIMING_FIELDS, BLOCK_RESULT_LABELS } from "../session-types.js";
 import { blankSession, groupExercisesIntoBlocks } from "./session-model.js";
-import { splitTimerHTML, timerBarHTML, startTimerDisplayInterval, startSessionAutoSave, startBlockTimerIntervals } from "./session-timer.js";
-import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEvents, saveSession } from "./session-form.js";
+import { splitTimerHTML, timerBarHTML, startTimerDisplayInterval, startSessionAutoSave, startBlockTimerIntervals, clearSessionRun } from "./session-timer.js";
+import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEvents, saveSession, deleteSession } from "./session-form.js";
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 
@@ -40,6 +40,9 @@ export async function renderSession(token) {
   sessionRuntime.working = {
     weekLabel: found.weekLabel || "app",
     date,
+    // Source de la séance : seule une séance de l'app (app-log) se supprime
+    // depuis l'app ; une semaine venue du Google Sheet se corrige là-bas.
+    path: queued ? `data/training/app-log/${date}.json` : (found.path || null),
     session: useDraft
       ? JSON.parse(JSON.stringify(draft.session))
       : found.session ? JSON.parse(JSON.stringify(found.session)) : null,
@@ -96,10 +99,12 @@ export function renderSessionContent() {
     ${secondarySessionSectionHTML(session)}
     <button id="save-session" class="primary-button">Enregistrer la séance</button>
     <p id="session-status" class="muted small"></p>
-    ${cancelSessionCardHTML(session)}`;
+    ${cancelSessionCardHTML(session)}
+    ${deleteSessionHTML()}`;
 
   bindSessionContentEvents();
   bindCancelSession();
+  bindDeleteSession();
   const liveBtn = document.getElementById("open-live-mode");
   if (liveBtn) liveBtn.addEventListener("click", () => { openLiveMode().catch(() => {}); });
   startTimerDisplayInterval();
@@ -193,6 +198,44 @@ function bindCancelSession() {
         sessionRuntime.saveInFlight = false;
       }
     });
+  });
+}
+
+function deleteSessionHTML() {
+  const { path } = sessionRuntime.working;
+  if (!path || !path.startsWith("data/training/app-log/")) return "";
+  return `
+    <div class="delete-record">
+      <button type="button" id="delete-session" class="delete-record-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7h14M10 7V5h4v2M7 7l1 12h8l1-12"/></svg>Supprimer cette séance</button>
+      <p class="muted small">Efface la séance de ce jour et sa charge (RPE × durée). Le check-in et la douleur restent.</p>
+    </div>`;
+}
+
+function bindDeleteSession() {
+  const btn = document.getElementById("delete-session");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    const { session, date } = sessionRuntime.working;
+    if (!window.confirm(`Supprimer « ${session.name || "la séance"} » du ${formatFrDate(date)} ? Elle reste récupérable dans l'historique Git.`)) return;
+    if (sessionRuntime.saveInFlight) return;
+    sessionRuntime.saveInFlight = true;
+    btn.disabled = true;
+    try {
+      const outcome = await deleteSession(date);
+      clearSessionRun(date);
+      sessionRuntime.working.session = null;
+      sessionRuntime.working.path = null;
+      renderSessionContent();
+      const note = document.createElement("p");
+      note.className = "muted small";
+      note.textContent = outcome && outcome.queued ? "Suppression gardée sur le téléphone — envoyée dès que le réseau revient." : "Séance supprimée ✓";
+      document.getElementById("session-content").prepend(note);
+    } catch (err) {
+      btn.disabled = false;
+      window.alert(`Échec de la suppression : ${err.message}`);
+    } finally {
+      sessionRuntime.saveInFlight = false;
+    }
   });
 }
 

@@ -1,7 +1,8 @@
 import { ghGetFile } from "../github-api.js";
-import { stale } from "../nav.js";
+import { stale, showView } from "../nav.js";
+import { todayISO } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
-import { statTile, sleepGoalTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG } from "./data-viz.js";
+import { statTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG, shortDateFr, painLevelColor } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
 
@@ -23,6 +24,31 @@ const WORKLOAD_ZONE_HELP = {
   risque_eleve: "Hausse de charge trop rapide par rapport à la moyenne des 4 dernières semaines — zone associée à un risque de blessure accru (Gabbett 2016).",
 };
 
+// Progrès en trois sous-onglets (docs/adr/0082) : un long défilement de
+// ~5 écrans devient trois vues courtes, chacune répondant à une question.
+//   Forme — « est-ce que je peux pousser aujourd'hui ? »
+//   Force — « est-ce que je progresse ? » (fiche exercice, records)
+//   Corps — poids, composition, douleurs
+const PROGRES_TABS = [
+  { id: "forme", label: "Forme" },
+  { id: "force", label: "Force" },
+  { id: "corps", label: "Corps" },
+];
+const PROGRES_TAB_KEY = "coach_progres_tab";
+const EXERCISE_KEY = "coach_progres_exercise";
+
+function savedChoice(key, fallback) {
+  try { return localStorage.getItem(key) || fallback; } catch (_) { return fallback; }
+}
+function saveChoice(key, value) {
+  try { localStorage.setItem(key, value); } catch (_) { /* confort seulement */ }
+}
+
+/** Explication repliée sous la carte plutôt qu'un paragraphe toujours affiché. */
+function helpHTML(text) {
+  return `<details class="card-help"><summary>Comment lire ?</summary><p>${text}</p></details>`;
+}
+
 export async function renderData(token) {
   const el = document.getElementById("data-content");
   el.innerHTML = skeletonHTML();
@@ -30,53 +56,61 @@ export async function renderData(token) {
   if (stale(token)) return;
   if (!file) { el.innerHTML = "<p class='muted'>Pas encore de résumé exporté.</p>"; return; }
   const s = JSON.parse(file.content);
-  let html = kpiGridHTML(s);
+  let tab = savedChoice(PROGRES_TAB_KEY, "forme");
+  if (!PROGRES_TABS.some((t) => t.id === tab)) tab = "forme";
 
-  html += readinessScoreHTML(s.readiness);
+  const draw = () => {
+    const body = tab === "force" ? forceTabHTML(s) : tab === "corps" ? corpsTabHTML(s) : formeTabHTML(s);
+    el.innerHTML = `
+      <div class="segmented progres-tabs" role="tablist">${PROGRES_TABS.map((t) => `<button type="button" role="tab" class="segment${t.id === tab ? " active" : ""}" aria-selected="${t.id === tab}" data-progres-tab="${t.id}">${t.label}</button>`).join("")}</div>
+      ${body}`;
+    stripHeadingEmojis(el);
+    el.querySelectorAll("[data-progres-tab]").forEach((b) => b.addEventListener("click", () => {
+      tab = b.dataset.progresTab;
+      saveChoice(PROGRES_TAB_KEY, tab);
+      draw();
+      window.scrollTo({ top: 0 });
+    }));
+    if (tab === "force") wireExerciseCard(el, s);
+    const painLink = el.querySelector("[data-open-pain]");
+    if (painLink) painLink.addEventListener("click", () => showView("pain"));
+  };
+  draw();
+}
 
-  let tiles = "";
-  if (s.bodyweight_progress) {
-    const bp = s.bodyweight_progress;
-    tiles += statTile("Poids de corps", bp.current_kg, " kg", bp.fraction, `Objectif ${bp.target_kg} kg`, bp.baseline_kg, bp.baseline_date);
-  }
-  const liftLabels = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar Deadlift" };
-  for (const [key, label] of Object.entries(liftLabels)) {
-    const entry = s.strength_trajectory && s.strength_trajectory[key];
-    if (!entry) continue;
-    const best = entry.recent_best;
-    tiles += statTile(
-      label,
-      best ? best.load : null,
-      " kg",
-      entry.progress_fraction,
-      entry.target ? `Cible 4RM : ${entry.target.four_rm.toFixed(1)} kg` : "Pas de cible calculable",
-      entry.baseline_load,
-      entry.baseline_date
-    );
-  }
-  if (tiles) html += `<section class="card"><h2>🏆 Trajectoire de force</h2><div class="stat-grid">${tiles}</div></section>`;
+/** Titres sans emoji (icônes au trait partout ailleurs) — retire le
+ * pictogramme de tête du premier nœud texte, sans toucher aux enfants. */
+function stripHeadingEmojis(root) {
+  root.querySelectorAll("h2").forEach((h) => {
+    const node = [...h.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+    if (node) node.textContent = node.textContent.replace(/^[\s\p{Extended_Pictographic}️‍]+/u, "");
+  });
+}
 
-  html += tonnageMilestoneHTML(s.tonnage || {}, liftLabels);
+// ---------------------------------------------------------------- Forme
+function formeTabHTML(s) {
+  let html = readinessScoreHTML(s.readiness);
 
-  const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || []; // weekly averages, ~3 mois
-  if (bw.length > 1) {
-    const first = bw[0].weight_kg, last = bw[bw.length - 1].weight_kg;
-    const delta = last - first;
-    const weeks = Math.max(1, bw.length - 1);
-    const perWeek = delta / weeks;
+  if (s.workload) {
+    const w = s.workload;
+    const readings = s.workload_history || [];
     html += `
       <section class="card">
-        <h2>⚖️ Poids de corps (moyenne hebdomadaire, ~3 mois)</h2>
-        ${sparklineSVG(bw.map((h) => ({ date: h.week_start, value: h.weight_kg })), { axis: true })}
-        <p class="trend-line">${last.toFixed(1)} kg
-          <span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} kg</span>
-          sur la période <span class="muted small">(~${perWeek >= 0 ? "+" : ""}${perWeek.toFixed(2)} kg/semaine)</span>
-        </p>
+        <div class="card-head"><h2>Charge aiguë:chronique</h2><span class="workload-badge zone-${w.zone}">${WORKLOAD_ZONE_LABELS[w.zone] || w.zone}</span></div>
+        ${workloadGaugeHTML(w.ratio)}
+        <p class="workload-zone-help small">${WORKLOAD_ZONE_HELP[w.zone] || ""}</p>
+        <div class="mini-stats">
+          <div><span>Ratio</span><strong>${w.ratio.toFixed(2).replace(".", ",")}</strong></div>
+          <div><span>7 derniers jours</span><strong>${Math.round(w.acute_load)} <small>u.a./j</small></strong></div>
+          <div><span>Réf. 4 semaines</span><strong>${Math.round(w.chronic_load)} <small>u.a./j</small></strong></div>
+        </div>
+        ${readings.length > 1 ? `<div class="workload-trend"><div class="sleep-week-summary-label">Ratio, ${readings.length} derniers jours</div>${workloadTrendSVG(readings)}</div>` : ""}
+        ${deloadInfoHTML(s.deload)}
+        ${gymFrequencyInfoHTML(s.gym_frequency)}
+        ${helpHTML("Ratio = charge des 7 derniers jours ÷ moyenne quotidienne des 4 dernières semaines (RPE × durée de séance, méthode de Foster). Repères : &lt;0,8 sous-charge, 0,8–1,3 zone optimale, 1,3–1,5 zone prudente, &gt;1,5 risque élevé.")}
       </section>`;
-  } else if (bw.length === 1) {
-    html += `<section class="card"><h2>⚖️ Poids de corps</h2><p class="trend-line">${bw[0].weight_kg.toFixed(1)} kg</p></section>`;
   } else {
-    html += `<section class="card"><h2>⚖️ Poids de corps</h2><p class="muted small">Pas encore assez de pesées récentes.</p></section>`;
+    html += `<section class="card"><h2>Charge aiguë:chronique</h2><p class="muted small">Pas encore assez d'historique de charge : renseigne le RPE et la durée à chaque séance (environ 4 semaines avant un premier calcul fiable).</p></section>`;
   }
 
   const sr = s.sleep_recent || {};
@@ -85,80 +119,147 @@ export async function renderData(token) {
     const delta = sr.avg_7d != null && sr.avg_prior_7d != null ? sr.avg_7d - sr.avg_prior_7d : null;
     html += `
       <section class="card">
-        <h2>😴 Sommeil</h2>
+        <div class="card-head"><h2>Sommeil</h2>${sr.avg_7d != null ? `<span class="card-head-value">${formatHoursFr(sr.avg_7d)}<small> / nuit</small></span>` : ""}</div>
         ${sleepHist.length ? barChartSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours })), { reference: SLEEP_TARGET_HOURS, dayLabels: true }) : ""}
-        <p class="trend-line">
-          ${sr.avg_7d != null ? `${sr.avg_7d.toFixed(1)} h/nuit <span class="muted small">(moy. 7j)</span>` : "Pas assez de données"}
-          ${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"} small">${delta >= 0 ? "+" : ""}${delta.toFixed(1)} h vs semaine précédente</span>` : ""}
-        </p>
-        <p class="muted small">Repère : ≥ ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit (barres dorées sous ce seuil).</p>
-        ${sr.week_avg != null ? `
-        <div class="sleep-week-summary">
-          <div class="sleep-week-summary-label">Cette semaine (lundi → dimanche) — ${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""} enregistrée${sr.week_nights_logged > 1 ? "s" : ""}</div>
-          <div class="stat-grid">
-            ${sleepGoalTile(
-              "Moyenne/nuit",
-              formatHoursFr(sr.week_avg),
-              Math.min(1, sr.week_avg / SLEEP_TARGET_HOURS),
-              `Objectif ${formatHoursFr(SLEEP_TARGET_HOURS)}/nuit`
-            )}
-            ${sleepGoalTile(
-              "Cumul semaine",
-              formatHoursFr(sr.week_total),
-              Math.min(1, sr.week_total / (SLEEP_TARGET_HOURS * 7)),
-              `Objectif ${formatHoursFr(SLEEP_TARGET_HOURS * 7)}`
-            )}
-          </div>
-        </div>` : ""}
-        ${(sr.weekly_average || []).length > 1 ? `
-        <div class="sleep-weekly-evolution">
-          <div class="sleep-week-summary-label">Évolution de la moyenne hebdomadaire</div>
-          ${sparklineSVG(sr.weekly_average.map((w) => ({ date: w.week_start, value: w.avg_hours })), { axis: true })}
-        </div>` : ""}
+        <p class="small">${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : "−"}${Math.round(Math.abs(delta) * 60)} min</span> par rapport aux 7 nuits d'avant` : ""}${sr.week_avg != null ? `${delta != null ? " · " : ""}cette semaine ${formatHoursFr(sr.week_avg)} sur ${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""}` : ""}</p>
+        ${(sr.weekly_average || []).length > 1 ? `<details class="card-more"><summary>Moyenne par semaine</summary>${sparklineSVG(sr.weekly_average.map((w) => ({ date: w.week_start, value: w.avg_hours })), { axis: true })}</details>` : ""}
+        ${helpHTML(`Repère : au moins ${formatHoursFr(SLEEP_TARGET_HOURS)} par nuit — les barres dorées sont sous ce seuil.`)}
       </section>`;
   } else {
-    html += `<section class="card"><h2>😴 Sommeil</h2><p class="muted small">Pas encore de données de sommeil.</p></section>`;
+    html += `<section class="card"><h2>Sommeil</h2><p class="muted small">Pas encore de données de sommeil.</p></section>`;
   }
 
-  const recoveryHist = (s.recovery_recent && s.recovery_recent.history) || [];
-  const lastWithField = (field) => {
-    for (let i = recoveryHist.length - 1; i >= 0; i--) if (recoveryHist[i][field] != null) return recoveryHist[i][field];
-    return null;
-  };
-  const restingHr = lastWithField("resting_heart_rate");
-  const hrv = lastWithField("hrv_ms");
-  if (restingHr != null || hrv != null) {
+  // Récupération en courbes : la tendance compte plus que la valeur du jour.
+  const rec = (s.recovery_recent && s.recovery_recent.history) || [];
+  const series = (field) => rec.filter((r) => r[field] != null).map((r) => ({ date: r.date, value: r[field] }));
+  const hr = series("resting_heart_rate");
+  const hrv = series("hrv_ms");
+  if (hr.length || hrv.length) {
+    const block = (label, pts, unit, betterUp) => {
+      if (!pts.length) return "";
+      const last = pts[pts.length - 1].value;
+      const avg = pts.reduce((a, p) => a + p.value, 0) / pts.length;
+      const diff = last - avg;
+      const good = betterUp ? diff >= 0 : diff <= 0;
+      return `
+        <div class="recovery-series">
+          <div class="recovery-series-head"><span>${label}</span><strong>${Math.round(last)} <small>${unit}</small></strong>
+            <span class="${good ? "trend-up" : "trend-down"} small">${diff >= 0 ? "+" : "−"}${Math.abs(diff).toFixed(0)} vs moy. ${pts.length} j</span></div>
+          ${sparklineSVG(pts, { axis: true })}
+        </div>`;
+    };
     html += `
       <section class="card">
-        <h2>❤️ Récupération</h2>
-        <div class="stat-grid">
-          ${restingHr != null ? statTileSimple("FC repos", `${Math.round(restingHr)} bpm`) : ""}
-          ${hrv != null ? statTileSimple("HRV", `${Math.round(hrv)} ms`) : ""}
-        </div>
-        <p class="muted small">FC repos basse et HRV stable/haute = bonne récupération ; une tendance inverse qui se maintient plusieurs jours est un signal précoce de fatigue.</p>
+        <h2>Récupération</h2>
+        ${block("FC repos", hr, "bpm", false)}
+        ${block("HRV", hrv, "ms", true)}
+        ${helpHTML("FC repos basse et HRV stable ou haute = bonne récupération. Une tendance inverse qui dure plusieurs jours est un signal précoce de fatigue.")}
       </section>`;
-  } else {
-    html += `<section class="card"><h2>❤️ Récupération</h2><p class="muted small">Pas encore de données FC repos/HRV.</p></section>`;
   }
 
-  const bc = s.body_composition || [];
-  if (bc.length) {
-    const latest = bc[bc.length - 1];
-    const prev = bc.length > 1 ? bc[bc.length - 2] : null;
-    const delta = (field) => (prev && latest[field] != null && prev[field] != null) ? latest[field] - prev[field] : null;
+  const well = (s.wellness_recent && s.wellness_recent.history) || [];
+  if (well.length) {
+    const last = well[well.length - 1];
     html += `
       <section class="card">
-        <h2>📏 Composition corporelle</h2>
-        <p class="muted small">Dernier scan InBody : ${latest.date}</p>
-        <div class="stat-grid">
-          ${latest.skeletal_muscle_mass_kg != null ? statTileSimple("Masse musculaire", `${latest.skeletal_muscle_mass_kg.toFixed(1)} kg`, delta("skeletal_muscle_mass_kg"), " kg", "up") : ""}
-          ${latest.fat_mass_kg != null ? statTileSimple("Masse grasse", `${latest.fat_mass_kg.toFixed(1)} kg`, delta("fat_mass_kg"), " kg", "down") : ""}
+        <div class="card-head"><h2>Bien-être du matin</h2><span class="card-head-value">${last.score}<small> / 100</small></span></div>
+        ${well.length > 1 ? sparklineSVG(well.map((w) => ({ date: w.date, value: w.score })), { axis: true }) : ""}
+        <div class="mini-stats four">
+          <div><span>Énergie</span><strong>${last.energie}/5</strong></div>
+          <div><span>Stress</span><strong>${last.stress}/5</strong></div>
+          <div><span>Courbatures</span><strong>${last.courbatures}/5</strong></div>
+          <div><span>Motivation</span><strong>${last.motivation}/5</strong></div>
         </div>
-        ${latest.inbody_score != null ? `<p class="muted small" style="margin-top:8px">Score InBody : ${latest.inbody_score}</p>` : ""}
+        <p class="muted small">Dernier check-in : ${shortDateFr(last.date)}.</p>
       </section>`;
-  } else {
-    html += `<section class="card"><h2>📏 Composition corporelle</h2><p class="muted small">Pas encore de scan InBody enregistré.</p></section>`;
   }
+
+  html += tendancesHTML(s.insights);
+  return html;
+}
+
+// ---------------------------------------------------------------- Force
+const LIFT_LABELS = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar Deadlift" };
+
+function numbers(raw) {
+  if (raw == null || raw === "") return [];
+  return String(raw).split("-").map((x) => parseFloat(String(x).replace(",", "."))).filter(Number.isFinite);
+}
+
+/** Meilleure série d'une entrée d'historique : charge max (charges à tirets
+ * comprises) et reps de cette série ; 1RM estimé (Epley) si reps ≤ 12. */
+function topSet(entry) {
+  const loads = numbers(entry.load);
+  if (!loads.length) return null;
+  const reps = numbers(entry.reps).map(Math.round);
+  let idx = 0;
+  loads.forEach((l, i) => { if (l > loads[idx]) idx = i; });
+  const r = reps.length ? reps[Math.min(idx, reps.length - 1)] : null;
+  return { load: loads[idx], reps: r, e1rm: r && r > 0 && r <= 12 ? loads[idx] * (1 + r / 30) : null };
+}
+
+/** Une ligne par date (doublons plan/réalisé fusionnés sur la meilleure
+ * série), passé uniquement, plus ancien d'abord. */
+function exerciseSeries(entries, today) {
+  const byDate = new Map();
+  for (const e of entries || []) {
+    if (!e.date || e.date > today) continue;
+    const t = topSet(e);
+    if (!t) continue;
+    const prev = byDate.get(e.date);
+    if (!prev || t.load > prev.top.load) byDate.set(e.date, { date: e.date, top: t, entry: e });
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function fmtKg(v) {
+  return `${(Math.round(v * 10) / 10).toString().replace(".", ",")} kg`;
+}
+
+function recentRecords(history, today) {
+  const records = [];
+  for (const [name, entries] of Object.entries(history || {})) {
+    const series = exerciseSeries(entries, today);
+    let best = null;
+    for (const p of series) {
+      if (best != null && p.top.load > best) records.push({ name, date: p.date, load: p.top.load, reps: p.top.reps, gain: p.top.load - best });
+      best = best == null ? p.top.load : Math.max(best, p.top.load);
+    }
+  }
+  return records.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 6);
+}
+
+function forceTabHTML(s) {
+  const today = todayISO();
+  let html = "";
+
+  let tiles = "";
+  for (const [key, label] of Object.entries(LIFT_LABELS)) {
+    const entry = s.strength_trajectory && s.strength_trajectory[key];
+    if (!entry) continue;
+    const best = entry.recent_best;
+    tiles += statTile(label, best ? best.load : null, " kg", entry.progress_fraction,
+      entry.target ? `Cible 4RM : ${entry.target.four_rm.toFixed(1)} kg` : "Pas de cible calculable", entry.baseline_load, entry.baseline_date);
+  }
+  if (tiles) html += `<section class="card"><h2>Trajectoire de force</h2><div class="stat-grid three">${tiles}</div></section>`;
+
+  html += `<section class="card exercise-card" id="exercise-card"></section>`;
+
+  const records = recentRecords(s.exercise_history, today);
+  html += `
+    <section class="card">
+      <h2>Records récents</h2>
+      ${records.length ? `<ul class="record-list">${records.map((r) => `
+        <li><span class="record-date">${shortDateFr(r.date)}</span>
+          <span class="record-name">${escapeHtmlText(r.name)}</span>
+          <span class="record-val">${fmtKg(r.load)}${r.reps ? ` × ${r.reps}` : ""}<small>+${fmtKg(r.gain)}</small></span></li>`).join("")}</ul>`
+        : "<p class='muted small'>Pas de nouvelle charge record sur tes dernières séances.</p>"}
+      ${helpHTML("Une charge est un record quand elle dépasse toutes les précédentes de l'exercice parmi ses 10 dernières séances (l'historique tenu par l'app).")}
+    </section>`;
+
+  html += tonnageMilestoneHTML(s.tonnage || {}, LIFT_LABELS);
+  html += tonnageSectionHTML(s.tonnage);
+  html += tonnageHeatmapHTML(s.tonnage && s.tonnage.periods);
 
   const ACCESSORY_LABELS = { strict_press: "Strict Press", tractions: "Tractions", cmj: "CMJ", sprint: "Sprint" };
   let accessoryTags = "";
@@ -168,117 +269,113 @@ export async function renderData(token) {
     const last = entries[entries.length - 1];
     const ex = last.executed || {};
     const parts = [ex.sets, ex.reps, ex.load].filter((v) => v != null && v !== "").join(" × ");
-    accessoryTags += `<div class="accessory-tag"><span class="accessory-tag-label">${label}</span><span>${escapeHtmlText(parts || "—")}</span><span class="muted small">${last.date}</span></div>`;
+    accessoryTags += `<div class="accessory-tag"><span class="accessory-tag-label">${label}</span><span>${escapeHtmlText(parts || "—")}</span><span class="muted small">${shortDateFr(last.date)}</span></div>`;
   }
-  if (accessoryTags) {
-    html += `<section class="card"><h2>💪 Accessoires & explosivité</h2><div class="accessory-tags">${accessoryTags}</div></section>`;
-  }
+  if (accessoryTags) html += `<section class="card"><h2>Accessoires & explosivité</h2><div class="accessory-tags">${accessoryTags}</div></section>`;
+  return html;
+}
 
-  if (s.workload) {
-    const w = s.workload;
-    const readings = s.workload_history || [];
+/** Fiche exercice : n'importe quel exercice chargé, sa meilleure charge par
+ * séance en courbe, le 1RM estimé et les dernières séances. */
+function wireExerciseCard(el, s) {
+  const card = el.querySelector("#exercise-card");
+  if (!card) return;
+  const today = todayISO();
+  const options = Object.entries(s.exercise_history || {})
+    .map(([name, entries]) => ({ name, series: exerciseSeries(entries, today) }))
+    .filter((o) => o.series.length >= 1)
+    .sort((a, b) => b.series.length - a.series.length || a.name.localeCompare(b.name));
+  if (!options.length) { card.remove(); return; }
+  let current = savedChoice(EXERCISE_KEY, "Back Squat");
+  if (!options.some((o) => o.name === current)) current = options[0].name;
+
+  const draw = () => {
+    const opt = options.find((o) => o.name === current);
+    const series = opt.series;
+    const best = series.reduce((a, p) => (p.top.load > a.top.load ? p : a), series[0]);
+    const e1rms = series.filter((p) => p.top.e1rm != null);
+    const bestE1rm = e1rms.length ? Math.max(...e1rms.map((p) => p.top.e1rm)) : null;
+    const first = series[0], last = series[series.length - 1];
+    const delta = last.top.load - first.top.load;
+    card.innerHTML = `
+      <div class="card-head"><h2>Fiche exercice</h2></div>
+      <label class="exercise-picker"><span class="sr-only">Exercice</span>
+        <select id="exercise-select">${options.map((o) => `<option value="${escapeAttr(o.name)}"${o.name === current ? " selected" : ""}>${escapeHtmlText(o.name)} (${o.series.length})</option>`).join("")}</select></label>
+      <div class="mini-stats">
+        <div><span>Meilleure charge</span><strong>${fmtKg(best.top.load)}</strong><small>${shortDateFr(best.date)}</small></div>
+        <div><span>1RM estimé</span><strong>${bestE1rm != null ? fmtKg(bestE1rm) : "—"}</strong><small>${bestE1rm != null ? "Epley" : "reps &gt; 12"}</small></div>
+        <div><span>Évolution</span><strong class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : "−"}${fmtKg(Math.abs(delta))}</strong><small>depuis le ${shortDateFr(first.date)}</small></div>
+      </div>
+      ${series.length > 1 ? `<div class="sleep-week-summary-label">Meilleure charge par séance</div>${sparklineSVG(series.map((p) => ({ date: p.date, value: p.top.load })), { axis: true })}` : ""}
+      <ul class="exercise-sessions">${[...series].reverse().slice(0, 6).map((p) => {
+        const e = p.entry;
+        const reps = String(e.reps ?? "").split("-").filter((x) => x.trim()).join("-");
+        const repsText = reps.includes("-") ? `${reps} reps` : [e.sets ? `${e.sets} ×` : "", reps].join(" ").trim();
+        const load = String(e.load ?? "").split("-").filter((x) => x.trim()).join("-");
+        return `<li><span>${shortDateFr(p.date)}</span><span>${escapeHtmlText(repsText || "—")}</span><strong>${escapeHtmlText(load)}${/^[\d.,-]+$/.test(load) ? " kg" : ""}</strong></li>`;
+      }).join("")}</ul>`;
+    stripHeadingEmojis(card);
+    card.querySelector("#exercise-select").addEventListener("change", (ev) => {
+      current = ev.target.value;
+      saveChoice(EXERCISE_KEY, current);
+      draw();
+    });
+  };
+  draw();
+}
+
+// ---------------------------------------------------------------- Corps
+function corpsTabHTML(s) {
+  let html = "";
+  const bp = s.bodyweight_progress;
+  const bw = (s.bodyweight_recent && s.bodyweight_recent.history) || [];
+  if (bw.length || bp) {
+    const first = bw.length ? bw[0].weight_kg : null;
+    const last = bw.length ? bw[bw.length - 1].weight_kg : bp.current_kg;
+    const delta = first != null ? last - first : null;
+    const perWeek = delta != null ? delta / Math.max(1, bw.length - 1) : null;
     html += `
       <section class="card">
-        <h2>⚙️ Charge aiguë:chronique</h2>
-        <p class="workload-badge zone-${w.zone}">${WORKLOAD_ZONE_LABELS[w.zone] || w.zone}</p>
-        ${workloadGaugeHTML(w.ratio)}
-        <p class="workload-zone-help small">${WORKLOAD_ZONE_HELP[w.zone] || ""}</p>
-        <div class="stat-grid">
-          ${statTileSimple("Ratio actuel", w.ratio.toFixed(2))}
-          ${statTileSimple("Charge 7 derniers jours (moy./j)", `${Math.round(w.acute_load)} u.a.`)}
-          ${statTileSimple("Référence 4 semaines (moy./j)", `${Math.round(w.chronic_load)} u.a.`)}
-        </div>
-        ${readings.length > 1 ? `
-        <div class="workload-trend">
-          <div class="sleep-week-summary-label">Évolution du ratio (${readings.length} dernier${readings.length > 1 ? "s" : ""} jour${readings.length > 1 ? "s" : ""})</div>
-          ${workloadTrendSVG(readings)}
-        </div>` : ""}
-        <p class="muted small">Ratio = charge des 7 derniers jours ÷ moyenne quotidienne des 4 dernières semaines (RPE × durée de séance, méthode de Foster — renseignée à chaque séance loguée). Repères : &lt;0,8 sous-charge, 0,8–1,3 zone optimale, 1,3–1,5 zone prudente, &gt;1,5 risque élevé.</p>
-        ${deloadInfoHTML(s.deload)}
-        ${gymFrequencyInfoHTML(s.gym_frequency)}
+        <div class="card-head"><h2>Poids de corps</h2><span class="card-head-value">${last.toFixed(1).replace(".", ",")}<small> kg</small></span></div>
+        ${bp ? `<div class="target-bar"><div class="target-bar-fill" style="width:${Math.round(Math.max(0, Math.min(1, bp.fraction)) * 100)}%"></div></div>
+        <p class="small target-bar-legend"><span>Départ ${bp.baseline_kg} kg</span><span>${Math.round(bp.fraction * 100)} % de l'objectif</span><span>Cible ${bp.target_kg} kg</span></p>` : ""}
+        ${bw.length > 1 ? sparklineSVG(bw.map((h) => ({ date: h.week_start, value: h.weight_kg })), { axis: true }) : ""}
+        ${delta != null && bw.length > 1 ? `<p class="small"><span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(1).replace(".", ",")} kg</span> en ${bw.length - 1} semaines (≈ ${perWeek >= 0 ? "+" : "−"}${Math.abs(perWeek).toFixed(2).replace(".", ",")} kg/semaine, moyennes hebdomadaires)</p>` : ""}
       </section>`;
   } else {
+    html += `<section class="card"><h2>Poids de corps</h2><p class="muted small">Pas encore assez de pesées récentes.</p></section>`;
+  }
+
+  const bc = s.body_composition || [];
+  if (bc.length) {
+    const latest = bc[bc.length - 1];
+    const prev = bc.length > 1 ? bc[bc.length - 2] : null;
+    const delta = (field) => (prev && latest[field] != null && prev[field] != null) ? latest[field] - prev[field] : null;
     html += `
       <section class="card">
-        <h2>⚙️ Charge aiguë:chronique</h2>
-        <p class="muted small">Pas encore assez d'historique de charge — renseigne le RPE et la durée à chaque séance loguée (voir Loguer la séance) : il faut environ 4 semaines de suivi régulier avant un premier calcul fiable.</p>
+        <div class="card-head"><h2>Composition corporelle</h2><span class="muted small">InBody du ${shortDateFr(latest.date)}</span></div>
+        <div class="stat-grid">
+          ${latest.skeletal_muscle_mass_kg != null ? statTileSimple("Masse musculaire", `${latest.skeletal_muscle_mass_kg.toFixed(1)} kg`, delta("skeletal_muscle_mass_kg"), " kg", "up") : ""}
+          ${latest.fat_mass_kg != null ? statTileSimple("Masse grasse", `${latest.fat_mass_kg.toFixed(1)} kg`, delta("fat_mass_kg"), " kg", "down") : ""}
+        </div>
+        ${latest.inbody_score != null ? `<p class="muted small" style="margin-top:8px">Score InBody : ${latest.inbody_score}${prev && prev.inbody_score != null ? ` (avant : ${prev.inbody_score})` : ""}</p>` : ""}
       </section>`;
+  } else {
+    html += `<section class="card"><h2>Composition corporelle</h2><p class="muted small">Pas encore de scan InBody enregistré.</p></section>`;
   }
 
-  html += tonnageSectionHTML(s.tonnage);
-
-  html += tonnageHeatmapHTML(s.tonnage && s.tonnage.periods);
-
-  html += tendancesHTML(s.insights);
-
-  el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
-  addSectionJump(el);
-  el.querySelectorAll(".kpi-tile[data-jump]").forEach((tile) => {
-    tile.addEventListener("click", () => {
-      const re = new RegExp(tile.dataset.jump, "i");
-      const target = [...el.querySelectorAll(":scope > section.card")].find((c) => {
-        const h2 = c.querySelector("h2");
-        return (h2 && re.test(h2.textContent)) || c.classList.contains(`${tile.dataset.jump}-card`);
-      });
-      if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  });
-}
-
-/** Les 4 chiffres clés en tête de Progrès (maquette C, docs/adr/0078) :
- * forme, charge aiguë:chronique, sommeil moyen 7 j, tonnage de la semaine —
- * chacun avec sa tendance, un tap amène à la carte détaillée. N'affiche que
- * ce qui est disponible (pas de zéro inventé). */
-function kpiGridHTML(s) {
-  const tiles = [];
-  const r = s.readiness;
-  if (r && r.score != null) {
-    tiles.push({ jump: "readiness", label: "Indice de forme", value: String(r.score), trend: READINESS_LEVEL_LABELS[r.level] || r.level, cls: r.level === "vigilance" ? "warn" : r.level === "repos_recommande" ? "alert" : "ok" });
-  }
-  const w = s.workload;
-  if (w && w.ratio != null) {
-    tiles.push({ jump: "aiguë", label: "Charge aiguë:chronique", value: w.ratio.toFixed(2).replace(".", ","), trend: WORKLOAD_ZONE_LABELS[w.zone] || w.zone, cls: w.zone === "zone_optimale" ? "ok" : w.zone === "risque_eleve" ? "alert" : "warn" });
-  }
-  const sl = s.sleep_recent;
-  if (sl && sl.avg_7d != null) {
-    const delta = sl.avg_prior_7d != null ? sl.avg_7d - sl.avg_prior_7d : null;
-    tiles.push({ jump: "sommeil", label: "Sommeil moyen (7 j)", value: formatHoursFr(sl.avg_7d), trend: delta == null ? "" : `${delta >= 0 ? "↗ +" : "↘ −"}${Math.round(Math.abs(delta) * 60)} min`, cls: delta == null || delta >= 0 ? "ok" : "warn" });
-  }
-  const t = s.tonnage;
-  if (t && t.total_tonnage_kg != null) {
-    const prior = t.prior_week && t.prior_week.total_tonnage_kg;
-    const v = t.total_tonnage_kg;
-    tiles.push({ jump: "tonnage", label: "Tonnage semaine", value: v >= 1000 ? `${(v / 1000).toFixed(1).replace(".", ",")} t` : `${Math.round(v)} kg`, trend: prior ? `sem. passée ${prior >= 1000 ? `${(prior / 1000).toFixed(1).replace(".", ",")} t` : `${Math.round(prior)} kg`}` : "", cls: "neutral" });
-  }
-  if (!tiles.length) return "";
-  return `<div class="kpi-grid">${tiles.map((k) => `
-    <button type="button" class="kpi-tile" data-jump="${escapeAttr(k.jump)}">
-      <span class="kpi-label">${escapeHtmlText(k.label)}</span>
-      <span class="kpi-value">${escapeHtmlText(k.value)}</span>
-      ${k.trend ? `<span class="kpi-trend ${k.cls}">${escapeHtmlText(k.trend)}</span>` : ""}
-    </button>`).join("")}</div>`;
-}
-
-/** Barre de raccourcis collante en tête de Progrès (docs/adr/0073) : l'écran
- * fait plusieurs milliers de pixels, une puce par carte titrée y amène
- * directement. Construite à partir des `<h2>` rendus, donc toujours alignée
- * sur les cartes réellement affichées (aucune liste à maintenir). */
-function addSectionJump(el) {
-  const cards = [...el.querySelectorAll(":scope > section.card")].filter((c) => c.querySelector("h2"));
-  if (cards.length < 4) return;
-  const label = (h2) => h2.textContent.replace(/^[^\p{L}\p{N}]+/u, "").replace(/\s*\(.*\)\s*$/, "").trim();
-  const nav = document.createElement("nav");
-  nav.className = "section-jump";
-  nav.setAttribute("aria-label", "Aller à une section");
-  cards.forEach((card, i) => {
-    card.id = card.id || `progres-${i}`;
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = label(card.querySelector("h2"));
-    btn.addEventListener("click", () => card.scrollIntoView({ behavior: "smooth", block: "start" }));
-    nav.appendChild(btn);
-  });
-  el.prepend(nav);
+  const episodes = ((s.pain_recent && s.pain_recent.episodes) || []).slice(-3).reverse();
+  const zones = (s.pain_recent && s.pain_recent.zones) || {};
+  html += `
+    <section class="card">
+      <h2>Douleurs</h2>
+      ${episodes.length ? `<ul class="pain-mini-list">${episodes.map((ep) => `
+        <li><span class="pain-level-badge" style="background:${painLevelColor(ep.level_end)}">${ep.level_end}</span>
+          <span><strong>${escapeHtmlText(zones[ep.zone] || ep.zone)}</strong><small>${shortDateFr(ep.start_date)}${ep.end_date !== ep.start_date ? ` → ${shortDateFr(ep.end_date)}` : ""} · pic ${ep.level_peak}/10</small></span></li>`).join("")}</ul>`
+        : "<p class='muted small'>Aucune douleur loguée récemment.</p>"}
+      <button type="button" class="primary-button ghost small" data-open-pain>Historique et saisie</button>
+    </section>`;
+  return html;
 }
 
 export const READINESS_LEVEL_LABELS = {
@@ -322,7 +419,7 @@ function readinessScoreHTML(readiness) {
         <div class="readiness-score-label">${READINESS_LEVEL_LABELS[readiness.level] || readiness.level}</div>
       </div>
       <div class="readiness-components">${rows}</div>
-      <p class="muted small">Charge aiguë:chronique, sommeil récent, signaux de récupération (FC repos/HRV) et bien-être du check-in du matin — un repère, pas une vérité absolue.</p>
+      ${helpHTML("Croise charge aiguë:chronique, sommeil récent, récupération (FC repos/HRV) et bien-être du check-in du matin — un repère, pas une vérité absolue.")}
     </section>`;
 }
 

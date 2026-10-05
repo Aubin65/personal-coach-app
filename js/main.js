@@ -4,13 +4,24 @@ import { showView } from "./nav.js";
 import { loadSyncStatus } from "./sync-status.js";
 import { initPushButton } from "./push-notifications.js";
 import { startQueueWatcher } from "./offline-queue.js";
+import { sessionRuntime } from "./session/session-state.js";
 
 // ============================================================================
 // Login
 // ============================================================================
 async function init() {
   if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("service-worker.js").catch(() => {});
+    // updateViaCache "none" : le navigateur revérifie service-worker.js sans
+    // passer par le cache HTTP. Et une PWA iOS reprise depuis l'arrière-plan
+    // ne renavigue pas, donc ne cherche jamais de mise à jour d'elle-même :
+    // on la demande à chaque retour au premier plan (ADR-0082).
+    navigator.serviceWorker.register("service-worker.js", { updateViaCache: "none" })
+      .then((reg) => {
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") reg.update().catch(() => {});
+        });
+      })
+      .catch(() => {});
     // A new service worker (shipped whenever CACHE_NAME bumps — see
     // service-worker.js) claims control of already-open tabs via
     // clients.claim(); reload once when that happens so an app left open
@@ -19,6 +30,9 @@ async function init() {
     let reloadedForNewVersion = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (reloadedForNewVersion) return;
+      // Jamais en pleine séance : la saisie en cours vit en mémoire. La
+      // nouvelle version s'appliquera au prochain lancement.
+      if (sessionRuntime.working) return;
       reloadedForNewVersion = true;
       window.location.reload();
     });

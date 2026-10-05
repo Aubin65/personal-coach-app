@@ -240,10 +240,10 @@ function episodeCardHTML(ep, zones, open) {
   const evolution = ep.level_start === ep.level_end ? `${ep.level_end}/10` : `${ep.level_start} → ${ep.level_end}/10`;
   const peak = ep.level_peak > Math.max(ep.level_start, ep.level_end) ? ` (pic à ${ep.level_peak}/10)` : "";
   const trend = ep.entries.length >= 2 ? painTrendSVG(ep.entries) : "";
-  const notes = ep.entries.filter((e) => e.note);
-  const notesHTML = notes.length
-    ? `<ul class="pain-episode-notes">${notes.map((e) => `<li><strong>${shortDateFr(e.date)}</strong> — ${escapeHtmlText(e.note)}</li>`).join("")}</ul>`
-    : "<p class='muted small'>Pas de note sur cet épisode.</p>";
+  // Chaque saisie de l'épisode, supprimable une à une (docs/adr/0082).
+  const notesHTML = `<ul class="pain-episode-notes">${ep.entries.map((e) => `
+      <li class="pain-entry"><span><strong>${shortDateFr(e.date)}</strong> · ${e.level}/10${e.note ? ` — ${escapeHtmlText(e.note)}` : ""}</span>
+        ${e.at ? `<button type="button" class="delete-link pain-entry-delete" data-date="${escapeAttr(e.date)}" data-at="${escapeAttr(e.at)}" aria-label="Supprimer la saisie du ${shortDateFr(e.date)}">Supprimer</button>` : ""}</li>`).join("")}</ul>`;
   return `
     <details class="pain-episode"${open ? " open" : ""}>
       <summary>
@@ -302,7 +302,45 @@ async function loadPainHistory(token) {
   renderPainHistoryBody(episodes, zones, listEl);
 }
 
-function renderPainHistoryBody(episodes, zones, listEl) {
+// Saisies supprimées depuis l'app : l'historique vient de summary.json,
+// recalculé au prochain export — d'ici là on les masque ici.
+const DELETED_PAIN_KEY = "coach_pain_deleted";
+function deletedPainKeys() {
+  try { return new Set(JSON.parse(localStorage.getItem(DELETED_PAIN_KEY) || "[]")); } catch (_) { return new Set(); }
+}
+function rememberDeletedPain(at) {
+  try {
+    const keys = [...deletedPainKeys(), at].slice(-100);
+    localStorage.setItem(DELETED_PAIN_KEY, JSON.stringify(keys));
+  } catch (_) { /* confort seulement */ }
+}
+
+registerQueuedOp("painDelete", async ({ date, at }) => {
+  await ghPutJSON(`data/health/${date}.json`, { date }, `App : douleur du ${date} supprimée`, (current) => {
+    const base = current || { date };
+    const rest = (base.pain || []).filter((p) => p.at !== at);
+    if (rest.length) base.pain = rest;
+    else delete base.pain;
+    return base;
+  });
+});
+
+function withoutDeleted(episodes) {
+  const deleted = deletedPainKeys();
+  if (!deleted.size) return episodes;
+  return episodes
+    .map((ep) => {
+      const entries = ep.entries.filter((e) => !deleted.has(e.at));
+      if (!entries.length) return null;
+      const levels = entries.map((e) => e.level);
+      return { ...ep, entries, start_date: entries[0].date, end_date: entries[entries.length - 1].date,
+        level_start: levels[0], level_end: levels[levels.length - 1], level_peak: Math.max(...levels) };
+    })
+    .filter(Boolean);
+}
+
+function renderPainHistoryBody(allEpisodes, zones, listEl) {
+  const episodes = withoutDeleted(allEpisodes);
   const filtered = historyFilter ? episodes.filter((ep) => ep.zone === historyFilter) : episodes;
   if (filtered.length === 0) {
     listEl.innerHTML = "<p class='muted small'>Aucun épisode pour cette zone.</p>";
@@ -310,4 +348,16 @@ function renderPainHistoryBody(episodes, zones, listEl) {
   }
   const groups = groupEpisodesByBlock(filtered);
   listEl.innerHTML = groups.map(([block, eps], i) => blockGroupHTML(block, eps, zones, i === 0)).join("");
+  listEl.querySelectorAll(".pain-entry-delete").forEach((btn) => btn.addEventListener("click", async () => {
+    if (!window.confirm("Supprimer cette saisie de douleur ?")) return;
+    btn.disabled = true;
+    try {
+      await runQueued("painDelete", { date: btn.dataset.date, at: btn.dataset.at }, { key: `pain-delete:${btn.dataset.at}`, label: "Suppression d'une douleur" });
+      rememberDeletedPain(btn.dataset.at);
+      renderPainHistoryBody(allEpisodes, zones, listEl);
+    } catch (err) {
+      btn.disabled = false;
+      window.alert(`Échec : ${err.message}`);
+    }
+  }));
 }
