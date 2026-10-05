@@ -26,7 +26,7 @@ export function refineBoxHTML(placeholder) {
       <p class="small refine-title">✍️ Pas tout à fait ça ? Dis ce que tu veux changer</p>
       <div class="compose-row">
         <textarea class="refine-input" rows="2" placeholder="${escapeHtmlText(placeholder)}"></textarea>
-        <button type="button" class="mic-button refine-mic" title="Dicter" aria-label="Dicter">🎙️</button>
+        <button type="button" class="mic-button refine-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       </div>
       <p class="voice-hint refine-voice-hint" hidden></p>
       <p class="live-caption refine-live-caption" hidden></p>

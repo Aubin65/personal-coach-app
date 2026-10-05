@@ -156,9 +156,9 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
   // happened to be on, no way to move it from here.
   el.innerHTML = `
     <div class="forge-week-nav">
-      <button type="button" id="sessions-prev-week" class="icon-button small" aria-label="Semaine précédente">◀</button>
+      <button type="button" id="sessions-prev-week" class="icon-button small" aria-label="Semaine précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
       <span class="forge-week-label">Semaine du ${formatFrDate(mondayISO)}</span>
-      <button type="button" id="sessions-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
+      <button type="button" id="sessions-next-week" class="icon-button small" aria-label="Semaine suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
     <table class="week-sessions-table">
       <thead><tr><th>Jour</th><th>Prévu</th><th>Statut</th></tr></thead>

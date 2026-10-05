@@ -2,6 +2,7 @@ import { ghGetFile, ghPutJSON, ghDispatchWorkflow } from "../github-api.js";
 import { state, stale } from "../nav.js";
 import { localISOWithOffset } from "../date-utils.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
+import { setupMicButton } from "../voice-input.js";
 
 // ---- Chat ----
 let chatPollTimer = null;
@@ -62,8 +63,16 @@ export function dispatchStatusNote({ dispatched, dispatchError, queued }) {
 export async function renderChat(token) {
   await refreshChatLog(token);
   const form = document.getElementById("chat-form");
+  // Dictée (docs/adr/0073) : même composant que les notes vocales. On coupe
+  // la dictée à l'envoi, sinon les derniers mots reconnus réécriraient le
+  // champ qui vient d'être vidé.
+  const micBtn = document.getElementById("chat-mic");
+  if (micBtn) {
+    setupMicButton(micBtn, document.getElementById("chat-voice-hint"), document.getElementById("chat-input"), document.getElementById("chat-live-caption"));
+  }
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (micBtn && micBtn.classList.contains("recording")) micBtn.click();
     const input = document.getElementById("chat-input");
     const text = input.value.trim();
     if (!text) return;

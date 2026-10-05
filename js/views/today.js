@@ -116,7 +116,7 @@ function checkinFormHTML(wellness, mobility, arrivalState, hidden) {
       ${wellnessRows}
       <div class="compose-row" style="margin-top:10px">
         <textarea id="checkin-note" rows="2" placeholder="Note libre (optionnel)">${mobility && mobility.note ? escapeHtmlText(mobility.note) : ""}</textarea>
-        <button type="button" class="mic-button" id="checkin-mic" title="Dicter" aria-label="Dicter">🎙️</button>
+        <button type="button" class="mic-button" id="checkin-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       </div>
       <p class="voice-hint" id="checkin-voice-hint" hidden></p>
       <p class="live-caption" id="checkin-live-caption" hidden></p>

@@ -130,9 +130,9 @@
   <div id="week-planning-panel">
     <div id="pending-proposal"></div>
     <div class="forge-week-nav">
-      <button type="button" id="planning-prev-week" class="icon-button small" aria-label="Semaine précédente">◀</button>
+      <button type="button" id="planning-prev-week" class="icon-button small" aria-label="Semaine précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
       <span id="planning-week-label" class="forge-week-label"></span>
-      <button type="button" id="planning-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
+      <button type="button" id="planning-next-week" class="icon-button small" aria-label="Semaine suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
     </div>
     <div id="week-day-strip"></div>
     <div id="day-overview-panel"></div>
@@ -156,9 +156,9 @@
     <section class="card">
       <h2>Séances précédentes</h2>
       <div class="forge-week-nav">
-        <button type="button" id="history-prev-week" class="icon-button small" aria-label="Semaine précédente">◀</button>
+        <button type="button" id="history-prev-week" class="icon-button small" aria-label="Semaine précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
         <span id="history-week-label" class="forge-week-label"></span>
-        <button type="button" id="history-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
+        <button type="button" id="history-next-week" class="icon-button small" aria-label="Semaine suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
       </div>
       <input type="date" id="history-jump-date" aria-label="Aller à une semaine">
       <div id="history-sessions-list" style="margin-top:10px"></div>
@@ -177,9 +177,9 @@
   </section>
 
   <div class="forge-week-nav">
-    <button type="button" id="forge-prev-week" class="icon-button small" aria-label="Semaine précédente">◀</button>
+    <button type="button" id="forge-prev-week" class="icon-button small" aria-label="Semaine précédente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
     <span id="forge-week-label" class="forge-week-label"></span>
-    <button type="button" id="forge-next-week" class="icon-button small" aria-label="Semaine suivante">▶</button>
+    <button type="button" id="forge-next-week" class="icon-button small" aria-label="Semaine suivante"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
   </div>
 
   <div id="forge-skeleton-pending"></div>
@@ -201,9 +201,12 @@
 
 <template id="tpl-chat">
   <div class="chat-log" id="chat-log"></div>
+  <p class="live-caption" id="chat-live-caption" hidden></p>
+  <p class="voice-hint" id="chat-voice-hint" hidden></p>
   <form class="chat-input-row" id="chat-form">
-    <input id="chat-input" type="text" placeholder="Une question pour le coach…" autocomplete="off">
-    <button type="submit" class="primary-button small">Envoyer</button>
+    <input id="chat-input" type="text" placeholder="Écris ou dicte ta question…" autocomplete="off" aria-label="Message au coach">
+    <button type="button" class="mic-button" id="chat-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+    <button type="submit" class="chat-send" aria-label="Envoyer"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
   </form>
   <p id="chat-status" class="muted small" hidden></p>
 </template>
@@ -217,7 +220,7 @@
     <h2>Nouvelle note</h2>
     <div class="compose-row">
       <textarea id="note-text" rows="5" placeholder="Ressenti, feedback de séance/match, repas…"></textarea>
-      <button type="button" id="note-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
+      <button type="button" id="note-mic" class="mic-button" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
     </div>
     <p class="voice-hint" id="note-voice-hint" hidden></p>
     <p class="live-caption" id="note-live-caption" hidden></p>
@@ -236,7 +239,7 @@
     <p class="muted small">Décris ce que tu veux changer — le coach reconstruit le planning en conséquence (pas juste un remplacement mécanique).</p>
     <div class="compose-row">
       <textarea id="adjust-text" rows="4" placeholder="Ex : j'ai un empêchement jeudi, décale la séance…"></textarea>
-      <button type="button" id="adjust-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
+      <button type="button" id="adjust-mic" class="mic-button" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
     </div>
     <p class="voice-hint" id="adjust-voice-hint" hidden></p>
     <p class="live-caption" id="adjust-live-caption" hidden></p>
@@ -258,7 +261,7 @@
     </div>
     <div class="compose-row" style="margin-top:10px">
       <textarea id="pain-note" rows="3" placeholder="Contexte : après quel exercice/mouvement, ce qui a aidé…"></textarea>
-      <button type="button" id="pain-mic" class="mic-button" title="Dicter" aria-label="Dicter">🎙️</button>
+      <button type="button" id="pain-mic" class="mic-button" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
     </div>
     <p class="voice-hint" id="pain-voice-hint" hidden></p>
     <p class="live-caption" id="pain-live-caption" hidden></p>

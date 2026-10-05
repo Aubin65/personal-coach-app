@@ -177,7 +177,7 @@ function matchPerformanceHTML(m, alreadyPlayed) {
         <div class="suggestion-chips mp-intensity">${intensityChips}</div>
         <div class="compose-row" style="margin-top:10px">
           <textarea class="mp-notes" rows="3" placeholder="Ressenti physique, poste joué si différent du sien habituel, fait marquant, gêne apparue…">${perf ? escapeHtmlText(perf.notes || "") : ""}</textarea>
-          <button type="button" class="mic-button mp-mic" title="Dicter" aria-label="Dicter">🎙️</button>
+          <button type="button" class="mic-button mp-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         </div>
         <p class="voice-hint mp-voice-hint" hidden></p>
         <p class="live-caption mp-live-caption" hidden></p>

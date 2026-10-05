@@ -212,6 +212,29 @@ export async function renderData(token) {
   html += tendancesHTML(s.insights);
 
   el.innerHTML = html || "<p class='muted'>Pas encore de données.</p>";
+  addSectionJump(el);
+}
+
+/** Barre de raccourcis collante en tête de Progrès (docs/adr/0073) : l'écran
+ * fait plusieurs milliers de pixels, une puce par carte titrée y amène
+ * directement. Construite à partir des `<h2>` rendus, donc toujours alignée
+ * sur les cartes réellement affichées (aucune liste à maintenir). */
+function addSectionJump(el) {
+  const cards = [...el.querySelectorAll(":scope > section.card")].filter((c) => c.querySelector("h2"));
+  if (cards.length < 4) return;
+  const label = (h2) => h2.textContent.replace(/^[^\p{L}\p{N}]+/u, "").replace(/\s*\(.*\)\s*$/, "").trim();
+  const nav = document.createElement("nav");
+  nav.className = "section-jump";
+  nav.setAttribute("aria-label", "Aller à une section");
+  cards.forEach((card, i) => {
+    card.id = card.id || `progres-${i}`;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = label(card.querySelector("h2"));
+    btn.addEventListener("click", () => card.scrollIntoView({ behavior: "smooth", block: "start" }));
+    nav.appendChild(btn);
+  });
+  el.prepend(nav);
 }
 
 export const READINESS_LEVEL_LABELS = {
