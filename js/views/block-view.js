@@ -151,7 +151,68 @@ function bulletItems(body) {
   }, []);
 }
 
-function objectivesHTML(section) {
+// ---------------------------------------------------------------- suivi
+// Suivi des objectifs (docs/adr/0094) : `summary.json` → `block_progress`
+// (coach.block_progress) — jauge pour un objectif de charge, semaines tenues
+// pour une fréquence, douleurs signalées sur la zone « sans douleur ».
+const PACE = {
+  en_avance: { label: "En avance", cls: "ok" },
+  dans_le_rythme: { label: "Dans le rythme", cls: "ok" },
+  en_retard: { label: "En retard", cls: "warn" },
+};
+
+function normGoal(text) {
+  return String(text || "").replace(/\*\*/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function kg(v) {
+  return `${String(Math.round(v * 10) / 10).replace(".", ",")} kg`;
+}
+
+/** Bloc de suivi sous un objectif (pur, testé dans le smoke). */
+export function goalTrackHTML(t) {
+  if (!t || t.kind === "other") return "";
+  if (t.kind === "lift") {
+    const pct = Math.round((t.pct || 0) * 100);
+    const exp = Math.round((t.expected_pct || 0) * 100);
+    const pace = PACE[t.pace];
+    let caption;
+    if (t.pace === "a_venir") caption = `Départ ${kg(t.start)} · cible ${kg(t.target)}`;
+    else if (t.pace === "pas_de_donnee") caption = `Pas encore de ${escapeHtmlText(t.exercise)} logué dans le bloc`;
+    else caption = `<b>${kg(t.current)}</b> sur ${kg(t.target)} · ${pct} %`;
+    return `
+      <div class="goal-track">
+        <div class="goal-bar"><span class="goal-fill" style="width:${pct}%"></span>${exp > 0 && exp < 100 ? `<span class="goal-tick" style="left:${exp}%" title="Rythme attendu : ${exp} %"></span>` : ""}</div>
+        <div class="goal-caption"><span>${caption}</span>${pace ? `<span class="goal-pill ${pace.cls}">${pace.label}</span>` : ""}</div>
+      </div>`;
+  }
+  if (t.kind === "frequency") {
+    const dots = (t.weeks || []).map((w) => {
+      const ok = w.count >= t.per_week;
+      const cls = w.complete ? (ok ? "met" : "missed") : "current";
+      return `<span class="goal-week ${cls}" title="Semaine du ${frShort(w.week_start)} : ${w.count}/${t.per_week}">${w.complete ? (ok ? "✓" : w.count) : `${w.count}/${t.per_week}`}</span>`;
+    }).join("");
+    const parts = [];
+    if (t.weeks_complete) parts.push(`Semaines tenues : <b>${t.weeks_met}/${t.weeks_complete}</b>`);
+    if (t.current_week_count != null) parts.push(`cette semaine ${t.current_week_count}/${t.per_week}`);
+    if (!t.weeks || !t.weeks.length) parts.push(`Objectif : ${t.per_week} séances par semaine, suivi dès le début du bloc`);
+    let pain = "";
+    if (t.pain) {
+      pain = t.pain.count
+        ? `<div class="goal-caption"><span class="goal-pill warn">Gêne ${escapeHtmlText(t.pain.zone)}</span><span>${t.pain.count} signalement${t.pain.count > 1 ? "s" : ""}${t.pain.max_level != null ? `, max ${t.pain.max_level}/10` : ""}${t.pain.last_date ? `, dernier le ${frShort(t.pain.last_date)}` : ""}</span></div>`
+        : (t.weeks && t.weeks.length ? `<div class="goal-caption"><span class="goal-pill ok">Sans gêne ${escapeHtmlText(t.pain.zone)}</span><span>aucune signalée</span></div>` : "");
+    }
+    return `
+      <div class="goal-track">
+        ${dots ? `<div class="goal-weeks">${dots}</div>` : ""}
+        <div class="goal-caption"><span>${parts.join(" · ")}</span></div>
+        ${pain}
+      </div>`;
+  }
+  return "";
+}
+
+function objectivesHTML(section, tracks = []) {
   const [main, ...subs] = section.body.split(/\n(?=###\s)/);
   const goals = bulletItems(main);
   const qualities = subs.find((s) => /qualit/i.test(s));
@@ -160,7 +221,10 @@ function objectivesHTML(section) {
   return `
     <section class="card bloc-section">
       <h3 class="bloc-section-title">Objectifs</h3>
-      ${goals.length ? `<ul class="bloc-goals">${goals.map((g) => `<li>${renderMarkdown(g).replace(/^<p>|<\/p>\s*$/g, "")}</li>`).join("")}</ul>` : `<div class="markdown-body">${renderMarkdown(main)}</div>`}
+      ${goals.length ? `<ul class="bloc-goals">${goals.map((g) => {
+        const track = tracks.find((t) => normGoal(t.text) === normGoal(g));
+        return `<li${track && track.kind !== "other" ? ' class="tracked"' : ""}><div class="goal-text">${renderMarkdown(g).replace(/^<p>|<\/p>\s*$/g, "")}</div>${goalTrackHTML(track)}</li>`;
+      }).join("")}</ul>` : `<div class="markdown-body">${renderMarkdown(main)}</div>`}
       ${qualityItems.length ? `<p class="bloc-sub-title">Qualités, par priorité</p><ol class="bloc-qualities">${qualityItems.map((q) => `<li>${escapeHtmlText(q)}</li>`).join("")}</ol>` : ""}
       ${others.map((o) => `<div class="markdown-body small">${renderMarkdown(o)}</div>`).join("")}
     </section>`;
@@ -194,7 +258,7 @@ function detailsHTML(section, open = false) {
     </details>`;
 }
 
-export function blockBodyHTML(parsed) {
+export function blockBodyHTML(parsed, tracks = []) {
   const html = [];
   // L'intro « 6 semaines à partir du lundi 19 octobre. » double la ligne de
   // dates du bandeau : retirée ; carte omise si rien d'autre.
@@ -207,7 +271,7 @@ export function blockBodyHTML(parsed) {
   const constraints = take(/^contraintes/i);
   const milestones = take(/^jalons/i);
   const feelings = take(/^ressentis/i);
-  if (objectives) html.push(objectivesHTML(objectives));
+  if (objectives) html.push(objectivesHTML(objectives, tracks));
   if (structure) html.push(structureHTML(structure));
   if (constraints) html.push(calloutHTML(constraints, "warn"));
   if (milestones) html.push(calloutHTML(milestones, "info"));
@@ -227,13 +291,18 @@ export async function renderBlockTab(container, token) {
     return;
   }
   const selected = defaultBlock(blocks, state.blockTabLabel);
-  const file = await ghGetFile(`data/blocks/${selected.label}.md`).catch(() => null);
+  const [file, summaryFile] = await Promise.all([
+    ghGetFile(`data/blocks/${selected.label}.md`).catch(() => null),
+    ghGetFile("data/app/summary.json").catch(() => null),
+  ]);
   if (stale(token)) return;
+  let tracks = [];
+  try { tracks = ((JSON.parse(summaryFile.content).block_progress || {})[selected.label] || {}).objectives || []; } catch (_) { tracks = []; }
   const parsed = parseBlockMarkdown(file ? file.content : "");
   container.innerHTML = `
     ${blocks.length > 1 ? `<div class="bloc-picker" role="tablist">${blocks.map((b) => `<button type="button" role="tab" class="bloc-pick status-${b.status}${b === selected ? " active" : ""}" aria-selected="${b === selected}" data-block="${escapeAttr(b.label)}">${escapeHtmlText(chipLabel(b))}</button>`).join("")}</div>` : ""}
     ${heroHTML(selected, parsed, today)}
-    ${file ? blockBodyHTML(parsed) : `<section class="card"><p class="muted">Fichier du bloc introuvable.</p></section>`}
+    ${file ? blockBodyHTML(parsed, tracks) : `<section class="card"><p class="muted">Fichier du bloc introuvable.</p></section>`}
     <button type="button" class="week-adjust-button" data-open-forge-bloc>${selected.hasDraft ? `Modifier ${selected.label} dans la Forge de bloc` : "Ouvrir la Forge de bloc"}</button>`;
   container.querySelectorAll("[data-block]").forEach((btn) => btn.addEventListener("click", () => {
     state.blockTabLabel = btn.dataset.block;

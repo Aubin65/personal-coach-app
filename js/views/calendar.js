@@ -5,6 +5,7 @@ import { todayISO, localISOWithOffset } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
 import { dayInitial, shortDateFr } from "./data-viz.js";
+import { feelScalesHTML, wireFeelScales, readFeel, feelSummaryText } from "../match-feel.js";
 
 const MONTH_NAMES_FR = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
@@ -209,6 +210,7 @@ function matchPerformanceSummaryHTML(perf) {
   return `
     <div class="match-performance-summary">
       <p class="small">${perf.minutes_played}min · RPE ${perf.rpe} · Contacts ${escapeHtmlText(CONTACT_LABELS[perf.contact_intensity] || perf.contact_intensity || "?")}</p>
+      ${perf.feel ? `<p class="small"><strong>Ressenti</strong> : ${escapeHtmlText(feelSummaryText(perf.feel))}</p>` : ""}
       ${perf.notes ? `<p class="small muted">${escapeHtmlText(perf.notes)}</p>` : ""}
       <button type="button" class="primary-button ghost small match-performance-edit">✏️ Modifier</button>
     </div>`;
@@ -233,6 +235,8 @@ function matchPerformanceHTML(m, alreadyPlayed) {
         </div>
         <p class="small muted" style="margin-top:8px">Intensité des contacts</p>
         <div class="suggestion-chips mp-intensity">${intensityChips}</div>
+        <p class="small muted" style="margin-top:10px">Ressenti (1 = mauvais, 5 = très bien)</p>
+        <div class="feel-scales">${feelScalesHTML(perf && perf.feel)}</div>
         <div class="compose-row" style="margin-top:10px">
           <textarea class="mp-notes" rows="3" placeholder="Ressenti physique, poste joué si différent du sien habituel, fait marquant, gêne apparue…">${perf ? escapeHtmlText(perf.notes || "") : ""}</textarea>
           <button type="button" class="mic-button mp-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -272,7 +276,7 @@ async function findScheduleFile(date, opponent, team) {
  * éventuelle autre séance loguée le même jour (voir docs/adr/0050) — le
  * champ est ignoré sans risque par coach.workload, qui ne lit que
  * rpe/duration_min. */
-async function saveMatchPerformance(date, opponent, team, performance) {
+export async function saveMatchPerformance(date, opponent, team, performance) {
   const found = await findScheduleFile(date, opponent, team);
   if (!found) throw new Error("Match introuvable dans le calendrier.");
   found.season.fixtures[found.idx] = { ...found.season.fixtures[found.idx], performance };
@@ -331,6 +335,7 @@ function wireMatchPerformanceForms(el) {
     });
 
     wireMatchPerformanceEditButton(card);
+    wireFeelScales(card);
 
     card.querySelector(".mp-save").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
@@ -352,6 +357,8 @@ function wireMatchPerformanceForms(el) {
         notes: notesEl.value.trim(),
         logged_at: localISOWithOffset(),
       };
+      const feel = readFeel(card);
+      if (feel) performance.feel = feel;
       btn.disabled = true;
       statusEl.textContent = "Enregistrement…";
       try {

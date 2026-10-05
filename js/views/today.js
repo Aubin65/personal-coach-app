@@ -1,8 +1,10 @@
 import { setupCredo } from "../credo.js";
 import { kindIconHTML } from "../session-icons.js";
 import { showView, stale, state } from "../nav.js";
-import { todayISO, addDaysISO, sessionHasExecuted, formatFrDate } from "../date-utils.js";
+import { todayISO, addDaysISO, sessionHasExecuted, formatFrDate, localISOWithOffset } from "../date-utils.js";
 import { loadClubConfig } from "../club-training.js";
+import { matchToRate, feelScalesHTML, wireFeelScales, readFeel, feelSummaryText, dismissMatchFeel, MATCH_FEEL_SCALES } from "../match-feel.js";
+import { saveMatchPerformance } from "./calendar.js";
 import { findSessionForDate } from "../training-index.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
@@ -876,12 +878,82 @@ async function loadTodaySession(token) {
   });
 }
 
+// ============================================================================
+// Ressenti du match (docs/adr/0094) : le lendemain d'un match (ou le soir
+// même après 18h), une fiche de 20 secondes — 3 échelles 1-5 + un mot. Si le
+// match n'est pas encore logué, minutes et RPE sont demandés aussi (ils
+// alimentent la charge, comme dans l'onglet Matchs).
+// ============================================================================
+async function loadMatchFeel(token) {
+  const box = document.getElementById("today-match-feel");
+  if (!box) return;
+  const today = todayISO();
+  const m = await matchToRate(today, new Date().getHours()).catch(() => null);
+  if (stale(token)) return;
+  if (!m) { box.innerHTML = ""; return; }
+  const perf = m.performance || null;
+  const when = m.date === today ? "de ce soir" : m.date === addDaysISO(today, -1) ? "d'hier" : `du ${formatFrDate(m.date)}`;
+  const team = m.team || "Première";
+  box.innerHTML = `
+    <section class="card match-feel-card">
+      <div class="card-head"><h2>Ton match ${escapeHtmlText(when)}</h2><span class="pill pill-gold">20 s</span></div>
+      <p class="muted small match-feel-sub">vs ${escapeHtmlText(m.opponent || "?")}${team === "Réserve" ? " (Réserve)" : ""} · ton ressenti compte ×3 pour la Forge.</p>
+      ${perf ? "" : `
+      <div class="exercise-log-grid match-feel-grid">
+        <div><label>Minutes jouées</label><input type="number" id="mf-minutes" min="0" max="80" step="1" inputmode="numeric" placeholder="0-80"></div>
+        <div><label>RPE (0-10)</label><input type="number" id="mf-rpe" min="0" max="10" step="1" inputmode="numeric" placeholder="0-10"></div>
+      </div>`}
+      <div class="feel-scales">${feelScalesHTML(perf && perf.feel)}</div>
+      <div class="compose-row" style="margin-top:10px">
+        <textarea id="mf-note" rows="2" placeholder="Un mot sur le match : contact, fin de match, gêne…">${perf && perf.notes ? escapeHtmlText(perf.notes) : ""}</textarea>
+        <button type="button" class="mic-button" id="mf-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+      </div>
+      <p class="voice-hint" id="mf-voice-hint" hidden></p>
+      <p class="live-caption" id="mf-live-caption" hidden></p>
+      <div class="match-feel-actions">
+        <button type="button" class="primary-button" id="mf-save">Enregistrer</button>
+        <button type="button" class="delete-link" id="mf-skip">Je n'ai pas joué</button>
+      </div>
+      <p class="muted small" id="mf-status"></p>
+    </section>`;
+  wireFeelScales(box);
+  setupMicButton(box.querySelector("#mf-mic"), box.querySelector("#mf-voice-hint"), box.querySelector("#mf-note"), box.querySelector("#mf-live-caption"));
+  box.querySelector("#mf-skip").addEventListener("click", () => { dismissMatchFeel(m.date); box.innerHTML = ""; });
+  box.querySelector("#mf-save").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const status = box.querySelector("#mf-status");
+    const feel = readFeel(box);
+    if (!feel || Object.keys(feel).length < MATCH_FEEL_SCALES.length) { status.textContent = "Note les trois échelles (contact, énergie, souffle)."; return; }
+    const note = box.querySelector("#mf-note").value.trim();
+    let performance;
+    if (perf) {
+      performance = { ...perf, feel, notes: note || perf.notes || "" };
+    } else {
+      const minutes = box.querySelector("#mf-minutes").value;
+      const rpe = box.querySelector("#mf-rpe").value;
+      if (minutes === "" || rpe === "") { status.textContent = "Minutes jouées et RPE sont nécessaires (ils comptent dans ta charge)."; return; }
+      // Durée totale par défaut (échauffement compris), modifiable dans Matchs.
+      performance = { minutes_played: Number(minutes), rpe: Number(rpe), duration_min: 90, contact_intensity: null, notes: note, feel, logged_at: localISOWithOffset() };
+    }
+    btn.disabled = true;
+    status.textContent = "Enregistrement…";
+    try {
+      await saveMatchPerformance(m.date, m.opponent, team, performance);
+      box.innerHTML = `<section class="card match-feel-card done"><p class="small"><strong>Ressenti du match enregistré ✓</strong><br>${escapeHtmlText(feelSummaryText(feel))}</p></section>`;
+    } catch (err) {
+      status.textContent = `Échec : ${err.message}`;
+      btn.disabled = false;
+    }
+  });
+}
+
 export async function renderToday(token) {
   setupCredo();
   loadReadiness(token).catch(() => {});
   renderTodayDataCheck(token).catch(() => {});
   loadCheckin(token).catch(() => {});
   loadTodaySession(token).catch(() => {});
+  loadMatchFeel(token).catch(() => {});
   loadTodo(token).catch(() => {});
   renderSystemStatus(token).catch(() => {});
 

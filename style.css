@@ -2528,3 +2528,37 @@ body.live-open { overflow: hidden; }
 .bloc-qualities li { color: var(--status-ok-text); }
 .bloc-tile b { color: var(--status-ok-text); }
 .bloc-goals li::before { border-color: var(--status-ok-text); }
+
+/* Suivi des objectifs du bloc (ADR-0094). */
+.goal-track { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.goal-bar { position: relative; height: 8px; border-radius: 4px; background: var(--border); }
+.goal-fill { display: block; height: 100%; border-radius: 4px; background: var(--status-ok-text); min-width: 4px; }
+.goal-tick { position: absolute; top: -3px; width: 2px; height: 14px; margin-left: -1px; border-radius: 1px; background: var(--text); opacity: 0.55; }
+.goal-caption { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px 8px; font-size: 0.82rem; color: var(--muted); }
+.goal-caption b { color: var(--text); }
+.goal-pill { padding: 2px 8px; border-radius: 8px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
+.goal-pill.ok { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.goal-pill.warn { background: var(--status-warn-pale); color: var(--status-warn-text); }
+.goal-weeks { display: flex; gap: 6px; flex-wrap: wrap; }
+.goal-week { min-width: 28px; height: 28px; padding: 0 6px; display: inline-flex; align-items: center; justify-content: center; border-radius: 14px; font-size: 0.78rem; font-weight: 700; }
+.goal-week.met { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.goal-week.missed { background: var(--status-warn-pale); color: var(--status-warn-text); }
+.goal-week.current { border: 1.5px dashed var(--muted); color: var(--text); }
+
+/* Fiche de ressenti après match (ADR-0094). */
+.match-feel-card .card-head h2 { margin: 0; }
+.match-feel-sub { margin: 4px 0 10px; }
+.match-feel-grid { margin-bottom: 6px; }
+.feel-scales { display: flex; flex-direction: column; gap: 10px; }
+.feel-row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.feel-label { font-weight: 700; font-size: 0.92rem; }
+.feel-anchors { font-size: 0.74rem; color: var(--muted); }
+.feel-chips { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.feel-chip { min-height: 44px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--card-bg); color: var(--text); font-weight: 700; font-size: 1rem; cursor: pointer; }
+.feel-chip.active { background: var(--green); border-color: var(--green); color: white; }
+.match-feel-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; }
+.match-feel-actions .primary-button { flex: 1; margin: 0; }
+.match-feel-actions .delete-link { margin: 0; white-space: nowrap; }
+.match-feel-card.done { border-left: 4px solid var(--status-ok-text); }
+.match-feel-card .mic-button { background: var(--surface-2); color: var(--gold); }
+.match-feel-actions .delete-link { color: var(--muted); text-decoration: underline; }

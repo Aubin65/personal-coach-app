@@ -198,6 +198,19 @@ function startingPoint(sum, matches) {
     facts.push(`${label} : ${best != null ? `${best}` : "—"} → ${target} kg${pct != null ? ` (${pct} %)` : ""}`);
     if (pct == null || pct < 100) quick.push(`${label} : ${best != null ? `${best} → ` : ""}${target} kg (4RM)`);
   }
+  // Bilan du bloc précédent, objectif par objectif (coach.block_progress, ADR-0094).
+  const forgedNum = Number(String(state.forgeBlocLabel || "").replace(/\D/g, "")) || Infinity;
+  const previous = Object.values(sum.block_progress || {})
+    .filter((b) => Number(String(b.label).replace(/\D/g, "")) < forgedNum && b.status !== "a_venir")
+    .sort((a, b) => Number(b.label.slice(1)) - Number(a.label.slice(1)))[0];
+  if (previous) {
+    const bits = (previous.objectives || []).map((o) => {
+      if (o.kind === "lift" && o.pace !== "pas_de_donnee") return `${o.exercise} ${String(o.current).replace(".", ",")}/${String(o.target).replace(".", ",")} kg (${Math.round(o.pct * 100)} %)`;
+      if (o.kind === "frequency" && o.weeks_complete) return `muscu ${o.weeks_met}/${o.weeks_complete} semaines tenues${o.pain && o.pain.count ? `, ${o.pain.count} gêne(s) ${o.pain.zone}` : ""}`;
+      return null;
+    }).filter(Boolean);
+    if (bits.length) facts.unshift(`Bilan ${previous.label}${previous.status === "en_cours" ? ` (semaine ${previous.week}/${previous.weeks})` : ""} : ${bits.join(" · ")}`);
+  }
   const w = sum.workload;
   if (w && w.zone) facts.push(`Charge aiguë:chronique ${w.ratio != null ? w.ratio.toFixed(2).replace(".", ",") : ""} · ${String(w.zone).replace(/_/g, " ")}`);
   const gf = sum.gym_frequency;
