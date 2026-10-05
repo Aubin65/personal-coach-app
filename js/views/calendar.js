@@ -6,6 +6,7 @@ import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
 import { dayInitial, shortDateFr } from "./data-viz.js";
 import { feelScalesHTML, wireFeelScales, readFeel, feelSummaryText } from "../match-feel.js";
+import { loadPlayingTeams, savePlayingTeams, playsIn, ALL_TEAMS } from "../match-teams.js";
 
 const MONTH_NAMES_FR = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
@@ -80,7 +81,11 @@ export async function renderCalendar(token) {
   if (stale(token)) return;
   if (!file) { el.innerHTML = "<p class='muted'>Pas encore de résumé exporté.</p>"; return; }
   const s = JSON.parse(file.content);
-  const matches = s.season_matches || [];
+  // Réglage « je joue en … » appliqué tout de suite (summary.json n'est
+  // régénéré qu'au digest) : ADR-0095.
+  const teams = await loadPlayingTeams();
+  if (stale(token)) return;
+  const matches = (s.season_matches || []).map((m) => ({ ...m, user_is_playing: playsIn(m, teams) }));
   if (!matches.length) { el.innerHTML = "<p class='muted'>Aucun match dans le calendrier de la saison.</p>"; return; }
 
   const today = todayISO();
@@ -135,6 +140,11 @@ export async function renderCalendar(token) {
   const losses = playedPremiere.filter((m) => m.result === "défaite").length;
   const draws = playedPremiere.filter((m) => m.result === "nul").length;
   let html = nextGroup ? nextMatchHeroHTML(nextGroup, today, nextPlayed) : "";
+  html += `
+    <div class="teams-setting">
+      <span>Je joue en</span>
+      ${ALL_TEAMS.map((t) => `<button type="button" class="suggestion-chip${teams.includes(t) ? " active" : ""}" data-team-toggle="${escapeAttr(t)}" aria-pressed="${teams.includes(t)}">${escapeHtmlText(t)}</button>`).join("")}
+    </div>`;
   const upcomingAll = [...groups.values()].filter((g) => g.date >= today && g !== nextGroup);
   const past = [...groups.values()].filter((g) => g.date < today).reverse();
   // Les 3 prochains matchs, puis les matchs joués (résultats récents
@@ -197,6 +207,18 @@ export async function renderCalendar(token) {
   html += "</div>";
   el.innerHTML = html;
   wireMatchPerformanceForms(el);
+  el.querySelectorAll("[data-team-toggle]").forEach((chip) => chip.addEventListener("click", async () => {
+    const t = chip.dataset.teamToggle;
+    const next = teams.includes(t) ? teams.filter((x) => x !== t) : [...teams, t];
+    chip.disabled = true;
+    try {
+      await savePlayingTeams(next);
+      renderCalendar(token).catch(() => {});
+    } catch (err) {
+      chip.disabled = false;
+      window.alert(`Échec : ${err.message}`);
+    }
+  }));
 }
 
 /** Section "Mon match" sous la ligne d'une équipe — seulement si le match

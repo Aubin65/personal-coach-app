@@ -2562,3 +2562,7 @@ body.live-open { overflow: hidden; }
 .match-feel-card.done { border-left: 4px solid var(--status-ok-text); }
 .match-feel-card .mic-button { background: var(--surface-2); color: var(--gold); }
 .match-feel-actions .delete-link { color: var(--muted); text-decoration: underline; }
+
+/* Matchs : équipe(s) jouée(s) (ADR-0095). */
+.teams-setting { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; font-size: 0.9rem; font-weight: 600; color: var(--muted); }
+.teams-setting .suggestion-chip { margin: 0; min-height: 40px; padding: 0 14px; }

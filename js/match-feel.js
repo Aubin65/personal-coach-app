@@ -1,5 +1,6 @@
 import { ghGetFile, ghListDir } from "./github-api.js";
 import { escapeHtmlText } from "./markdown.js";
+import { loadPlayingTeams, playsIn } from "./match-teams.js";
 
 // ============================================================================
 // Fiche de ressenti après match (docs/adr/0094) — objectif écrit dans B5 :
@@ -81,7 +82,7 @@ export function pickMatchToRate(fixtures, today, hour, days = 3, isDismissed = (
  * summary.json qui n'est régénéré qu'au digest), avec `user_is_playing`
  * calculé comme côté Python (coach.schedule._load_fixtures). */
 export async function loadFixtures() {
-  const entries = await ghListDir("data/schedule").catch(() => []);
+  const [entries, teams] = await Promise.all([ghListDir("data/schedule").catch(() => []), loadPlayingTeams()]);
   const out = [];
   for (const e of entries.filter((x) => x.type === "file" && /^matches-.*\.json$/.test(x.name || ""))) {
     const file = await ghGetFile(e.path).catch(() => null);
@@ -89,7 +90,10 @@ export async function loadFixtures() {
     let season;
     try { season = JSON.parse(file.content); } catch (_) { continue; }
     const back = season.user_return_to_play_date;
-    for (const f of season.fixtures || []) out.push({ ...f, user_is_playing: !back || f.date >= back });
+    for (const f of season.fixtures || []) {
+      const fixture = { ...f, user_is_playing: !back || f.date >= back };
+      out.push({ ...fixture, user_is_playing: playsIn(fixture, teams) });
+    }
   }
   return out;
 }
