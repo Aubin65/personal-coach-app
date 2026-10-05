@@ -61,6 +61,8 @@ export function dispatchStatusNote({ dispatched, dispatchError, queued }) {
 }
 
 export async function renderChat(token) {
+  chatShowAll = false;
+  chatRenderedCount = -1;
   await refreshChatLog(token);
   const form = document.getElementById("chat-form");
   // Dictée (docs/adr/0073) : même composant que les notes vocales. On coupe
@@ -142,26 +144,89 @@ function showChatStatus(text) {
   el.hidden = !text;
 }
 
+// Fil du coach (ADR-0092) : seuls les derniers échanges s'affichent, avec un
+// séparateur par jour ; l'historique se déplie à la demande. Les messages
+// techniques (« [Forge] … », « [Check-in] … ») gardent leur préfixe en
+// étiquette discrète plutôt qu'en texte brut.
+const CHAT_RECENT_TURNS = 20;
+let chatShowAll = false;
+let chatRenderedCount = -1;
+
+function chatDayLabel(at) {
+  if (!at) return null;
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return null;
+  const iso = d.toLocaleDateString("fr-CA");
+  const today = new Date().toLocaleDateString("fr-CA");
+  const yesterday = new Date(Date.now() - 86400000).toLocaleDateString("fr-CA");
+  if (iso === today) return "Aujourd'hui";
+  if (iso === yesterday) return "Hier";
+  return d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+}
+
+function chatBubble(turn) {
+  const div = document.createElement("div");
+  div.className = `chat-bubble ${turn.role}`;
+  const m = turn.role === "user" ? /^\[([^\]]{1,40})\]\s*/.exec(turn.text || "") : null;
+  if (m) {
+    const tag = document.createElement("span");
+    tag.className = "chat-tag";
+    tag.textContent = m[1];
+    div.appendChild(tag);
+    div.appendChild(document.createTextNode((turn.text || "").slice(m[0].length)));
+  } else {
+    div.textContent = turn.text;
+  }
+  // Heure seulement sur tes messages : l'app la note à l'envoi ; celle des
+  // réponses est écrite à la main par le coach et souvent approximative.
+  if (turn.at && turn.role === "user") {
+    const time = document.createElement("span");
+    time.className = "chat-time";
+    time.textContent = new Date(turn.at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    div.appendChild(time);
+  }
+  return div;
+}
+
 async function refreshChatLog(token) {
   const file = await ghGetFile("data/app-chat/conversation.json");
   if (token != null && stale(token)) return;
   const log = document.getElementById("chat-log");
   if (!log) return;
   const conv = file ? JSON.parse(file.content) : [];
+  const keepScroll = chatRenderedCount === conv.length && log.childElementCount > 0;
   log.innerHTML = conv.length
     ? ""
     : "<p class='muted small'>Pose une question au coach — récupération, nutrition, séance du jour, ce que tu veux. La réponse arrive en quelques minutes.</p>";
-  for (const turn of conv) {
-    const div = document.createElement("div");
-    div.className = `chat-bubble ${turn.role}`;
-    div.textContent = turn.text;
-    log.appendChild(div);
+  const hidden = chatShowAll ? 0 : Math.max(0, conv.length - CHAT_RECENT_TURNS);
+  if (hidden) {
+    const more = document.createElement("button");
+    more.type = "button";
+    more.className = "chat-more";
+    more.textContent = `Voir les ${hidden} messages précédents`;
+    more.addEventListener("click", () => { chatShowAll = true; chatRenderedCount = conv.length; refreshChatLog(); });
+    log.appendChild(more);
+  }
+  let lastDay = null;
+  for (const turn of conv.slice(hidden)) {
+    const day = chatDayLabel(turn.at);
+    if (day && day !== lastDay) {
+      const sep = document.createElement("div");
+      sep.className = "chat-day";
+      sep.textContent = day;
+      log.appendChild(sep);
+      lastDay = day;
+    }
+    log.appendChild(chatBubble(turn));
   }
   // A reply landed (or there was never anything pending) — whatever the
   // composer's status line said ("en cours de préparation", a dispatch
   // warning…) no longer applies.
   if (!conv.length || conv[conv.length - 1].role === "assistant") showChatStatus("");
-  scrollChatToBottom();
+  // Défile en bas à l'ouverture et à l'arrivée d'un message, pas à chaque
+  // relecture du polling (on peut être en train de lire plus haut).
+  if (!keepScroll) scrollChatToBottom();
+  chatRenderedCount = conv.length;
 }
 
 function startChatPolling() {

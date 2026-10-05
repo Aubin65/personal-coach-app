@@ -100,7 +100,7 @@ export function execRowsHTML(rows) {
       ${rows.length ? execSetRowHeadHTML() : ""}
       ${rowsHTML}
       <div class="exec-set-actions">
-        <button type="button" class="primary-button ghost small as-planned-exec">📋 Comme planifié</button>
+        <button type="button" class="primary-button ghost small as-planned-exec">📋 Comme prévu</button>
         <button type="button" class="primary-button ghost small add-exec-set">+ Série faite</button>
         <button type="button" class="primary-button ghost small duplicate-exec-set"${rows.length < 2 ? " hidden" : ""}>🔁 Dupliquer la 1ʳᵉ série partout</button>
       </div>

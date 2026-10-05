@@ -1,7 +1,7 @@
 import { sessionRuntime } from "./session-state.js";
 import { escapeAttr, escapeHtmlText, skeletonHTML } from "../markdown.js";
 import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
-import { notesLabelFor, notesPlaceholderFor, renderSessionContent } from "./session-render.js";
+import { notesLabelFor, notesPlaceholderFor, renderSessionContent, plannedSummary } from "./session-render.js";
 import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName } from "./session-model.js";
 import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows, hydrateExecRows } from "./session-exec.js";
 import { bindBlockReferenceToggle } from "../plan-overview.js";
@@ -522,6 +522,27 @@ export function bindSessionContentEvents() {
     syncFormIntoSession();
     promptRpeAndSave("Charge de la séance");
   });
+
+  // Menu ⋯ d'un exercice : un seul ouvert à la fois, fermé au tap ailleurs.
+  document.querySelectorAll(".exercise-more").forEach((menu) => menu.addEventListener("toggle", () => {
+    if (!menu.open) return;
+    document.querySelectorAll(".exercise-more[open]").forEach((other) => { if (other !== menu) other.open = false; });
+    const close = (e) => {
+      if (menu.contains(e.target)) return;
+      menu.open = false;
+      document.removeEventListener("pointerdown", close, true);
+    };
+    document.addEventListener("pointerdown", close, true);
+  }));
+
+  // Résumé « 3 × 10-12 · 55 kg » tenu à jour pendant l'édition du prévu (ADR-0092).
+  document.querySelectorAll(".planned-details").forEach((box) => box.addEventListener("input", () => {
+    const value = (cls) => (box.querySelector(cls) || {}).value ?? "";
+    const perHand = box.querySelector(".f-planned-load-per-hand");
+    box.querySelector(".planned-summary").textContent = plannedSummary({
+      sets: value(".f-planned-sets"), reps: value(".f-planned-reps"), load: value(".f-planned-load"), load_per_hand: !!(perHand && perHand.checked),
+    });
+  }));
 
   document.querySelectorAll(".exercise-history-button").forEach((btn) => btn.addEventListener("click", () => {
     const nameInput = btn.closest(".exercise-log-card").querySelector(".f-name");

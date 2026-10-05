@@ -142,9 +142,44 @@ document.getElementById("topbar-back").addEventListener("click", () => {
   if (state.sessionReturnTo) showView(state.sessionReturnTo);
 });
 
-document.getElementById("refresh-button").addEventListener("click", (e) => {
-  e.currentTarget.classList.add("spinning");
+function refreshCurrentView() {
+  const btn = document.getElementById("refresh-button");
+  btn.classList.add("spinning");
   showView(state.view);
   loadSyncStatus();
-  setTimeout(() => e.currentTarget.classList.remove("spinning"), 800);
-});
+  setTimeout(() => btn.classList.remove("spinning"), 800);
+}
+document.getElementById("refresh-button").addEventListener("click", refreshCurrentView);
+
+// Tirer pour rafraîchir (ADR-0092) : sur téléphone, le bouton ⟳ est masqué
+// (CSS, pointeur tactile) — tirer l'écran vers le bas depuis le haut du
+// contenu recharge la vue. Pas pendant une séance guidée ni dans un champ.
+(function setupPullToRefresh() {
+  const content = document.getElementById("content");
+  const hint = document.createElement("div");
+  hint.className = "ptr-hint";
+  hint.setAttribute("aria-hidden", "true");
+  document.body.appendChild(hint);
+  const THRESHOLD = 70;
+  let startY = null;
+  let pulled = 0;
+  content.addEventListener("touchstart", (e) => {
+    const inField = e.target.closest && e.target.closest("input, textarea, select, .sheet");
+    startY = content.scrollTop <= 0 && !inField && e.touches.length === 1 ? e.touches[0].clientY : null;
+    pulled = 0;
+  }, { passive: true });
+  content.addEventListener("touchmove", (e) => {
+    if (startY == null) return;
+    pulled = e.touches[0].clientY - startY;
+    if (pulled <= 10 || content.scrollTop > 0) { hint.classList.remove("visible", "ready"); return; }
+    hint.textContent = pulled > THRESHOLD ? "Relâche pour rafraîchir" : "Tire pour rafraîchir";
+    hint.classList.add("visible");
+    hint.classList.toggle("ready", pulled > THRESHOLD);
+  }, { passive: true });
+  content.addEventListener("touchend", () => {
+    if (startY != null && pulled > THRESHOLD && content.scrollTop <= 0) refreshCurrentView();
+    startY = null;
+    pulled = 0;
+    hint.classList.remove("visible", "ready");
+  });
+})();

@@ -183,9 +183,15 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
       const secondary = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
         ? ` · + ${SESSION_TYPES[summary.secondaryType].label.replace(/\s*\(.*\)$/, "").toLowerCase()}`
         : "";
+      // Passé / réalisé lisible d'un coup d'œil (ADR-0092) : jour passé
+      // atténué, ✓ quand c'est logué, « À loguer » quand une séance passée ne
+      // l'est pas (repos exclus).
+      const isPast = !!(iso && iso < todayISOStr);
+      const toLog = isPast && type !== "repos" && status !== "Fait";
       const pill = isToday
         ? '<span class="week-day-pill today">Aujourd\'hui</span>'
-        : status === "Fait" ? '<span class="week-day-pill done">Fait</span>' : "";
+        : status === "Fait" ? '<span class="week-day-pill done">✓ Fait</span>'
+        : toLog ? '<span class="week-day-pill to-log">À loguer</span>' : "";
       const sub = type === "repos" ? "" : `${status}${typeLabel && !isMatch ? ` · ${typeLabel}` : ""}${secondary}`;
       const iconKind = type === "repos" ? "repos" : isMatch ? "match" : type;
       // Repos (docs/adr/0082) : une ligne basse et calme plutôt qu'une carte
@@ -196,7 +202,7 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
         : "";
       const secondaryIcon = summary && summary.secondaryType ? kindIconHTML(summary.secondaryType, "mini") : "";
       stripHTML += type === "repos" ? `
-        <button type="button" class="week-day kind-rest${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
+        <button type="button" class="week-day kind-rest${isToday ? " is-today" : ""}${isPast ? " is-past" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <span class="week-day-label"><small>${d.day.slice(0, 3)}</small><b>${parseInt(d.date.split("/")[0], 10)}</b></span>
           <span class="week-day-card">
             ${kindIconHTML("repos")}
@@ -204,7 +210,7 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
             ${pill}
           </span>
         </button>` : `
-        <button type="button" class="week-day kind-${kind}${isToday ? " is-today" : ""}"${iso ? ` data-date="${iso}"` : ""}>
+        <button type="button" class="week-day kind-${kind}${isToday ? " is-today" : ""}${isPast ? " is-past" : ""}${toLog ? " to-log" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <span class="week-day-label"><small>${d.day.slice(0, 3)}</small><b>${parseInt(d.date.split("/")[0], 10)}</b></span>
           <span class="week-day-card">
             <span class="week-day-icons">${kindIconHTML(iconKind)}${secondaryIcon}</span>

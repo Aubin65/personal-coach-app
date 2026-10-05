@@ -19,7 +19,9 @@ import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 // entrée d'Historique.
 export async function renderSession(token) {
   const date = state.sessionDate || todayISO();
-  document.getElementById("topbar-title").textContent = `Séance — ${formatFrDate(date)}`;
+  // Titre court (ADR-0092) : « Séance — mardi 6 octobre » était tronqué ;
+  // la date passe dans la première carte, à côté du type.
+  document.getElementById("topbar-title").textContent = "Séance";
   document.getElementById("session-content").innerHTML = skeletonHTML();
 
   const found = await findSessionForDate(date);
@@ -83,7 +85,7 @@ export function renderSessionContent() {
   const type = session.type || "musculation";
   el.innerHTML = `
     <section class="card">
-      <div class="session-type-badge">${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${SESSION_TYPES[type] ? SESSION_TYPES[type].label : type}</div>
+      <div class="session-head-row"><div class="session-type-badge">${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${SESSION_TYPES[type] ? SESSION_TYPES[type].label : type}</div>${(sessionRuntime.working && sessionRuntime.working.date) ? `<span class="session-date">${escapeHtmlText(formatFrDate(sessionRuntime.working.date))}</span>` : ""}</div>
       ${session.cancelled_from ? `<p class="muted small session-cancelled-note">Remplace « ${escapeHtmlText(session.cancelled_from.name || "séance")} » (annulée).</p>` : ""}
       <label>Nom de la séance</label>
       <input id="session-name-input" value="${escapeAttr(session.name || "Séance")}">
@@ -142,15 +144,15 @@ function cancelSessionCardHTML(session) {
   const targets = Object.entries(SESSION_TYPES).filter(([key]) => key !== current && key !== "musculation");
   if (!targets.length) return "";
   return `
-    <section class="card cancel-session-card">
-      <h2>🚫 Annuler cette séance</h2>
+    <details class="card cancel-session-card">
+      <summary><h2>🚫 Annuler ou remplacer cette séance</h2></summary>
       <p class="muted small">Remplace la séance par un autre type. Motif facultatif, repris dans la note.</p>
       <textarea id="cancel-reason" rows="2" placeholder="Pourquoi ? (courbatures, fatigue, douleur...)"></textarea>
       <div class="cancel-session-actions">
         ${targets.map(([key, t]) => `<button type="button" class="action-button" data-cancel-to="${key}"><span class="action-icon">${t.icon}</span>Remplacer par : ${t.label}</button>`).join("")}
       </div>
       <p id="cancel-status" class="muted small"></p>
-    </section>`;
+    </details>`;
 }
 
 function bindCancelSession() {
@@ -354,7 +356,7 @@ function blockCardHTML(indices, exercises) {
       ${cappedToggleHTML}
       ${resultHTML}
       ${durationHTML}
-      <div class="exercise-block-notes"><label>Notes (optionnel)</label><textarea class="f-block-notes" rows="2" placeholder="Détail libre si besoin">${escapeHtmlText(leader.notes || "")}</textarea></div>
+      <details class="exercise-block-notes"${leader.notes ? " open" : ""}><summary>${leader.notes ? "Notes" : "+ Ajouter une note"}</summary><textarea class="f-block-notes" rows="2" placeholder="Détail libre si besoin">${escapeHtmlText(leader.notes || "")}</textarea></details>
     </div>`;
 }
 
@@ -405,37 +407,56 @@ function stationRowHTML(ex, idx, format, total) {
  * — "concatène deux exercices dans le même bloc", the same result as the
  * bottom "+ Superset" button, just reachable in place on an existing
  * exercise instead of only when starting a brand new pair. */
+/** « 3 × 10-12 · 55 kg » — le prévu en une ligne (ADR-0092) ; le détail
+ * reste éditable en dépliant. */
+export function plannedSummary(planned = {}) {
+  const sets = planned.sets ?? "";
+  const reps = planned.reps ?? "";
+  const load = planned.load ?? "";
+  const head = sets !== "" && reps !== "" ? `${sets} × ${reps}` : (sets !== "" ? `${sets} séries` : String(reps));
+  const loadText = load === "" || load === null ? "" : (/^[\d.,]+$/.test(String(load)) ? `${load} kg` : String(load)) + (planned.load_per_hand ? " /main" : "");
+  return [head, loadText].filter(Boolean).join(" · ") || "à définir";
+}
+function plannedIsEmpty(planned = {}) {
+  return ["sets", "reps", "load"].every((k) => planned[k] === undefined || planned[k] === null || planned[k] === "");
+}
+
 function exerciseCardHTML(ex, idx, total, showFormatControls) {
   const planned = ex.planned || {};
   const executed = ex.executed || {};
   return `
     <div class="exercise-row exercise-log-card" data-idx="${idx}">
       <div class="exercise-log-head">
-        <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}">
+        <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Nom de l'exercice">
         <button type="button" class="icon-button small exercise-history-button" title="Historique de l'exercice" aria-label="Historique de l'exercice">📈</button>
-        <div class="reorder-buttons">
-          <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
-          <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
-          <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
-        </div>
-      </div>
-      ${showFormatControls
-        ? `<select class="f-block-format" data-leader-idx="${idx}">
+        <details class="exercise-more">
+          <summary class="icon-button small" title="Déplacer ou retirer" aria-label="Déplacer ou retirer">⋯</summary>
+          <div class="reorder-buttons">
+            ${showFormatControls
+        ? `<select class="f-block-format exercise-format-select" data-leader-idx="${idx}" aria-label="Format de l'exercice">
         <option value="standard"${(ex.format || "standard") === "standard" ? " selected" : ""}>Standard</option>
         <option value="superset">Superset</option>
         ${Object.entries(EXERCISE_FORMATS).filter(([key]) => key !== "standard").map(([key, label]) => `<option value="${key}"${(ex.format || "standard") === key ? " selected" : ""}>${label}</option>`).join("")}
       </select>`
         : ""}
-      <div class="field-row-label">Prévu</div>
-      <div class="exercise-log-grid">
-        <div><label>Séries</label><input type="text" class="f-planned-sets" value="${escapeAttr(planned.sets ?? "")}"></div>
-        <div><label>Reps/temps</label><input type="text" class="f-planned-reps" value="${escapeAttr(planned.reps ?? "")}"></div>
-        <div>
-          <label>Charge</label>
-          <input type="text" class="f-planned-load" value="${escapeAttr(planned.load ?? "")}">
-          <label class="per-hand-toggle"><input type="checkbox" class="f-planned-load-per-hand"${planned.load_per_hand ? " checked" : ""}> Par main</label>
-        </div>
+            <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
+            <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
+            <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
+          </div>
+        </details>
       </div>
+      <details class="planned-details"${plannedIsEmpty(planned) ? " open" : ""}>
+        <summary><span class="planned-label">Prévu</span><span class="planned-summary">${escapeHtmlText(plannedSummary(planned))}</span><span class="planned-edit">Modifier</span></summary>
+        <div class="exercise-log-grid">
+          <div><label>Séries</label><input type="text" class="f-planned-sets" value="${escapeAttr(planned.sets ?? "")}"></div>
+          <div><label>Reps/temps</label><input type="text" class="f-planned-reps" value="${escapeAttr(planned.reps ?? "")}"></div>
+          <div>
+            <label>Charge</label>
+            <input type="text" class="f-planned-load" value="${escapeAttr(planned.load ?? "")}">
+            <label class="per-hand-toggle"><input type="checkbox" class="f-planned-load-per-hand"${planned.load_per_hand ? " checked" : ""}> Par main</label>
+          </div>
+        </div>
+      </details>
       <div class="field-row-label">Fait</div>
       ${execRowsHTML(hydrateExecRows(executed, ex.rir))}
       <label class="per-hand-toggle"><input type="checkbox" class="f-load-per-hand"${executed.load_per_hand ? " checked" : ""}> Charge par main</label>

@@ -49,6 +49,14 @@ function helpHTML(text) {
   return `<details class="card-help"><summary>Comment lire ?</summary><p>${text}</p></details>`;
 }
 
+// Onglet Forme : une seule aide en tête plutôt qu'un « Comment lire ? » par
+// carte (ADR-0092). Les cartes y versent leur texte via `formeHelp`.
+let formeHelpTexts = null;
+function formeHelp(title, text) {
+  if (formeHelpTexts) { formeHelpTexts.push({ title, text }); return ""; }
+  return helpHTML(text);
+}
+
 export async function renderData(token) {
   const el = document.getElementById("data-content");
   el.innerHTML = skeletonHTML();
@@ -89,6 +97,19 @@ function stripHeadingEmojis(root) {
 
 // ---------------------------------------------------------------- Forme
 function formeTabHTML(s) {
+  formeHelpTexts = [];
+  try {
+    const body = formeTabBodyHTML(s);
+    const help = formeHelpTexts.length
+      ? `<details class="card forme-help"><summary>Comment lire cet onglet ?</summary>${formeHelpTexts.map((h) => `<p><strong>${h.title}</strong> : ${h.text}</p>`).join("")}</details>`
+      : "";
+    return help + body;
+  } finally {
+    formeHelpTexts = null;
+  }
+}
+
+function formeTabBodyHTML(s) {
   let html = readinessScoreHTML(s.readiness);
 
   if (s.workload) {
@@ -107,7 +128,7 @@ function formeTabHTML(s) {
         ${readings.length > 1 ? `<div class="workload-trend"><div class="sleep-week-summary-label">Ratio, ${readings.length} derniers jours</div>${workloadTrendSVG(readings)}</div>` : ""}
         ${deloadInfoHTML(s.deload)}
         ${gymFrequencyInfoHTML(s.gym_frequency)}
-        ${helpHTML("Ratio = charge des 7 derniers jours ÷ moyenne quotidienne des 4 dernières semaines (RPE × durée de séance, méthode de Foster). Repères : &lt;0,8 sous-charge, 0,8–1,3 zone optimale, 1,3–1,5 zone prudente, &gt;1,5 risque élevé.")}
+        ${formeHelp("Charge aiguë:chronique", "Ratio = charge des 7 derniers jours ÷ moyenne quotidienne des 4 dernières semaines (RPE × durée de séance, méthode de Foster). Repères : &lt;0,8 sous-charge, 0,8–1,3 zone optimale, 1,3–1,5 zone prudente, &gt;1,5 risque élevé.")}
       </section>`;
   } else {
     html += `<section class="card"><h2>Charge aiguë:chronique</h2><p class="muted small">Pas encore assez d'historique de charge : renseigne le RPE et la durée à chaque séance (environ 4 semaines avant un premier calcul fiable).</p></section>`;
@@ -123,7 +144,7 @@ function formeTabHTML(s) {
         ${sleepHist.length ? barChartSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours })), { reference: SLEEP_TARGET_HOURS, dayLabels: true }) : ""}
         <p class="small">${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : "−"}${Math.round(Math.abs(delta) * 60)} min</span> par rapport aux 7 nuits d'avant` : ""}${sr.week_avg != null ? `${delta != null ? " · " : ""}cette semaine ${formatHoursFr(sr.week_avg)} sur ${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""}` : ""}</p>
         ${(sr.weekly_average || []).length > 1 ? `<details class="card-more"><summary>Moyenne par semaine</summary>${sparklineSVG(sr.weekly_average.map((w) => ({ date: w.week_start, value: w.avg_hours })), { axis: true })}</details>` : ""}
-        ${helpHTML(`Repère : au moins ${formatHoursFr(SLEEP_TARGET_HOURS)} par nuit — les barres dorées sont sous ce seuil.`)}
+        ${formeHelp("Sommeil", `Repère : au moins ${formatHoursFr(SLEEP_TARGET_HOURS)} par nuit — les barres dorées sont sous ce seuil.`)}
       </section>`;
   } else {
     html += `<section class="card"><h2>Sommeil</h2><p class="muted small">Pas encore de données de sommeil.</p></section>`;
@@ -153,7 +174,7 @@ function formeTabHTML(s) {
         <h2>Récupération</h2>
         ${block("FC repos", hr, "bpm", false)}
         ${block("HRV", hrv, "ms", true)}
-        ${helpHTML("FC repos basse et HRV stable ou haute = bonne récupération. Une tendance inverse qui dure plusieurs jours est un signal précoce de fatigue.")}
+        ${formeHelp("Récupération", "FC repos basse et HRV stable ou haute = bonne récupération. Une tendance inverse qui dure plusieurs jours est un signal précoce de fatigue.")}
       </section>`;
   }
 
@@ -432,6 +453,7 @@ function readinessScoreHTML(readiness) {
         <div class="readiness-component">
           <span class="readiness-component-label">${READINESS_COMPONENT_LABELS[key]}</span>
           <div class="readiness-component-track"><div class="readiness-component-fill" style="width:${c.score}%"></div></div>
+          <span class="readiness-component-value">${Math.round(c.score)}</span>
         </div>`
     )
     .join("");
@@ -443,7 +465,7 @@ function readinessScoreHTML(readiness) {
         <div class="readiness-score-label">${READINESS_LEVEL_LABELS[readiness.level] || readiness.level}</div>
       </div>
       <div class="readiness-components">${rows}</div>
-      ${helpHTML("Croise charge aiguë:chronique, sommeil récent, récupération (FC repos/HRV) et bien-être du check-in du matin — un repère, pas une vérité absolue.")}
+      ${formeHelp("Indice de forme", "Croise charge aiguë:chronique, sommeil récent, récupération (FC repos/HRV) et bien-être du check-in du matin — un repère, pas une vérité absolue.")}
     </section>`;
 }
 

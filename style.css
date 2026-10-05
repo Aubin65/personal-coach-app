@@ -2412,3 +2412,70 @@ body.live-open { overflow: hidden; }
 
 .today-session-clubrow { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin-top: 4px; }
 .today-session-clubrow .delete-link { margin: 0; }
+
+/* ---------- Séance compacte (ADR-0092) ---------- */
+/* Nom en entier ; monter/descendre/retirer dans un menu ⋯ ; prévu replié en
+   une ligne, édité en dépliant ; la saisie « Fait » reste au premier plan. */
+.exercise-log-head .f-name { min-width: 0; }
+.exercise-more { position: relative; flex-shrink: 0; }
+.exercise-more > summary { list-style: none; display: flex; align-items: center; justify-content: center; border-radius: var(--radius-sm); cursor: pointer; font-size: 1.2rem; font-weight: 700; }
+.exercise-more > summary::-webkit-details-marker { display: none; }
+.exercise-more[open] > summary { background: var(--border); }
+.exercise-more > .reorder-buttons { position: absolute; right: 0; top: calc(100% + 6px); z-index: 5; padding: 6px; border-radius: var(--radius-sm); background: var(--card-bg); box-shadow: var(--shadow); border: 1px solid var(--border); }
+.planned-details { margin: 2px 0 6px; }
+.planned-details > summary { display: flex; align-items: baseline; gap: 8px; min-height: 36px; padding: 6px 0; cursor: pointer; list-style: none; }
+.planned-details > summary::-webkit-details-marker { display: none; }
+.planned-label { font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.planned-summary { flex: 1; font-weight: 700; font-size: 0.98rem; }
+.planned-edit { font-size: 0.8rem; font-weight: 600; color: var(--green-light); }
+.planned-details[open] .planned-edit { visibility: hidden; }
+.planned-details[open] > .exercise-log-grid { padding-bottom: 6px; }
+.exercise-block-stations .exercise-log-card { padding: 10px; border-color: transparent; }
+.exercise-more > .reorder-buttons { align-items: center; }
+.exercise-more .exercise-format-select { width: 132px; margin: 0; font-size: 0.85rem; padding: 9px 8px; }
+.exercise-more[open] > summary { position: relative; }
+/* « Comme planifié » et « + Série faite » côte à côte ; « Dupliquer » en dessous. */
+.exec-set-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.exec-set-actions .duplicate-exec-set { grid-column: 1 / -1; }
+.exec-set-actions button { min-height: 44px; padding: 0 8px; font-size: 0.86rem; }
+.exercise-block-notes > summary { cursor: pointer; list-style: none; font-size: 0.8rem; font-weight: 600; color: var(--muted); padding: 8px 0 4px; }
+.exercise-block-notes > summary::-webkit-details-marker { display: none; }
+.exercise-block-notes[open] > summary { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.68rem; }
+.cancel-session-card > summary { list-style: none; cursor: pointer; }
+.cancel-session-card > summary::-webkit-details-marker { display: none; }
+.cancel-session-card > summary h2 { margin: 0; font-size: 1rem; }
+.cancel-session-card[open] > summary h2 { margin-bottom: 10px; }
+
+/* Plan › Semaine : passé atténué, à loguer signalé (ADR-0092). */
+.week-day.is-past:not(.to-log) .week-day-card { opacity: 0.62; }
+.week-day.is-past:not(.to-log) .week-day-label { opacity: 0.62; }
+.week-day-pill.to-log { background: var(--status-warn-pale, #FBEFD5); color: var(--status-warn-text, #8A5A00); }
+.week-day.to-log .week-day-card { border-color: var(--gold); }
+
+/* Progrès › Forme (ADR-0092) : valeur des composantes, une seule aide. */
+.readiness-component-value { width: 28px; text-align: right; font-size: 0.82rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text); }
+.forme-help { padding: 12px 16px; }
+.forme-help > summary { cursor: pointer; list-style: none; color: var(--muted); font-weight: 600; font-size: 0.86rem; }
+.forme-help > summary::-webkit-details-marker { display: none; }
+.forme-help > summary::before { content: "? "; display: inline-flex; width: 20px; height: 20px; margin-right: 6px; align-items: center; justify-content: center; border-radius: 50%; border: 1.5px solid var(--muted); font-size: 0.75rem; }
+.forme-help p { margin: 10px 0 0; font-size: 0.86rem; line-height: 1.45; }
+
+/* Coach (ADR-0092) : séparateurs par jour, heure, étiquette des messages techniques. */
+.chat-day { align-self: center; margin: 8px 0 2px; padding: 3px 10px; border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: 0.74rem; font-weight: 700; }
+.chat-day::first-letter { text-transform: uppercase; }
+.chat-more { align-self: center; min-height: 40px; padding: 0 14px; border: 1px solid var(--border); border-radius: 20px; background: var(--card-bg); color: var(--green); font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+.chat-time { display: block; margin-top: 4px; font-size: 0.68rem; opacity: 0.65; text-align: right; }
+.chat-tag { display: inline-block; margin: 0 6px 2px 0; padding: 1px 7px; border-radius: 8px; background: rgba(255,255,255,0.18); font-size: 0.72rem; font-weight: 700; vertical-align: 1px; }
+.chat-bubble.assistant .chat-tag { background: var(--surface-2); }
+
+/* En-têtes (ADR-0092) : ⟳ masqué au doigt (tirer pour rafraîchir), gardé à la souris. */
+@media (hover: none) and (pointer: coarse) {
+  #refresh-button { display: none; }
+}
+.ptr-hint { position: fixed; top: calc(env(safe-area-inset-top, 0px) + 74px); left: 50%; z-index: 30; transform: translate(-50%, -12px); padding: 6px 14px; border-radius: 16px; background: var(--card-bg); color: var(--muted); box-shadow: var(--shadow); font-size: 0.82rem; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity 0.15s, transform 0.15s; }
+.ptr-hint.visible { opacity: 1; transform: translate(-50%, 0); }
+.ptr-hint.ready { color: var(--green); }
+.session-head-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.session-head-row .session-type-badge { margin-bottom: 0; }
+.session-date { display: inline-block; font-size: 0.86rem; font-weight: 600; color: var(--muted); }
+.session-date::first-letter { text-transform: uppercase; }

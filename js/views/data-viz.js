@@ -240,10 +240,22 @@ export function workloadTrendSVG(readings) {
   const stepX = plotW / (readings.length - 1);
   const coords = readings.map((r, i) => [padLeft + i * stepX, yFor(r.ratio)]);
   const path = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+  // Repères 0.8 / 1.3 / 1.5 : 1.3 et 1.5 sont à quelques pixels l'un de
+  // l'autre, leurs libellés se chevauchaient à gauche (ADR-0092) — un
+  // libellé trop proche du précédent passe à droite, au-dessus de sa ligne.
+  let lastLabelY = Infinity;
   const thresholdLines = [0.8, 1.3, 1.5]
-    .map((v) => `
-      <line x1="${padLeft}" y1="${yFor(v).toFixed(1)}" x2="${w - padRight}" y2="${yFor(v).toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
-      <text x="${padLeft - 3}" y="${(yFor(v) + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--muted)">${v}</text>`)
+    .map((v) => {
+      const y = yFor(v);
+      const crowded = Math.abs(lastLabelY - y) < 10;
+      if (!crowded) lastLabelY = y;
+      const label = crowded
+        ? `<text x="${w - padRight - 2}" y="${(y - 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--muted)">${v}</text>`
+        : `<text x="${padLeft - 3}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--muted)">${v}</text>`;
+      return `
+      <line x1="${padLeft}" y1="${y.toFixed(1)}" x2="${w - padRight}" y2="${y.toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
+      ${label}`;
+    })
     .join("");
   const [lastX, lastY] = coords[coords.length - 1];
   const lastColor = WORKLOAD_ZONE_STROKE[readings[readings.length - 1].zone] || "var(--green-light)";

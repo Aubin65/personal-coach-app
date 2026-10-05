@@ -66,6 +66,14 @@ export async function renderWeekPlanning(token) {
   } else {
     document.getElementById("week-day-strip").innerHTML = "<p class='muted'>Pas de planning disponible pour cette semaine.</p>";
   }
+  // Le tableau prévu/réalisé doublait la liste des jours (qui montre
+  // désormais ✓ Fait / À loguer, ADR-0092) : il ne reste qu'en secours,
+  // déplié, pour une semaine sans planning.
+  const sessionsDetails = document.querySelector(".week-sessions-details");
+  if (sessionsDetails) {
+    sessionsDetails.hidden = !!planFile;
+    sessionsDetails.open = !planFile;
+  }
   renderWeekSessionsTable(token, monday, planDays).catch(() => {});
 }
 
