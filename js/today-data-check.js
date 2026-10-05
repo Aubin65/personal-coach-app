@@ -1,4 +1,4 @@
-import { ghGetFile, ghRecentCommits, ghDispatchWorkflow, ghListDir } from "./github-api.js";
+import { ghGetFile, ghRecentCommits, ghDispatchWorkflow } from "./github-api.js";
 import { escapeHtmlText } from "./markdown.js";
 import { todayISO } from "./date-utils.js";
 import { stale } from "./nav.js";
@@ -31,15 +31,10 @@ function hhmm(iso) {
  * Renvoie `{ health: {received, fields, at}, checkin, digest: {exists, at},
  * digestBeforeHealth }`. */
 export async function loadTodayDataState(today = todayISO()) {
-  const [healthFile, digestFile, inbox] = await Promise.all([
+  const [healthFile, digestFile] = await Promise.all([
     ghGetFile(`data/health/${today}.json`).catch(() => null),
     ghGetFile(`data/digests/${today}.md`).catch(() => null),
-    ghListDir("data/health-inbox").catch(() => []),
   ]);
-  // Dépôt du raccourci pas encore fusionné par le workflow (ADR-0080) :
-  // les données sont arrivées, l'intégration prend quelques dizaines de
-  // secondes.
-  const pendingDrop = (inbox || []).some((e) => e.type === "file" && e.name.startsWith(today) && e.name.endsWith(".json"));
   let record = {};
   if (healthFile) { try { record = JSON.parse(healthFile.content) || {}; } catch (_) { record = {}; } }
   const fields = HEALTH_FIELDS.filter((f) => record[f.key] != null && record[f.key] !== "").map((f) => f.label);
@@ -60,7 +55,7 @@ export async function loadTodayDataState(today = todayISO()) {
     digestSaysNoHealth || (healthAt && digestAt && new Date(healthAt) > new Date(digestAt))
   ));
   return {
-    health: { received, fields, at: healthAt, pendingDrop },
+    health: { received, fields, at: healthAt },
     checkin,
     digest: { exists: !!digestFile, at: digestAt, missingHealth: digestSaysNoHealth },
     digestBeforeHealth,
@@ -85,9 +80,7 @@ export async function renderTodayDataCheck(token) {
   const rows = [];
   let issues = 0;
 
-  if (!s.health.received && s.health.pendingDrop) {
-    rows.push(row("info", "Données santé", "reçues, intégration en cours (moins d'une minute). Rafraîchis dans un instant."));
-  } else if (s.health.received) {
+  if (s.health.received) {
     const missing = HEALTH_FIELDS.map((f) => f.label).filter((l) => !s.health.fields.includes(l));
     rows.push(row("ok", "Données santé",
       `reçues${s.health.at ? ` à ${hhmm(s.health.at)}` : ""} : ${escapeHtmlText(s.health.fields.join(", "))}${missing.length ? ` (pas de ${escapeHtmlText(missing.join(", "))})` : ""}.`));
