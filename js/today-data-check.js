@@ -1,6 +1,7 @@
 import { ghGetFile, ghRecentCommits, ghDispatchWorkflow } from "./github-api.js";
 import { escapeHtmlText } from "./markdown.js";
 import { todayISO } from "./date-utils.js";
+import { healthPath, checkinPath } from "./data-paths.js";
 import { stale } from "./nav.js";
 
 // ============================================================================
@@ -31,19 +32,22 @@ function hhmm(iso) {
  * Renvoie `{ health: {received, fields, at}, checkin, digest: {exists, at},
  * digestBeforeHealth }`. */
 export async function loadTodayDataState(today = todayISO()) {
-  const [healthFile, digestFile] = await Promise.all([
-    ghGetFile(`data/health/${today}.json`).catch(() => null),
+  const [healthFile, checkinFile, digestFile] = await Promise.all([
+    ghGetFile(healthPath(today)).catch(() => null),
+    ghGetFile(checkinPath(today)).catch(() => null),
     ghGetFile(`data/digests/${today}.md`).catch(() => null),
   ]);
   let record = {};
   if (healthFile) { try { record = JSON.parse(healthFile.content) || {}; } catch (_) { record = {}; } }
   const fields = HEALTH_FIELDS.filter((f) => record[f.key] != null && record[f.key] !== "").map((f) => f.label);
   const received = fields.length > 0;
-  const checkin = !!(record.arrival_state || record.wellness || record.mobility);
-  // Heure d'arrivée de la synchro : le commit du raccourci (« santé du … »),
-  // pas le dernier commit du fichier, qu'un check-in fait ensuite repousse.
+  let checkinRecord = {};
+  if (checkinFile) { try { checkinRecord = JSON.parse(checkinFile.content) || {}; } catch (_) { checkinRecord = {}; } }
+  const checkin = !!(checkinRecord.arrival_state || checkinRecord.wellness || checkinRecord.mobility);
+  // Heure d'arrivée de la synchro : le commit du raccourci (« santé du … »).
+  // Le fichier santé n'est plus touché par l'app (ADR-0083).
   const [healthCommits, digestCommits] = await Promise.all([
-    received ? ghRecentCommits(`data/health/${today}.json`) : Promise.resolve([]),
+    received ? ghRecentCommits(healthPath(today)) : Promise.resolve([]),
     digestFile ? ghRecentCommits(`data/digests/${today}.md`, 1) : Promise.resolve([]),
   ]);
   const syncCommit = healthCommits.find((c) => /^sant[ée] du/i.test(c.message));

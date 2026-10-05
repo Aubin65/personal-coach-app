@@ -6,6 +6,7 @@ import { findSessionForDate } from "../training-index.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
 import { ghDispatchWorkflow, ghGetFile, ghPutJSON, ghListDir } from "../github-api.js";
+import { checkinPath, healthPath } from "../data-paths.js";
 import { openSheet } from "../sheet.js";
 import { latestFileOnOrBefore } from "../training-index.js";
 import { renderDigestSections } from "../plan-overview.js";
@@ -25,7 +26,7 @@ const ALERT_CATEGORY_LABELS = { blessure: "blessure / douleur", sommeil: "sommei
 // Check-in du matin (docs/adr/0065) — retour direct : "questionnaire de
 // bien-être subjectif quotidien" + "suivi de compliance de la routine
 // d'étirements du matin". Un seul composer, un seul Enregistrer pour les
-// deux (mêmes 15 secondes du matin), écrit sur data/health/<date>.json
+// deux (mêmes 15 secondes du matin), écrit sur data/checkin/<date>.json
 // sous deux clés séparées (`wellness`, `mobility`) — lues ensuite par
 // coach.readiness (composante bien_etre) et coach.progression.
 // mobility_streak_days côté Python, jamais recalculées ici autrement que
@@ -265,7 +266,7 @@ function recoveryPatternsHTML(patterns) {
  * sauvegarde qui remplace le contenu du slot résumé (le nouveau bouton
  * n'a pas encore d'écouteur, même motif que calendar.js). */
 registerQueuedOp("checkinDelete", async ({ date }) => {
-  await ghPutJSON(`data/health/${date}.json`, { date }, `App : check-in du ${date} effacé`, (current) => {
+  await ghPutJSON(checkinPath(date), { date }, `App : check-in du ${date} effacé`, (current) => {
     const base = current || { date };
     delete base.arrival_state;
     delete base.wellness;
@@ -296,15 +297,17 @@ function wireCheckinEditButton(card) {
   });
 }
 
-/** Écrit le check-in du jour dans data/health/<date>.json — opération
+/** Écrit le check-in du jour dans data/checkin/<date>.json — opération
  * rejouable par la file hors-ligne (offline-queue.js). Renvoie si la synchro
  * Santé du jour était déjà passée (sommeil présent), qui conditionne le
  * lancement automatique du digest. */
 registerQueuedOp("checkin", async ({ date, arrivalState, wellness, mobility }) => {
+  // Lecture seule du fichier du Raccourci : l'app ne l'écrit jamais (ADR-0083).
+  const healthFile = await ghGetFile(healthPath(date)).catch(() => null);
   let healthSynced = false;
-  await ghPutJSON(`data/health/${date}.json`, { date }, `App : check-in du matin du ${date}`, (current) => {
+  if (healthFile) { try { healthSynced = !!JSON.parse(healthFile.content).sleep_stages; } catch (_) { /* fichier illisible */ } }
+  await ghPutJSON(checkinPath(date), { date }, `App : check-in du matin du ${date}`, (current) => {
     const base = current || { date };
-    healthSynced = !!base.sleep_stages;
     base.arrival_state = arrivalState;
     base.wellness = wellness;
     base.mobility = mobility;
@@ -428,7 +431,7 @@ async function maybeLaunchDigestAfterCheckin(date, healthSynced, noteSlot) {
   }
 }
 
-/** Lit le check-in du jour directement dans `data/health/<date>.json`, la
+/** Lit le check-in du jour directement dans `data/checkin/<date>.json`, la
  * source de vérité écrite par "Enregistrer" — pas dans `data/app/summary.json`,
  * qui n'est régénéré qu'à chaque digest : un check-in tout juste enregistré
  * y restait invisible, le composer se rouvrait vierge et on pouvait
@@ -437,7 +440,7 @@ async function maybeLaunchDigestAfterCheckin(date, healthSynced, noteSlot) {
 async function loadCheckin(token) {
   const box = document.getElementById("checkin-content");
   const date = todayISO();
-  const [summaryFile, liveFile] = await Promise.all([ghGetFile("data/app/summary.json"), ghGetFile(`data/health/${date}.json`)]);
+  const [summaryFile, liveFile] = await Promise.all([ghGetFile("data/app/summary.json"), ghGetFile(checkinPath(date))]);
   if (stale(token)) return;
   const summary = summaryFile ? JSON.parse(summaryFile.content) : {};
   let live = {};

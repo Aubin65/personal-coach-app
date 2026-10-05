@@ -7,6 +7,7 @@ import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeEx
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
 import { formatFrDate } from "../date-utils.js";
+import { checkinPath } from "../data-paths.js";
 import { getSessionTimerStart, setBlockTimerState, getBlockTimerState, formatDurationMs, startSessionRun, clearSessionRun, getSessionSnapshot, sessionWasAutosaved } from "./session-timer.js";
 import { ghPutJSON, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js";
 import { openExerciseSheet } from "../exercise-sheet.js";
@@ -618,7 +619,7 @@ export async function cancelSessionRun() {
  * see docs/adr/0017 and docs/adr/0018.
  *
  * Also write-through merges session_rpe/session_duration_min into
- * data/health/<date>.json when present — that's the file coach.workload
+ * data/checkin/<date>.json when present — that's the file coach.workload
  * actually reads (Foster's session-RPE method, see docs/adr/0011) — the
  * copy kept on the session itself is just for the app's own display, this
  * file is the real source of truth for the ACWR calculation.
@@ -645,7 +646,7 @@ async function performSaveSession({ weekLabel, date, session }) {
   const secondaryHasLoad = !!secondary && secondary.session_rpe != null && secondary.session_duration_min != null;
 
   if (primaryHasLoad || secondaryHasLoad || session.session_rpe != null || session.session_duration_min != null) {
-    await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date}`, (current) => {
+    await ghPutJSON(checkinPath(date), { date }, `App : charge de séance ${date}`, (current) => {
       const base = current || { date };
       if (session.session_rpe != null) base.session_rpe = session.session_rpe;
       if (session.session_duration_min != null) base.session_duration_min = session.session_duration_min;
@@ -663,7 +664,7 @@ registerQueuedOp("saveSession", performSaveSession);
 
 /** Retire la séance d'une date de data/training/app-log/<date>.json (le
  * fichier disparaît s'il ne contenait qu'elle) et sa charge de
- * data/health/<date>.json, pour qu'elle ne compte plus dans l'ACWR. Le reste
+ * data/checkin/<date>.json, pour qu'elle ne compte plus dans l'ACWR. Le reste
  * du fichier santé (check-in, douleur, mesures) est gardé — docs/adr/0082. */
 async function performDeleteSession({ date }) {
   const path = `data/training/app-log/${date}.json`;
@@ -676,11 +677,11 @@ async function performDeleteSession({ date }) {
     else await ghDeleteFile(path, message, current.sha);
   }
   invalidateAppLogIndex();
-  const health = await ghGetFile(`data/health/${date}.json`);
+  const health = await ghGetFile(checkinPath(date));
   if (health) {
     const record = JSON.parse(health.content);
     if (["session_rpe", "session_duration_min", "session_loads"].some((k) => k in record)) {
-      await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date} supprimée`, (cur) => {
+      await ghPutJSON(checkinPath(date), { date }, `App : charge de séance ${date} supprimée`, (cur) => {
         const next = cur || { date };
         delete next.session_rpe;
         delete next.session_duration_min;
@@ -693,14 +694,14 @@ async function performDeleteSession({ date }) {
 
 registerQueuedOp("deleteSession", performDeleteSession);
 
-// Effacer une charge saisie : saveSession n'écrit dans data/health que les
+// Effacer une charge saisie : saveSession n’écrit dans data/checkin que les
 // valeurs présentes, il faut donc retirer explicitement l'ancienne.
 registerQueuedOp("clearSessionLoad", async ({ date }) => {
-  const health = await ghGetFile(`data/health/${date}.json`);
+  const health = await ghGetFile(checkinPath(date));
   if (!health) return;
   const record = JSON.parse(health.content);
   if (!["session_rpe", "session_duration_min", "session_loads"].some((k) => k in record)) return;
-  await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge de séance ${date} effacée`, (cur) => {
+  await ghPutJSON(checkinPath(date), { date }, `App : charge de séance ${date} effacée`, (cur) => {
     const next = cur || { date };
     delete next.session_rpe;
     delete next.session_duration_min;

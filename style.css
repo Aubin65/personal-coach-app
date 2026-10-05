@@ -2169,13 +2169,8 @@ body.live-open { overflow: hidden; }
 .week-day-icons { position: relative; flex-shrink: 0; display: flex; }
 .week-day-icons .kind-icon.mini { position: absolute; right: -7px; bottom: -6px; }
 /* Repos : ligne basse, teinte nuit, pas de carte vide (ADR-0082). */
-.week-day.kind-rest .week-day-label b { font-size: 1.1rem; color: var(--muted); }
-.week-day.kind-rest .week-day-card { min-height: 44px; padding: 6px 14px; background: var(--rest-bg); border-color: transparent; }
-.week-day.kind-rest .kind-icon { width: 28px; height: 28px; border-radius: 9px; }
-.week-day.kind-rest .kind-icon svg { width: 16px; height: 16px; }
-.week-day.kind-rest .week-day-text { flex-direction: row; align-items: baseline; gap: 8px; }
-.week-day.kind-rest .week-day-text strong { color: var(--rest-ink); font-weight: 700; font-size: 0.9rem; }
-.week-day.kind-rest .week-day-text small { color: var(--muted); }
+.week-day.kind-rest .week-day-card { background: var(--rest-bg); }
+.week-day.kind-rest .week-day-text strong { color: var(--rest-ink); }
 .week-day.kind-rest.is-today .week-day-card { border-color: var(--text); }
 .week-day.kind-rest.is-selected .week-day-card { border-color: var(--gold); }
 .week-day.kind-match .week-day-card { background: var(--green); color: white; }

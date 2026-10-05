@@ -1,4 +1,5 @@
 import { ghGetFile, ghPutJSON } from "../github-api.js";
+import { checkinPath } from "../data-paths.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
 import { state, stale } from "../nav.js";
 import { todayISO, localISOWithOffset } from "../date-utils.js";
@@ -9,11 +10,11 @@ import { painTrendSVG, painLevelColor, shortDateFr } from "./data-viz.js";
 // ============================================================================
 // Suivi structuré de la douleur (docs/adr/0060) — retour direct : "j'ai
 // besoin que ça soit stocké pour avoir un retour d'expérience pour la
-// prochaine fois". Écrit dans data/health/<date>.json (même fichier que
+// prochaine fois". Écrit dans data/checkin/<date>.json (même fichier que
 // session_rpe/session_duration_min, voir docs/adr/0019) sous un champ
 // `pain`, lu ensuite via coach.progression.pain_history/coach.app_export
 // (`pain_recent` dans data/app/summary.json) — pas de fetch/scan de
-// data/health/*.json côté app, même convention que sleep/recovery.
+// data/checkin/*.json côté app, même convention que sleep/recovery.
 // ============================================================================
 
 let selectedZone = null; // état du composer (zone finale résolue)
@@ -103,7 +104,7 @@ function renderZoneComposer(regions) {
  * jamais ajouter deux fois la même entrée si un premier envoi avait abouti
  * sans que la réponse revienne. */
 registerQueuedOp("pain", async ({ date, entry }) => {
-  await ghPutJSON(`data/health/${date}.json`, { date }, `App : douleur du ${date}`, (current) => {
+  await ghPutJSON(checkinPath(date), { date }, `App : douleur du ${date}`, (current) => {
     const base = current || { date };
     const existing = base.pain || [];
     if (existing.some((p) => p.at === entry.at)) return base;
@@ -316,7 +317,7 @@ function rememberDeletedPain(at) {
 }
 
 registerQueuedOp("painDelete", async ({ date, at }) => {
-  await ghPutJSON(`data/health/${date}.json`, { date }, `App : douleur du ${date} supprimée`, (current) => {
+  await ghPutJSON(checkinPath(date), { date }, `App : douleur du ${date} supprimée`, (current) => {
     const base = current || { date };
     const rest = (base.pain || []).filter((p) => p.at !== at);
     if (rest.length) base.pain = rest;

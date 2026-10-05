@@ -5,6 +5,7 @@ import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
 import { findSessionForDate } from "../training-index.js";
 import { queuedEntryByKey } from "../offline-queue.js";
 import { ghPutJSON } from "../github-api.js";
+import { checkinPath } from "../data-paths.js";
 import { SESSION_TYPES, EXERCISE_FORMATS, BLOCK_TIMING_FIELDS, BLOCK_RESULT_LABELS } from "../session-types.js";
 import { blankSession, groupExercisesIntoBlocks } from "./session-model.js";
 import { splitTimerHTML, timerBarHTML, startTimerDisplayInterval, startSessionAutoSave, startBlockTimerIntervals, clearSessionRun } from "./session-timer.js";
@@ -178,9 +179,9 @@ function bindCancelSession() {
         await saveSession(weekLabel, date, next);
         // saveSession n'écrit la charge que si elle est renseignée — sans
         // ce nettoyage, un RPE/durée déjà logués ce jour-là resteraient
-        // dans data/health et continueraient de compter dans l'ACWR.
+        // dans data/checkin et continueraient de compter dans l'ACWR.
         if (session.session_rpe != null || session.session_duration_min != null || session.secondary) {
-          await ghPutJSON(`data/health/${date}.json`, { date }, `App : séance du ${date} annulée`, (current) => {
+          await ghPutJSON(checkinPath(date), { date }, `App : séance du ${date} annulée`, (current) => {
             const base = current || { date };
             delete base.session_rpe;
             delete base.session_duration_min;

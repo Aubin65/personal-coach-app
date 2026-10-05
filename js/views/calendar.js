@@ -1,4 +1,5 @@
 import { ghGetFile, ghListDir, ghPutFile, ghPutJSON } from "../github-api.js";
+import { checkinPath } from "../data-paths.js";
 import { stale } from "../nav.js";
 import { todayISO, localISOWithOffset } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
@@ -19,7 +20,7 @@ const MONTH_NAMES_FR = [
 // score, mis à jour automatiquement par prompts/match-results.md — voir
 // docs/adr/0029) sous une clé `performance`, lue ensuite par
 // coach.schedule.recent_played_matches pour les prompts de planification.
-// RPE × durée est en plus reporté dans data/health/<date>.json au même
+// RPE × durée est en plus reporté dans data/checkin/<date>.json au même
 // titre que n'importe quelle séance (voir docs/adr/0011/0050) pour que le
 // match compte dans la charge aiguë:chronique — jamais un système de
 // charge séparé pour les matchs.
@@ -263,7 +264,7 @@ async function findScheduleFile(date, opponent, team) {
 }
 
 /** Écrit `performance` sur la fixture concernée, et reporte rpe/durée dans
- * data/health/<date>.json comme n'importe quelle séance (docs/adr/0011) —
+ * data/checkin/<date>.json comme n'importe quelle séance (docs/adr/0011) —
  * un match compte dans la charge aiguë:chronique exactement comme un
  * entraînement, jamais un système de charge séparé. `source: "match"` sur
  * l'entrée `session_loads` permet de la retrouver et la remplacer (pas la
@@ -277,7 +278,7 @@ async function saveMatchPerformance(date, opponent, team, performance) {
   found.season.fixtures[found.idx] = { ...found.season.fixtures[found.idx], performance };
   await ghPutFile(found.path, JSON.stringify(found.season, null, 2), `Match : performance du ${date} (${opponent})`, found.sha);
 
-  await ghPutJSON(`data/health/${date}.json`, { date }, `App : charge du match ${date}`, (current) => {
+  await ghPutJSON(checkinPath(date), { date }, `App : charge du match ${date}`, (current) => {
     const base = current || { date };
     const otherLoads = Array.isArray(base.session_loads)
       ? base.session_loads.filter((l) => l.source !== "match")
