@@ -2409,3 +2409,6 @@ body.live-open { overflow: hidden; }
 .bloc-chat .compose-row textarea { flex: 1 1 auto; width: auto; min-width: 0; min-height: 76px; }
 .bloc-chat .mic-button { background: var(--surface-2); color: var(--gold); }
 .bloc-chat #bloc-send { width: 100%; margin-top: 10px; }
+
+.today-session-clubrow { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px; margin-top: 4px; }
+.today-session-clubrow .delete-link { margin: 0; }

@@ -542,6 +542,7 @@ export function blockObjectivesSummary(md) {
  * readability pass, the underlying markdown/content is unchanged. */
 const DIGEST_ICONS = [
   [/forme du jour/i, "💪"],
+  [/à retenir|aujourd.hui/i, "☀️"],
   [/trajectoire/i, "📈"],
   [/conseils/i, "🎯"],
 ];

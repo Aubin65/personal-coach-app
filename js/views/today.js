@@ -1,7 +1,8 @@
 import { setupCredo } from "../credo.js";
 import { kindIconHTML } from "../session-icons.js";
 import { showView, stale, state } from "../nav.js";
-import { todayISO, addDaysISO, sessionHasExecuted } from "../date-utils.js";
+import { todayISO, addDaysISO, sessionHasExecuted, formatFrDate } from "../date-utils.js";
+import { loadClubConfig } from "../club-training.js";
 import { findSessionForDate } from "../training-index.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
@@ -809,7 +810,7 @@ async function loadTodaySession(token) {
         ${done ? "" : '<button type="button" class="today-session-adapt">Adapter</button>'}
       </div>
       ${type === "musculation" && !done ? '<button type="button" class="today-session-form">Voir le détail de la séance</button>' : ""}
-      ${type === "rugby" && !done && !/match/i.test(session.name || "") ? '<button type="button" class="today-session-cancel delete-link">Annulé ce soir ?</button>' : ""}
+      ${type === "rugby" && !done && !/match/i.test(session.name || "") ? '<div class="today-session-clubrow"><button type="button" class="today-session-cancel delete-link">Annulé ce soir ?</button><button type="button" class="today-session-move delete-link">Déplacé à un autre jour ?</button></div>' : ""}
     </section>`;
   // « Démarrer » ouvre directement la séance guidée (ADR-0074) ; « Adapter »
   // ouvre « Ajuster ma semaine » pré-rempli pour cette séance (docs/adr/0076).
@@ -831,6 +832,42 @@ async function loadTodaySession(token) {
       cancelBtn.disabled = false;
       window.alert(`Échec : ${err.message}`);
     }
+  });
+  // « Déplacé à un autre jour ? » : repos aujourd'hui + séance club à la date
+  // choisie (ADR-0090). Refuse si une vraie séance occupe déjà ce jour-là.
+  const moveBtn = box.querySelector(".today-session-move");
+  if (moveBtn) moveBtn.addEventListener("click", () => {
+    const tomorrow = addDaysISO(date, 1);
+    const sheet = openSheet(`
+      <h3>Déplacer l'entraînement</h3>
+      <p class="muted small">Aujourd'hui passe en repos, et la séance club est créée au jour choisi.</p>
+      <input type="date" id="club-move-date" value="${tomorrow}" min="${tomorrow}">
+      <p id="club-move-status" class="muted small"></p>
+      <button type="button" class="primary-button" id="club-move-ok">Déplacer</button>`);
+    const status = sheet.el.querySelector("#club-move-status");
+    sheet.el.querySelector("#club-move-ok").addEventListener("click", async (e) => {
+      const target = sheet.el.querySelector("#club-move-date").value;
+      if (!target || target <= date) { status.textContent = "Choisis une date après aujourd'hui."; return; }
+      e.currentTarget.disabled = true;
+      status.textContent = "Déplacement…";
+      try {
+        const there = await findSessionForDate(target);
+        if (there.session && !there.virtualClub && there.session.type !== "repos") {
+          status.textContent = `Il y a déjà une séance le ${formatFrDate(target)} (${there.session.name || there.session.type}).`;
+          e.currentTarget.disabled = false;
+          return;
+        }
+        const cfg = await loadClubConfig();
+        const label = there.weekLabel || day.weekLabel || "app";
+        await saveSession(label, target, { ...blankSession(target, "rugby"), name: cfg.name, notes: `Entraînement déplacé du ${formatFrDate(date)}` });
+        await saveSession(day.weekLabel || "app", date, { ...blankSession(date, "repos"), name: "Repos", notes: `Entraînement déplacé au ${formatFrDate(target)}` });
+        sheet.close();
+        loadTodaySession(state.renderToken).catch(() => {});
+      } catch (err) {
+        status.textContent = `Échec : ${err.message}`;
+        e.currentTarget.disabled = false;
+      }
+    });
   });
   const adaptBtn = box.querySelector(".today-session-adapt");
   if (adaptBtn) adaptBtn.addEventListener("click", () => {
