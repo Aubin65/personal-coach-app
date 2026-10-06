@@ -6,7 +6,7 @@
 // byte-comparing this file against the installed one, so if this file's
 // bytes don't change, no update is ever detected and clients stay on the
 // old cached shell indefinitely, however much app.js/style.css changed.
-const CACHE_NAME = "coach-shell-v94";
+const CACHE_NAME = "coach-shell-v95";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -45,6 +45,8 @@ const SHELL_FILES = [
   "./js/views/week.js",
   "./js/views/block-view.js",
   "./js/views/activity.js",
+  "./js/views/activity-fmt.js",
+  "./js/views/activity-chart.js",
   "./js/match-feel.js",
   "./js/match-teams.js",
   "./js/theme.js",
