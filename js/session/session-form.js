@@ -3,6 +3,7 @@ import { escapeAttr, escapeHtmlText, skeletonHTML } from "../markdown.js";
 import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
 import { notesLabelFor, notesPlaceholderFor, renderSessionContent, plannedSummary } from "./session-render.js";
 import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName, moveBlock, moveWithinBlock } from "./session-model.js";
+import { removeSetEvent } from "./set-events.js";
 import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows, hydrateExecRows } from "./session-exec.js";
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
@@ -404,6 +405,12 @@ export function bindSessionContentEvents() {
     if (solo) moveBlock(arr, idx, dir); else moveWithinBlock(arr, idx, dir);
     renderSessionContent();
   }));
+  document.querySelectorAll(".remove-set-event").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const ex = sessionRuntime.working.session.exercises[+btn.closest(".exercise-row").dataset.idx];
+    removeSetEvent(ex, btn.dataset.at, { date: sessionRuntime.working.date });
+    renderSessionContent();
+  }));
   document.querySelectorAll(".remove-exercise").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
     const idx = +btn.closest(".exercise-row").dataset.idx;
@@ -471,7 +478,7 @@ export function bindSessionContentEvents() {
       const found = await findSessionForDate(btn.dataset.date);
       if (!found.session || !found.session.exercises || !found.session.exercises.length) return;
       const cloned = JSON.parse(JSON.stringify(found.session.exercises));
-      cloned.forEach((ex) => { ex.executed = { sets: null, reps: null, load: null }; ex.rir = null; });
+      cloned.forEach((ex) => { ex.executed = { sets: null, reps: null, load: null }; ex.rir = null; delete ex.set_events; });
       sessionRuntime.working.session.exercises = cloned;
       box.hidden = true;
       renderSessionContent();

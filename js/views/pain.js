@@ -38,7 +38,7 @@ function zoneChipsHTML(zones, selected, allLabel) {
  * codée en dur ici : un changement de PAIN_ZONES côté Python est repris
  * automatiquement. `Map` plutôt qu'un objet pour préserver l'ordre
  * d'apparition (déjà logique côté Python : épaule, lombaire, hanche...). */
-function groupZonesByRegion(zones) {
+export function groupZonesByRegion(zones) {
   const regions = new Map();
   for (const [id, label] of Object.entries(zones)) {
     const left = /^(.+)_gauche$/.exec(id);
@@ -116,8 +116,8 @@ registerQueuedOp("pain", async ({ date, entry }) => {
 // Grille de niveau 0-10 (docs/adr/0076, maquette C) à la place d'un champ
 // numérique : un tap, couleur par palier, libellé du palier. La valeur vit
 // toujours dans #pain-level (champ caché) lu par « Enregistrer ».
-const PAIN_LEVEL_LABELS = ["aucune gêne", "légère", "légère", "légère", "modérée", "modérée", "modérée", "forte", "forte", "très forte", "très forte"];
-function painTier(n) { return n === 0 ? "none" : n <= 3 ? "low" : n <= 6 ? "mid" : "high"; }
+export const PAIN_LEVEL_LABELS = ["aucune gêne", "légère", "légère", "légère", "modérée", "modérée", "modérée", "forte", "forte", "très forte", "très forte"];
+export function painTier(n) { return n === 0 ? "none" : n <= 3 ? "low" : n <= 6 ? "mid" : "high"; }
 
 function wirePainLevelGrid() {
   const grid = document.getElementById("pain-level-grid");

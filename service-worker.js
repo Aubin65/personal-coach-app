@@ -6,7 +6,7 @@
 // byte-comparing this file against the installed one, so if this file's
 // bytes don't change, no update is ever detected and clients stay on the
 // old cached shell indefinitely, however much app.js/style.css changed.
-const CACHE_NAME = "coach-shell-v91";
+const CACHE_NAME = "coach-shell-v92";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -65,6 +65,7 @@ const SHELL_FILES = [
   "./js/session/session-exec.js",
   "./js/session/session-form.js",
   "./js/session/session-live.js",
+  "./js/session/set-events.js",
 ];
 
 self.addEventListener("install", (event) => {

@@ -2699,3 +2699,36 @@ body.live-open { overflow: hidden; }
 .records-list li:first-child { border-top: 0; }
 .records-list li span { color: var(--muted); }
 .records-list li small { grid-column: 1 / -1; color: var(--muted); font-size: 0.74rem; }
+
+/* ---- Séance guidée : superset + ressenti par série (ADR-0100) ---- */
+.live-superset { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px; border-radius: 16px; background: var(--gold-pale); }
+.live-superset-head { display: flex; align-items: center; justify-content: space-between; font-weight: 700; font-size: 0.9rem; }
+.live-superset-members { display: flex; gap: 6px; }
+.live-superset-members button { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 10px; border: 1.5px solid transparent; border-radius: 12px; background: var(--card-bg); color: var(--text); font: inherit; font-size: 0.85rem; font-weight: 600; text-align: left; cursor: pointer; }
+.live-superset-members button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-superset-members button small { color: var(--muted); font-weight: 600; font-variant-numeric: tabular-nums; }
+.live-superset-members button.current { border-color: var(--gold); }
+.live-superset-members button.done small { color: var(--status-ok-text); }
+
+.live-set-head { position: relative; }
+.live-event-add { position: relative; flex-shrink: 0; width: 40px; height: 40px; margin: -6px -4px -6px 0; border: 1.5px solid var(--border); border-radius: 50%; background: var(--surface-2); color: var(--text); font-size: 1.4rem; font-weight: 500; line-height: 1; cursor: pointer; }
+.live-event-count { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 9px; background: var(--gold); color: #111814; font-size: 0.7rem; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.live-events { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.live-event-kind { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--gold-pale); color: var(--status-warn-text); font-size: 0.72rem; font-weight: 700; }
+.live-event-flag { margin-left: 6px; color: var(--status-warn-text); }
+.live-event-link { align-self: center; }
+
+.live-sheet-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45); z-index: 30; }
+.live-sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; max-height: 82vh; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px 16px calc(16px + var(--safe-bottom)); border-radius: 22px 22px 0 0; background: var(--card-bg); color: var(--text); box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.3); }
+.live-sheet-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.live-sheet-label { font-size: 0.8rem; font-weight: 700; color: var(--muted); }
+.live-sheet-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.live-sheet-levels { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.live-sheet textarea { width: 100%; padding: 10px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--surface-2); color: var(--text); font: inherit; resize: vertical; }
+.live-sheet .live-validate:disabled { opacity: 0.45; }
+.live-sheet-existing { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 0.88rem; }
+.live-sheet-existing li { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+
+/* Ressenti par série, dans le formulaire de séance. */
+.set-events { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+.set-events li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

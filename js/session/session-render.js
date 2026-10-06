@@ -12,6 +12,7 @@ import { splitTimerHTML, timerBarHTML, startTimerDisplayInterval, startSessionAu
 import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEvents, saveSession, deleteSession } from "./session-form.js";
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 import { openLiveMode, liveExerciseIndices } from "./session-live.js";
+import { setEventsListHTML } from "./set-events.js";
 
 // ---------- Session detail : voir/loguer/planifier n'importe quelle date ----------
 // Reachable from Aujourd'hui ("Loguer la séance", aujourd'hui), un jour du
@@ -463,6 +464,7 @@ function exerciseCardHTML(ex, idx, limits, showFormatControls) {
       </details>
       <div class="field-row-label">Fait</div>
       ${execRowsHTML(hydrateExecRows(executed, ex.rir))}
+      ${setEventsListHTML(ex, escapeAttr)}
       <label class="per-hand-toggle"><input type="checkbox" class="f-load-per-hand"${executed.load_per_hand ? " checked" : ""}> Charge par main</label>
     </div>`;
 }

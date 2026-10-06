@@ -1,5 +1,8 @@
 import { sessionRuntime } from "./session-state.js";
 import { renderSessionContent } from "./session-render.js";
+import { groupExercisesIntoBlocks } from "./session-model.js";
+import { groupZonesByRegion, painTier, PAIN_LEVEL_LABELS } from "../views/pain.js";
+import { EVENT_KINDS, EXTERNAL_TAGS, setEventsOf, describeEvent, eventKindLabel, addSetEvent, removeSetEvent, shiftEventsAfterDelete } from "./set-events.js";
 import { syncFormIntoSession, cancelSessionRun } from "./session-form.js";
 import { getSessionTimerStart, startSessionRun, formatElapsed, formatDurationMs } from "./session-timer.js";
 import { hydrateExecRows, hydrateSetRows, serializeExecRows } from "./session-exec.js";
@@ -21,6 +24,14 @@ import { escapeHtmlText, escapeAttr } from "../markdown.js";
 // sauvegarde existante, qui relit le DOM du formulaire, voit donc toujours
 // les valeurs à jour, et « Enregistrer la séance » / « Terminer » restent les
 // seuls déclencheurs d'écriture.
+//
+// Superset (docs/adr/0100) : les membres d'un superset s'enchaînent comme on
+// les exécute — A1, B1, (repos), A2, B2, (repos)… — le repos ne démarre qu'à la
+// fin du tour, et une bande « Superset · Tour n » permet de sauter d'un
+// membre à l'autre.
+//
+// Ressenti rattaché à une série : le « + » de la carte de série ouvre une
+// feuille (douleur, imprévu extérieur, note) — voir set-events.js.
 //
 // Les blocs AMRAP / EMOM / Circuit / For Time ne sont pas proposés ici : leur
 // résultat se saisit au niveau du bloc, dans le formulaire.
@@ -54,6 +65,46 @@ export function liveExerciseIndices(session) {
     .map((ex, i) => ({ ex, i }))
     .filter(({ ex }) => (ex.format || "standard") === "standard" && (ex.name || "").trim())
     .map(({ i }) => i);
+}
+
+/** Positions (dans `live.indices`) des membres du superset qui contient la
+ * position `pos`, ou null si l'exercice est seul. */
+function membersOf(pos) {
+  const { exercises } = sessionRuntime.working.session;
+  const idx = live.indices[pos];
+  const block = groupExercisesIntoBlocks(exercises).find((b) => b.includes(idx));
+  if (!block) return null;
+  const members = block.map((i) => live.indices.indexOf(i)).filter((k) => k >= 0);
+  return members.length > 1 && members.includes(pos) ? members : null;
+}
+
+function blockEndPos(pos) {
+  const members = membersOf(pos);
+  return members ? Math.max(...members) : pos;
+}
+
+/** Prochain membre qui doit encore une série après `pos` : d'abord ceux qui
+ * suivent dans le tour (`wrapped: false`), puis ceux d'avant, au tour suivant.
+ * `strict` : sans objectif chiffré, un membre n'est « en retard » que s'il a
+ * moins de séries que l'exercice courant (utilisé pour savoir s'il reste
+ * vraiment quelque chose à faire ; le flux de validation, lui, enchaîne les
+ * tours tant que l'utilisateur ne change pas d'exercice). */
+function nextMember(pos, strict = false) {
+  const members = membersOf(pos);
+  if (!members) return null;
+  const { exercises } = sessionRuntime.working.session;
+  const curRows = doneRows(exercises[live.indices[pos]]).length;
+  const at = members.indexOf(pos);
+  const needs = (k, wrapped) => {
+    const e = exercises[live.indices[k]];
+    const n = doneRows(e).length;
+    const t = targetCount(e, live.indices[k]);
+    if (t != null) return n < t;
+    return wrapped ? !strict : n < curRows;
+  };
+  for (const k of members.slice(at + 1)) if (needs(k, false)) return { pos: k, wrapped: false };
+  for (const k of members.slice(0, at)) if (needs(k, true)) return { pos: k, wrapped: true };
+  return null;
 }
 
 function doneRows(ex) {
@@ -217,6 +268,55 @@ function pickerHTML(session) {
     </div>`;
 }
 
+function supersetStripHTML(members, pos, session) {
+  const targets = members.map((k) => targetCount(session.exercises[live.indices[k]], live.indices[k]));
+  const round = live.cursor + 1;
+  const max = targets.every((t) => t != null) ? Math.max(...targets) : null;
+  return `
+    <div class="live-superset">
+      <div class="live-superset-head"><span class="pill pill-gold">Superset</span><span>Tour ${max != null ? Math.min(round, max) : round}${max != null ? ` / ${max}` : ""}</span></div>
+      <div class="live-superset-members">${members.map((k) => {
+        const e = session.exercises[live.indices[k]];
+        const n = doneRows(e).length;
+        const t = targetCount(e, live.indices[k]);
+        return `<button type="button" class="${k === pos ? "current" : ""}${t != null && n >= t ? " done" : ""}" data-goto="${k}"><span>${escapeHtmlText(e.name)}</span><small>${n}${t != null ? ` / ${t}` : ""}</small></button>`;
+      }).join("")}</div>
+    </div>`;
+}
+
+/** Feuille « ressenti sur la série » : type, puis champs selon le type. */
+function eventSheetHTML(ex) {
+  const sh = live.sheet;
+  const existing = setEventsOf(ex, sh.setNo);
+  const kinds = EVENT_KINDS.map((k) => `<button type="button" class="suggestion-chip${sh.kind === k.id ? " active" : ""}" data-ev-kind="${k.id}">${k.label}</button>`).join("");
+  let form = "";
+  if (sh.kind === "douleur") {
+    const regions = live.zones ? groupZonesByRegion(live.zones) : null;
+    const region = regions && sh.region ? regions.get(sh.region) : null;
+    form = !regions
+      ? `<p class="muted small">Liste des zones indisponible (hors-ligne ?) — décris la douleur dans la note.</p>`
+      : `<div class="live-sheet-label">Zone</div>
+         <div class="live-sheet-chips">${[...regions.entries()].map(([key, r]) => `<button type="button" class="suggestion-chip${sh.region === key ? " active" : ""}" data-ev-region="${escapeAttr(key)}">${escapeHtmlText(r.label)}</button>`).join("")}</div>
+         ${region && region.sides ? `<div class="live-sheet-chips"><button type="button" class="suggestion-chip${sh.side === "gauche" ? " active" : ""}" data-ev-side="gauche">Gauche</button><button type="button" class="suggestion-chip${sh.side === "droit" ? " active" : ""}" data-ev-side="droit">Droite</button></div>` : ""}
+         <div class="live-sheet-label">Niveau${sh.level != null ? ` — ${sh.level} · ${PAIN_LEVEL_LABELS[sh.level]}` : ""}</div>
+         <div class="pain-level-grid live-sheet-levels">${Array.from({ length: 11 }, (_, n) => `<button type="button" class="pain-level-btn tier-${painTier(n)}${sh.level === n ? " active" : ""}" data-ev-level="${n}" aria-pressed="${sh.level === n}">${n}</button>`).join("")}</div>`;
+  } else if (sh.kind === "exterieur") {
+    form = `<div class="live-sheet-label">Qu'est-ce qui s'est passé ?</div>
+      <div class="live-sheet-chips">${EXTERNAL_TAGS.map((t) => `<button type="button" class="suggestion-chip${sh.tags.includes(t) ? " active" : ""}" data-ev-tag="${escapeAttr(t)}">${escapeHtmlText(t)}</button>`).join("")}</div>`;
+  }
+  const ready = eventReady(sh);
+  return `
+    <div class="live-sheet-backdrop" data-live="event-close"></div>
+    <section class="live-sheet" role="dialog" aria-label="Ressenti sur la série">
+      <div class="live-sheet-head"><strong>${escapeHtmlText(ex.name)} · série ${sh.setNo}</strong><button type="button" class="live-link" data-live="event-close">Fermer</button></div>
+      ${existing.length ? `<ul class="live-sheet-existing">${existing.map((e) => `<li><span><span class="live-event-kind">${escapeHtmlText(eventKindLabel(e.kind))}</span> ${escapeHtmlText(describeEvent(e, live.zones || {}))}</span><button type="button" class="live-link danger" data-ev-del="${escapeAttr(e.at)}" aria-label="Supprimer">✕</button></li>`).join("")}</ul>` : ""}
+      <div class="live-sheet-chips kinds">${kinds}</div>
+      ${form}
+      ${sh.kind ? `<textarea id="ev-note" rows="2" placeholder="${sh.kind === "ressenti" ? "Ce que tu ressens sur cette série…" : "Précision (facultatif)"}">${escapeHtmlText(sh.note || "")}</textarea>
+      <button type="button" class="live-validate" data-live="event-save"${ready ? "" : " disabled"}>Ajouter à la série ${sh.setNo}</button>` : `<p class="muted small">Choisis le type de ressenti à rattacher à cette série.</p>`}
+    </section>`;
+}
+
 function render() {
   const { session } = sessionRuntime.working;
   const indices = live.indices;
@@ -228,7 +328,9 @@ function render() {
   if (live.cursor > rows.length) live.cursor = rows.length;
   const editing = live.cursor < rows.length;
   const reached = !editing && target != null && rows.length >= target;
-  const isLastEx = pos === indices.length - 1;
+  const members = membersOf(pos);
+  const isLastEx = blockEndPos(pos) === indices.length - 1;
+  const pending = reached ? nextMember(pos, true) : null;
   const setNo = live.cursor + 1;
   const d = live.draft;
   const segs = indices.map((i, k) => {
@@ -238,7 +340,7 @@ function render() {
     const cls = k === pos ? "current" : (t != null ? n >= t : n > 0) ? "done" : "";
     return `<span class="live-seg ${cls}"></span>`;
   }).join("");
-  const supersetNote = ex.superset_with_previous ? '<span class="pill pill-gold">En superset avec le précédent</span>' : "";
+  const supersetNote = members ? supersetStripHTML(members, pos, session) : "";
   const lastTime = lastTimeText(ex.name);
   const ofTarget = target != null ? ` / ${target}` : "";
 
@@ -247,16 +349,19 @@ function render() {
         <span class="live-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg></span>
         <span>Série ${i + 1}</span>
         <span class="live-done-val">${escapeHtmlText([fmtLoad(r.load), r.reps ? `× ${r.reps}` : ""].filter(Boolean).join(" "))}</span>
-        <span class="live-done-rir">${r.rir !== "" && r.rir != null ? `RIR ${escapeHtmlText(r.rir)}` : ""}</span>
+        <span class="live-done-rir">${r.rir !== "" && r.rir != null ? `RIR ${escapeHtmlText(r.rir)}` : ""}${setEventsOf(ex, i + 1).length ? `<span class="live-event-flag" title="Ressenti noté">⚑</span>` : ""}</span>
       </button></li>`).join("")}</ol>` : "";
 
   const setCard = reached ? `
-      <button type="button" class="live-add-set big" data-live="add-set"><span aria-hidden="true">+</span>Ajouter une série<small>montée en charge, série en plus…</small></button>` : `
+      <button type="button" class="live-add-set big" data-live="add-set"><span aria-hidden="true">+</span>Ajouter une série<small>montée en charge, série en plus…</small></button>
+      <button type="button" class="live-link live-event-link" data-live="event-open">+ Ressenti sur la dernière série</button>` : `
       <section class="live-set${editing ? " editing" : ""}">
         <div class="live-set-head">
           <strong>${editing ? `Modifier la série ${setNo}` : `Série ${setNo}${ofTarget}`}</strong>
           <span>${editing ? "déjà validée" : rows.length ? "pré-rempli avec la série précédente" : "pré-rempli avec le prévu"}</span>
+          <button type="button" class="live-event-add" data-live="event-open" aria-label="Ajouter un ressenti à la série ${setNo}" title="Ressenti, douleur, imprévu…">+${setEventsOf(ex, setNo).length ? `<span class="live-event-count">${setEventsOf(ex, setNo).length}</span>` : ""}</button>
         </div>
+        ${setEventsOf(ex, setNo).length ? `<ul class="live-events">${setEventsOf(ex, setNo).map((e) => `<li><span class="live-event-kind">${escapeHtmlText(eventKindLabel(e.kind))}</span> ${escapeHtmlText(describeEvent(e, live.zones))}</li>`).join("")}</ul>` : ""}
         <div class="live-steppers">
           <label class="live-stepper"><span>Charge${(ex.planned || {}).load_per_hand ? " / main" : ""}</span>
             <span class="live-stepper-row"><button type="button" data-live="load-" aria-label="Moins 2,5">−</button><input type="text" inputmode="decimal" id="live-load" value="${escapeAttr(d.load)}" aria-label="Charge"><button type="button" data-live="load+" aria-label="Plus 2,5">+</button></span></label>
@@ -280,6 +385,7 @@ function render() {
 
   let primary;
   if (editing) primary = `<button type="button" class="live-validate" data-live="save-edit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Enregistrer la série ${setNo}</button>`;
+  else if (pending) primary = `<button type="button" class="live-validate" data-live="next-member">${escapeHtmlText(session.exercises[live.indices[pending.pos]].name)} →</button>`;
   else if (reached && !isLastEx) primary = `<button type="button" class="live-validate" data-live="next-ex">Exercice suivant →</button>`;
   else if (reached) primary = `<button type="button" class="live-validate" data-live="finish">Terminer la séance</button>`;
   else primary = `<button type="button" class="live-validate" data-live="validate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Valider la série ${setNo}${ofTarget}</button>`;
@@ -318,7 +424,8 @@ function render() {
         <div class="live-rest-choices">${REST_CHOICES.map((s) => `<button type="button" class="${s === live.restTotal ? "on" : ""}" data-rest="${s}">${s < 60 ? s + " s" : (s / 60).toString().replace(".", ",") + " min"}</button>`).join("")}<button type="button" data-live="skip-rest">Passer</button></div>
       </div>
       ${live.picker ? "" : primary}
-    </footer>`;
+    </footer>
+    ${live.sheet ? eventSheetHTML(ex) : ""}`;
 
   const loadInput = live.el.querySelector("#live-load");
   const repsInput = live.el.querySelector("#live-reps");
@@ -344,7 +451,40 @@ function render() {
     goTo(parseInt(b.dataset.goto, 10));
   }));
   live.el.querySelectorAll("[data-live]").forEach((b) => b.addEventListener("click", () => action(b.dataset.live)));
+  wireEventSheet(ex);
   tick();
+}
+
+function wireEventSheet(ex) {
+  const sh = live.sheet;
+  if (!sh) return;
+  const on = (sel, fn) => live.el.querySelectorAll(sel).forEach((b) => b.addEventListener("click", () => { fn(b); render(); }));
+  on("[data-ev-kind]", (b) => { sh.kind = b.dataset.evKind; });
+  on("[data-ev-region]", (b) => {
+    sh.region = b.dataset.evRegion; sh.side = null;
+    const region = live.zones ? groupZonesByRegion(live.zones).get(sh.region) : null;
+    sh.zone = region && region.zone ? region.zone : null;
+  });
+  on("[data-ev-side]", (b) => {
+    sh.side = b.dataset.evSide;
+    const region = groupZonesByRegion(live.zones).get(sh.region);
+    sh.zone = region && region.sides ? region.sides[sh.side] : null;
+  });
+  on("[data-ev-level]", (b) => { sh.level = Number(b.dataset.evLevel); });
+  on("[data-ev-tag]", (b) => { const t = b.dataset.evTag; sh.tags = sh.tags.includes(t) ? sh.tags.filter((x) => x !== t) : [...sh.tags, t]; });
+  on("[data-ev-del]", (b) => { removeSetEvent(ex, b.dataset.evDel, { date: sessionRuntime.working.date }); renderSessionContent(); });
+  const note = live.el.querySelector("#ev-note");
+  if (note) note.addEventListener("input", () => {
+    sh.note = note.value;
+    const save = live.el.querySelector('[data-live="event-save"]');
+    if (save) save.disabled = !eventReady(sh);
+  });
+}
+
+function eventReady(sh) {
+  if (sh.kind === "douleur") return live.zones ? !!(sh.zone && sh.level != null) : !!(sh.note || "").trim();
+  if (sh.kind === "exterieur") return sh.tags.length > 0 || !!(sh.note || "").trim();
+  return sh.kind === "ressenti" && !!(sh.note || "").trim();
 }
 
 function scrollTop() {
@@ -364,6 +504,7 @@ function setCursor(cursor) {
  * (retour arrière depuis l'exercice suivant), sinon sur la prochaine à faire. */
 function goTo(pos, atEnd = false) {
   live.pos = pos;
+  live.sheet = null;
   const ex = sessionRuntime.working.session.exercises[live.indices[pos]];
   const n = doneRows(ex).length;
   live.cursor = atEnd && n > 0 ? n - 1 : n;
@@ -406,9 +547,29 @@ function action(name) {
       break;
     case "next":
       if (live.cursor < rows.length) setCursor(live.cursor + 1);
-      else if (live.pos < live.indices.length - 1) goTo(live.pos + 1);
+      else if (blockEndPos(live.pos) < live.indices.length - 1) goTo(blockEndPos(live.pos) + 1);
       break;
-    case "next-ex": if (live.pos < live.indices.length - 1) goTo(live.pos + 1); break;
+    case "next-ex": if (blockEndPos(live.pos) < live.indices.length - 1) goTo(blockEndPos(live.pos) + 1); break;
+    case "next-member": { const nm = nextMember(live.pos, true); if (nm) goTo(nm.pos); break; }
+    case "event-open": {
+      const editing = live.cursor < rows.length;
+      const target = targetCount(ex, idx);
+      const reached = !editing && target != null && rows.length >= target;
+      const setNo = reached ? Math.max(1, rows.length) : live.cursor + 1;
+      live.sheet = { setNo, kind: null, region: null, side: null, zone: null, level: null, tags: [], note: "" };
+      render();
+      break;
+    }
+    case "event-close": live.sheet = null; render(); break;
+    case "event-save": {
+      const sh = live.sheet;
+      if (!sh || !eventReady(sh)) return;
+      addSetEvent(ex, { set: sh.setNo, kind: sh.kind, zone: sh.zone, level: sh.level, tags: sh.tags, note: sh.note }, { date: sessionRuntime.working.date });
+      live.sheet = null;
+      renderSessionContent();
+      render();
+      break;
+    }
     case "skip-rest": live.restEnd = null; render(); break;
     case "add-set": {
       const current = targetCount(ex, idx);
@@ -419,6 +580,7 @@ function action(name) {
     case "cancel-edit": setCursor(rows.length); break;
     case "delete-set": {
       if (live.cursor >= rows.length) return;
+      shiftEventsAfterDelete(ex, live.cursor + 1);
       rows.splice(live.cursor, 1);
       writeRows(ex, rows);
       // L'objectif ajouté suit la suppression, sans descendre sous le prévu.
@@ -438,7 +600,12 @@ function action(name) {
       ensureAudio();
       rows.push({ load: (live.draft.load || "").trim(), reps: (live.draft.reps || "").trim(), rir: live.draft.rir || "" });
       writeRows(ex, rows);
+      // Superset : on enchaîne sur le membre suivant sans repos ; le repos ne
+      // démarre qu'à la fin du tour (dernier membre).
+      const nm = nextMember(live.pos);
+      if (nm && !nm.wrapped) { goTo(nm.pos); break; }
       startRest();
+      if (nm) { goTo(nm.pos); break; }
       live.cursor = rows.length;
       live.draft = draftFor(ex);
       render();
@@ -480,7 +647,7 @@ export async function openLiveMode() {
   el.setAttribute("aria-label", "Séance guidée");
   document.body.appendChild(el);
   document.body.classList.add("live-open");
-  live = { el, indices, pos: 0, cursor: 0, targets: {}, picker: false, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, audio: null };
+  live = { el, indices, sheet: null, zones: null, pos: 0, cursor: 0, targets: {}, picker: false, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, audio: null };
   live.interval = setInterval(tick, 500);
   sessionRuntime.liveCleanup = closeLiveMode;
   goTo(firstOpen >= 0 ? firstOpen : 0);
@@ -488,7 +655,9 @@ export async function openLiveMode() {
   try {
     const file = await ghGetFile("data/app/summary.json");
     if (live && file) {
-      live.history = JSON.parse(file.content).exercise_history || {};
+      const summary = JSON.parse(file.content);
+      live.history = summary.exercise_history || {};
+      live.zones = (summary.pain_recent || {}).zones || null;
       render();
     }
   } catch (_) { /* pas d'historique : le reste fonctionne */ }
