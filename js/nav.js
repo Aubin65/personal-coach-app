@@ -13,6 +13,7 @@ import { renderPain } from "./views/pain.js";
 import { renderSettings } from "./views/settings.js";
 import { loadSyncStatus } from "./sync-status.js";
 import { openAddSheet } from "./add-sheet.js";
+import { invalidateDataCaches } from "./training-index.js";
 
 // ============================================================================
 // App state / navigation
@@ -157,6 +158,7 @@ document.getElementById("settings-button").addEventListener("click", () => {
 function refreshCurrentView() {
   const btn = document.getElementById("refresh-button");
   btn.classList.add("spinning");
+  invalidateDataCaches();
   showView(state.view);
   loadSyncStatus();
   setTimeout(() => btn.classList.remove("spinning"), 800);

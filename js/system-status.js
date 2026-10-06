@@ -33,6 +33,8 @@ export const WATCHED_WORKFLOWS = [
   // Ne tourne que quand un fichier contrôlé change : seul un échec compte
   // (ex. le coach a poussé un JSON invalide), pas l'ancienneté.
   { file: "tests.yml", label: "Contrôles (tests, fichiers du coach)", maxGapHours: Infinity },
+  // Recalcul du résumé à chaque nouvelle donnée (ADR-0097) : seul un échec compte.
+  { file: "refresh-summary.yml", label: "Mise à jour des tableaux de bord", maxGapHours: Infinity },
 ];
 
 /** Diagnostic d'un workflow à partir de ses derniers runs (pur, testable) :

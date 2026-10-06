@@ -48,6 +48,15 @@ export function invalidateAppLogIndex() {
   appLogIndexCache = null;
 }
 
+/** Oublie les deux index en mémoire (ADR-0097) : appelé quand le résumé a
+ * changé côté GitHub et à chaque rafraîchissement manuel — sans ça, une
+ * séance validée ou loguée ailleurs (autre appareil, coach) restait
+ * invisible jusqu'à la fermeture de l'app. */
+export function invalidateDataCaches() {
+  summaryIndexCache = null;
+  appLogIndexCache = null;
+}
+
 export async function loadSummaryIndex() {
   if (summaryIndexCache) return summaryIndexCache;
   const index = new Map();

@@ -2638,3 +2638,6 @@ body.live-open { overflow: hidden; }
 .raw-editor-status { margin: 0; min-height: 1.2em; }
 .raw-editor-actions { display: flex; gap: 8px; }
 .raw-editor-actions .primary-button { flex: 1; margin: 0; }
+
+/* Nouvelles données disponibles (ADR-0097). */
+.summary-banner { position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 76px); z-index: 40; transform: translateX(-50%); min-height: 40px; padding: 0 16px; border: 0; border-radius: 20px; background: var(--gold); color: #111814; font-weight: 700; font-size: 0.88rem; box-shadow: 0 4px 14px rgba(0,0,0,0.18); cursor: pointer; white-space: nowrap; }
