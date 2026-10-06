@@ -267,7 +267,7 @@ function musculationBodyHTML(session) {
       <button type="button" id="prefill-button" class="primary-button ghost small">🔁 Dupliquer une séance récente</button>
       <div id="prefill-picker" hidden></div>
     </section>
-    <div id="exercise-list">${blocks.map((indices) => blockCardHTML(indices, exercises)).join("")}</div>
+    <div id="exercise-list">${blocks.map((indices, b) => blockCardHTML(indices, exercises, { first: b === 0, last: b === blocks.length - 1 })).join("")}</div>
     <div class="add-block-row">
       <button type="button" class="primary-button ghost small add-block-button" data-add-format="standard">+ Exercice</button>
       <button type="button" class="primary-button ghost small add-block-button" data-add-format="superset">+ Superset</button>
@@ -286,14 +286,14 @@ function musculationBodyHTML(session) {
  * `BLOCK_TIMING_FIELDS`) wrapping its station rows, a single result field
  * for the whole block (`BLOCK_RESULT_LABELS`, leader's `executed.reps`),
  * and one "+ Ajouter une station" to extend it — see docs/adr/0036. */
-function blockCardHTML(indices, exercises) {
+function blockCardHTML(indices, exercises, blockPos = { first: false, last: false }) {
   const leaderIdx = indices[0];
   const leader = exercises[leaderIdx];
   const format = leader.format || "standard";
   const isChain = indices.length > 1;
 
   if (format === "standard" && !isChain) {
-    return exerciseCardHTML(leader, leaderIdx, exercises.length, true);
+    return exerciseCardHTML(leader, leaderIdx, { up: blockPos.first, down: blockPos.last }, true);
   }
 
   const timingFields = BLOCK_TIMING_FIELDS[format] || [];
@@ -308,8 +308,8 @@ function blockCardHTML(indices, exercises) {
     : "";
 
   const stationsHTML = format === "standard"
-    ? indices.map((idx) => exerciseCardHTML(exercises[idx], idx, exercises.length, false)).join("")
-    : indices.map((idx) => stationRowHTML(exercises[idx], idx, format, exercises.length)).join("");
+    ? indices.map((idx, n) => exerciseCardHTML(exercises[idx], idx, { up: n === 0, down: n === indices.length - 1 }, false)).join("")
+    : indices.map((idx, n) => stationRowHTML(exercises[idx], idx, format, { up: n === 0, down: n === indices.length - 1 })).join("");
 
   // For Time : si le cap chronométré est atteint sans finir, le résultat
   // n'est plus un temps mais un nombre de tours/reps réalisés — même champ
@@ -348,6 +348,10 @@ function blockCardHTML(indices, exercises) {
         <select class="f-block-format" data-leader-idx="${leaderIdx}">
           ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${format === key ? " selected" : ""}>${label}</option>`).join("")}
         </select>
+        <div class="reorder-buttons block-reorder">
+          <button type="button" class="icon-button small move-block-up" data-leader-idx="${leaderIdx}" ${blockPos.first ? "disabled" : ""} title="Monter le bloc" aria-label="Monter le bloc">▲</button>
+          <button type="button" class="icon-button small move-block-down" data-leader-idx="${leaderIdx}" ${blockPos.last ? "disabled" : ""} title="Descendre le bloc" aria-label="Descendre le bloc">▼</button>
+        </div>
       </div>
       ${timingHTML}
       ${splitTimerCardHTML}
@@ -369,7 +373,7 @@ function blockCardHTML(indices, exercises) {
  * without (ex. "Rameur, 300m") — never fed into `coach.tonnage` though,
  * same as the rest of this format family (no reliable rounds-completed
  * count to multiply it by, see docs/adr/0036's amendement). */
-function stationRowHTML(ex, idx, format, total) {
+function stationRowHTML(ex, idx, format, limits) {
   const planned = ex.planned || {};
   return `
     <div class="exercise-row station-row exercise-log-card" data-idx="${idx}">
@@ -377,8 +381,8 @@ function stationRowHTML(ex, idx, format, total) {
         <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Nouvel exercice">
         <button type="button" class="icon-button small exercise-history-button" title="Historique de l'exercice" aria-label="Historique de l'exercice">📈</button>
         <div class="reorder-buttons">
-          <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
-          <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
+          <button type="button" class="icon-button small move-up" ${limits.up ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
+          <button type="button" class="icon-button small move-down" ${limits.down ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
           <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
         </div>
       </div>
@@ -421,7 +425,7 @@ function plannedIsEmpty(planned = {}) {
   return ["sets", "reps", "load"].every((k) => planned[k] === undefined || planned[k] === null || planned[k] === "");
 }
 
-function exerciseCardHTML(ex, idx, total, showFormatControls) {
+function exerciseCardHTML(ex, idx, limits, showFormatControls) {
   const planned = ex.planned || {};
   const executed = ex.executed || {};
   return `
@@ -439,8 +443,8 @@ function exerciseCardHTML(ex, idx, total, showFormatControls) {
         ${Object.entries(EXERCISE_FORMATS).filter(([key]) => key !== "standard").map(([key, label]) => `<option value="${key}"${(ex.format || "standard") === key ? " selected" : ""}>${label}</option>`).join("")}
       </select>`
         : ""}
-            <button type="button" class="icon-button small move-up" ${idx === 0 ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
-            <button type="button" class="icon-button small move-down" ${idx === total - 1 ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
+            <button type="button" class="icon-button small move-up" ${limits.up ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
+            <button type="button" class="icon-button small move-down" ${limits.down ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
             <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
           </div>
         </details>

@@ -626,6 +626,7 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
   color: var(--status-warn-text);
   white-space: nowrap;
 }
+.exercise-block-header .block-reorder { margin-left: auto; }
 .exercise-block-header select.f-block-format { flex: 1; font-size: 0.85rem; padding: 8px 10px; }
 .exercise-block-timing {
   display: grid;

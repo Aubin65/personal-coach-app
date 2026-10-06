@@ -2,7 +2,7 @@ import { sessionRuntime } from "./session-state.js";
 import { escapeAttr, escapeHtmlText, skeletonHTML } from "../markdown.js";
 import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
 import { notesLabelFor, notesPlaceholderFor, renderSessionContent, plannedSummary } from "./session-render.js";
-import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName } from "./session-model.js";
+import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName, moveBlock, moveWithinBlock } from "./session-model.js";
 import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows, hydrateExecRows } from "./session-exec.js";
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
@@ -387,18 +387,21 @@ export function bindSessionContentEvents() {
     renderSessionContent();
   }));
 
-  document.querySelectorAll(".move-up").forEach((btn) => btn.addEventListener("click", () => {
+  // ▲/▼ d'un bloc entier (superset, AMRAP…) : échange avec le bloc voisin.
+  document.querySelectorAll(".move-block-up, .move-block-down").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
-    const idx = +btn.closest(".exercise-row").dataset.idx;
-    const arr = sessionRuntime.working.session.exercises;
-    [arr[idx - 1], arr[idx]] = [arr[idx], arr[idx - 1]];
+    moveBlock(sessionRuntime.working.session.exercises, +btn.dataset.leaderIdx, btn.classList.contains("move-block-up") ? -1 : 1);
     renderSessionContent();
   }));
-  document.querySelectorAll(".move-down").forEach((btn) => btn.addEventListener("click", () => {
+  // ▲/▼ d'un exercice : seul → déplace son bloc ; dans un bloc → réordonne
+  // les stations sans jamais sortir du bloc ni casser la chaîne.
+  document.querySelectorAll(".move-up, .move-down").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
+    const dir = btn.classList.contains("move-up") ? -1 : 1;
     const idx = +btn.closest(".exercise-row").dataset.idx;
     const arr = sessionRuntime.working.session.exercises;
-    [arr[idx], arr[idx + 1]] = [arr[idx + 1], arr[idx]];
+    const solo = !arr[idx].superset_with_previous && !(arr[idx + 1] && arr[idx + 1].superset_with_previous);
+    if (solo) moveBlock(arr, idx, dir); else moveWithinBlock(arr, idx, dir);
     renderSessionContent();
   }));
   document.querySelectorAll(".remove-exercise").forEach((btn) => btn.addEventListener("click", () => {

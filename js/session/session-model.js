@@ -79,6 +79,50 @@ export function groupExercisesIntoBlocks(exercises) {
   return blocks;
 }
 
+/** Déplace le bloc entier (leader + membres chaînés) d'un cran vers le haut
+ * (`dir` = -1) ou le bas (+1), en échangeant avec le bloc voisin : la chaîne
+ * `superset_with_previous` de chacun reste intacte. Retourne false si le bloc
+ * est déjà en bout de liste. Mute `exercises`. */
+export function moveBlock(exercises, idx, dir) {
+  const blocks = groupExercisesIntoBlocks(exercises);
+  const b = blocks.findIndex((indices) => indices.includes(idx));
+  const target = b + dir;
+  if (b < 0 || target < 0 || target >= blocks.length) return false;
+  const order = blocks.map((indices) => indices.map((i) => exercises[i]));
+  [order[b], order[target]] = [order[target], order[b]];
+  exercises.splice(0, exercises.length, ...order.flat());
+  return true;
+}
+
+const BLOCK_LEVEL_FIELDS = ["block_meta", "capped", "executed_duration_min", "notes"];
+
+/** Échange deux stations voisines d'un même bloc (jamais de sortie du bloc).
+ * Le chaînage reste positionnel (1re place = leader, les autres
+ * `superset_with_previous`) ; les champs portés par le leader (minutage, cap,
+ * durée, notes du bloc, résultat commun hors format standard) sont échangés
+ * avec lui pour rester attachés à la place de leader. */
+export function moveWithinBlock(exercises, idx, dir) {
+  const block = groupExercisesIntoBlocks(exercises).find((indices) => indices.includes(idx));
+  const other = idx + dir;
+  if (!block || !block.includes(other)) return false;
+  const leaderIdx = block[0];
+  const standard = (exercises[leaderIdx].format || "standard") === "standard";
+  [exercises[idx], exercises[other]] = [exercises[other], exercises[idx]];
+  if (idx === leaderIdx || other === leaderIdx) {
+    const nl = exercises[leaderIdx];
+    const ol = exercises[idx === leaderIdx ? other : idx];
+    const fields = standard ? BLOCK_LEVEL_FIELDS : [...BLOCK_LEVEL_FIELDS];
+    for (const k of fields) { const t = nl[k]; nl[k] = ol[k]; ol[k] = t; if (nl[k] === undefined) delete nl[k]; if (ol[k] === undefined) delete ol[k]; }
+    if (!standard) {
+      const t = (nl.executed || {}).reps;
+      nl.executed = { ...(nl.executed || {}), reps: (ol.executed || {}).reps };
+      ol.executed = { ...(ol.executed || {}), reps: t };
+    }
+  }
+  block.forEach((i, n) => { exercises[i].superset_with_previous = n > 0; });
+  return true;
+}
+
 /** A rugby session placed on a Saturday/Sunday is always a match, never
  * club training — applies wherever a blank session is created (the type
  * picker in the full session view, and Forge's quick-set buttons), not
