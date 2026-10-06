@@ -2,6 +2,7 @@ import { ghGetFile } from "../github-api.js";
 import { stale, showView } from "../nav.js";
 import { todayISO } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
+import { activityTabHTML, wireActivity } from "./activity.js";
 import { statTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG, shortDateFr, painLevelColor } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -28,10 +29,12 @@ const WORKLOAD_ZONE_HELP = {
 // ~5 écrans devient trois vues courtes, chacune répondant à une question.
 //   Forme — « est-ce que je peux pousser aujourd'hui ? »
 //   Force — « est-ce que je progresse ? » (fiche exercice, records)
+//   Activité — « combien je m'entraîne ? » (temps, calendrier, volume, ADR-0099)
 //   Corps — poids, composition, douleurs
 const PROGRES_TABS = [
   { id: "forme", label: "Forme" },
   { id: "force", label: "Force" },
+  { id: "activite", label: "Activité" },
   { id: "corps", label: "Corps" },
 ];
 const PROGRES_TAB_KEY = "coach_progres_tab";
@@ -68,7 +71,7 @@ export async function renderData(token) {
   if (!PROGRES_TABS.some((t) => t.id === tab)) tab = "forme";
 
   const draw = () => {
-    const body = tab === "force" ? forceTabHTML(s) : tab === "corps" ? corpsTabHTML(s) : formeTabHTML(s);
+    const body = tab === "force" ? forceTabHTML(s) : tab === "activite" ? activityTabHTML(s) : tab === "corps" ? corpsTabHTML(s) : formeTabHTML(s);
     el.innerHTML = `
       <div class="segmented progres-tabs" role="tablist">${PROGRES_TABS.map((t) => `<button type="button" role="tab" class="segment${t.id === tab ? " active" : ""}" aria-selected="${t.id === tab}" data-progres-tab="${t.id}">${t.label}</button>`).join("")}</div>
       ${body}`;
@@ -80,6 +83,7 @@ export async function renderData(token) {
       window.scrollTo({ top: 0 });
     }));
     if (tab === "force") wireExerciseCard(el, s);
+    if (tab === "activite") wireActivity(el, s);
     const painLink = el.querySelector("[data-open-pain]");
     if (painLink) painLink.addEventListener("click", () => showView("pain"));
   };
