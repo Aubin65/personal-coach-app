@@ -10,6 +10,7 @@ import { renderSession } from "./session/session-render.js";
 import { renderWriteNote } from "./views/write-note.js";
 import { renderAdjustWeek } from "./views/adjust-week.js";
 import { renderPain } from "./views/pain.js";
+import { renderSettings } from "./views/settings.js";
 import { loadSyncStatus } from "./sync-status.js";
 import { openAddSheet } from "./add-sheet.js";
 
@@ -25,6 +26,7 @@ export const state = {
   forgeBlocLabel: null,
   planningMonday: null,
   sessionReturnTo: null,
+  settingsReturnTo: null,
   openLiveOnLoad: false, // « Démarrer » d'Aujourd'hui : ouvrir la séance guidée dès le rendu (ADR-0076)
   adjustPrefill: null, // « Adapter » d'Aujourd'hui : texte de départ d'« Ajuster ma semaine » (ADR-0076)
   // Bumped on every navigation; each async render function captures it and
@@ -53,6 +55,7 @@ const views = {
   "write-note": { title: "Nouvelle note", render: renderWriteNote },
   "adjust-week": { title: "Ajuster ma semaine", render: renderAdjustWeek },
   pain: { title: "Douleur / gêne", render: renderPain },
+  settings: { title: "Réglages", render: renderSettings },
 };
 
 // Barre du bas à 4 onglets (docs/adr/0071) : plusieurs vues partagent un
@@ -94,11 +97,14 @@ export function showView(name, params = {}) {
   // view name is needed since every other view already restores its own
   // state on its own (planningMonday, weekSubTab, etc.).
   if (name === "session" && state.view !== "session") state.sessionReturnTo = state.view;
+  if (name === "settings" && state.view !== "settings") state.settingsReturnTo = state.view;
   state.view = name;
   if (params.date) state.sessionDate = params.date;
   document.getElementById("topbar-title").textContent = views[name].title;
   const backBtn = document.getElementById("topbar-back");
-  if (backBtn) backBtn.hidden = !(name === "session" && state.sessionReturnTo);
+  if (backBtn) backBtn.hidden = !((name === "session" && state.sessionReturnTo) || (name === "settings" && state.settingsReturnTo));
+  const settingsBtn = document.getElementById("settings-button");
+  if (settingsBtn) settingsBtn.classList.toggle("active", name === "settings");
   const activeTab = TAB_FOR_VIEW[name];
   document.querySelectorAll(".nav-item").forEach((btn) => {
     const on = btn.dataset.view === activeTab;
@@ -139,7 +145,13 @@ document.querySelectorAll(".nav-item, .plan-switch-item").forEach((btn) => {
 document.getElementById("nav-add-button").addEventListener("click", openAddSheet);
 
 document.getElementById("topbar-back").addEventListener("click", () => {
+  if (state.view === "settings") { showView(state.settingsReturnTo || "today"); return; }
   if (state.sessionReturnTo) showView(state.sessionReturnTo);
+});
+
+document.getElementById("settings-button").addEventListener("click", () => {
+  if (state.view === "settings") showView(state.settingsReturnTo || "today");
+  else showView("settings");
 });
 
 function refreshCurrentView() {

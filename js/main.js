@@ -5,6 +5,9 @@ import { loadSyncStatus } from "./sync-status.js";
 import { initPushButton } from "./push-notifications.js";
 import { startQueueWatcher } from "./offline-queue.js";
 import { sessionRuntime } from "./session/session-state.js";
+import { applyTheme } from "./theme.js";
+
+applyTheme();
 
 // ============================================================================
 // Login
