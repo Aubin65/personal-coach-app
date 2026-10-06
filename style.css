@@ -2735,3 +2735,8 @@ body.live-open { overflow: hidden; }
 .metric-switch .segment { flex: 1 1 auto; min-width: 0; padding-left: 2px; padding-right: 2px; font-size: 0.74rem; }
 .wk-label { overflow: visible; white-space: nowrap; }
 .activity-note { margin: 4px 0 0; }
+.wk-bar.stacked { display: flex; flex-direction: column-reverse; overflow: hidden; background: none; }
+.wk-bar.stacked.current { outline: 2px solid var(--gold); outline-offset: 1px; background: none; }
+.wk-seg { display: block; min-height: 2px; }
+.wk-seg.split-musculation { background: var(--green-light); }
+.wk-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; }

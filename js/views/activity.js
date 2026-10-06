@@ -14,6 +14,7 @@ const METRICS = [
   { id: "load_ua", label: "Charge", value: (w) => w.load_ua, fmt: (v) => fmtLoad(v) },
   { id: "avg_rpe", label: "RPE", value: (w) => w.avg_rpe || 0, fmt: (v) => String(v).replace(".", ",") },
 ];
+const TYPE_ORDER = ["musculation", "rugby", "match", "autre"];
 const METRIC_KEY = "coach_activity_metric";
 const WEEKDAYS = ["L", "M", "M", "J", "V", "S", "D"];
 const MONTHS = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
@@ -107,16 +108,32 @@ function weeksChartHTML(stats, metricId) {
   const max = Math.max(...weeks.map(metric.value), 1);
   const avgWeeks = weeks.filter((w) => metric.value(w) > 0);
   const avg = avgWeeks.length ? avgWeeks.reduce((a, w) => a + metric.value(w), 0) / avgWeeks.length : 0;
+  // Barres empilées par type quand la métrique est une somme (pas le RPE moyen).
+  const stackable = metric.id !== "avg_rpe";
+  const typeValue = (w, t) => ((w.by_type || {})[t] || {})[metric.id] || 0;
+  const present = TYPE_ORDER.filter((t) => weeks.some((w) => typeValue(w, t) > 0));
+  const bar = (w, v, current) => {
+    const height = Math.max(v ? 6 : 2, (v / max) * 100);
+    if (!stackable || !v) return `<span class="wk-bar${current ? " current" : ""}" style="height:${height}%"></span>`;
+    const segs = present.map((t) => [t, typeValue(w, t)]).filter(([, tv]) => tv > 0);
+    const total = segs.reduce((a, [, tv]) => a + tv, 0) || 1;
+    return `<span class="wk-bar stacked${current ? " current" : ""}" style="height:${height}%">${segs.map(([t, tv]) => `<span class="wk-seg split-${t}" style="flex:${tv / total}" title="${TYPE_LABELS[t]} : ${metric.fmt(tv)}"></span>`).join("")}</span>`;
+  };
+  const legend = stackable && present.length > 1
+    ? `<div class="wk-legend small muted">${present.map((t) => `<span><span class="split-dot split-${t}"></span>${TYPE_LABELS[t]}</span>`).join("")}</div>`
+    : "";
   return `
     <div class="wk-bars">${weeks.map((w, i) => {
       const v = metric.value(w);
-      return `<div class="wk-col" title="Sem. du ${shortDateFr(w.week_start)} : ${metric.fmt(v)}">
-        <span class="wk-val">${v ? metric.fmt(v).replace(" min", "′") : ""}</span>
-        <span class="wk-bar${i === weeks.length - 1 ? " current" : ""}" style="height:${Math.max(v ? 6 : 2, (v / max) * 100)}%"></span>
+      const detail = stackable ? present.map((t) => [t, typeValue(w, t)]).filter(([, tv]) => tv > 0).map(([t, tv]) => `${TYPE_LABELS[t]} ${metric.fmt(tv)}`).join(" · ") : "";
+      return `<div class="wk-col" title="Sem. du ${shortDateFr(w.week_start)} : ${metric.fmt(v)}${detail ? ` (${detail})` : ""}">
+        <span class="wk-val">${v ? metric.fmt(v).replace(" min", "′").replace(" u.a.", "") : ""}</span>
+        ${bar(w, v, i === weeks.length - 1)}
         <span class="wk-label">${(weeks.length - 1 - i) % 2 === 0 ? `${w.week_start.slice(8, 10)}/${w.week_start.slice(5, 7)}` : ""}</span>
       </div>`;
     }).join("")}</div>
-    <p class="small muted">${avg ? `Moyenne des semaines actives : ${metric.fmt(Math.round(avg))}` : "Pas encore de donnée."} · semaine en cours en doré.</p>`;
+    ${legend}
+    <p class="small muted">${avg ? `Moyenne des semaines actives : ${metric.fmt(Math.round(avg * 10) / 10)}` : "Pas encore de donnée."}${metric.id === "tonnage_kg" || metric.id === "sets" ? " · muscu uniquement." : ""}</p>`;
 }
 
 function typeSplitHTML(totals) {
