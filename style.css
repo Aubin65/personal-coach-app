@@ -2732,3 +2732,6 @@ body.live-open { overflow: hidden; }
 /* Ressenti par série, dans le formulaire de séance. */
 .set-events { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
 .set-events li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.metric-switch .segment { flex: 1 1 auto; min-width: 0; padding-left: 2px; padding-right: 2px; font-size: 0.74rem; }
+.wk-label { overflow: visible; white-space: nowrap; }
+.activity-note { margin: 4px 0 0; }

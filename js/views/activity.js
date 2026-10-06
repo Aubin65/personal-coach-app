@@ -11,6 +11,8 @@ const METRICS = [
   { id: "sessions", label: "Séances", value: (w) => w.sessions, fmt: (v) => String(v) },
   { id: "tonnage_kg", label: "Tonnage", value: (w) => w.tonnage_kg, fmt: (v) => fmtTonnage(v) },
   { id: "sets", label: "Séries", value: (w) => w.sets, fmt: (v) => String(v) },
+  { id: "load_ua", label: "Charge", value: (w) => w.load_ua, fmt: (v) => fmtLoad(v) },
+  { id: "avg_rpe", label: "RPE", value: (w) => w.avg_rpe || 0, fmt: (v) => String(v).replace(".", ",") },
 ];
 const METRIC_KEY = "coach_activity_metric";
 const WEEKDAYS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -21,6 +23,11 @@ export function fmtMinutes(min) {
   const h = Math.floor(min / 60), m = Math.round(min % 60);
   return h ? `${h} h ${String(m).padStart(2, "0")}` : `${m} min`;
 }
+/** Charge de séance = RPE × minutes, en unités arbitraires (u.a.). */
+export function fmtLoad(ua) {
+  return `${Math.round(ua || 0).toLocaleString("fr-FR")} u.a.`;
+}
+const rpeText = (v) => String(v).replace(".", ",");
 export function fmtTonnage(kg) {
   if (!kg) return "0 kg";
   return kg >= 10000 ? `${(kg / 1000).toFixed(1).replace(".", ",")} t` : `${Math.round(kg).toLocaleString("fr-FR")} kg`;
@@ -90,7 +97,7 @@ export function heatmapHTML(stats, today) {
 function dayDetailText(day, date) {
   if (!day) return `${shortDateFr(date)} — repos.`;
   const types = day.types.map((t) => TYPE_LABELS[t] || t).join(" + ");
-  const parts = [types, day.duration_min ? fmtMinutes(day.duration_min) : null, day.tonnage_kg ? fmtTonnage(day.tonnage_kg) : null].filter(Boolean);
+  const parts = [types, day.duration_min ? fmtMinutes(day.duration_min) : null, day.tonnage_kg ? fmtTonnage(day.tonnage_kg) : null, day.load_ua ? fmtLoad(day.load_ua) : null].filter(Boolean);
   return `${shortDateFr(date)} — ${parts.join(" · ")}`;
 }
 
@@ -106,7 +113,7 @@ function weeksChartHTML(stats, metricId) {
       return `<div class="wk-col" title="Sem. du ${shortDateFr(w.week_start)} : ${metric.fmt(v)}">
         <span class="wk-val">${v ? metric.fmt(v).replace(" min", "′") : ""}</span>
         <span class="wk-bar${i === weeks.length - 1 ? " current" : ""}" style="height:${Math.max(v ? 6 : 2, (v / max) * 100)}%"></span>
-        <span class="wk-label">${w.week_start.slice(8, 10)}/${w.week_start.slice(5, 7)}</span>
+        <span class="wk-label">${(weeks.length - 1 - i) % 2 === 0 ? `${w.week_start.slice(8, 10)}/${w.week_start.slice(5, 7)}` : ""}</span>
       </div>`;
     }).join("")}</div>
     <p class="small muted">${avg ? `Moyenne des semaines actives : ${metric.fmt(Math.round(avg))}` : "Pas encore de donnée."} · semaine en cours en doré.</p>`;
@@ -118,7 +125,7 @@ function typeSplitHTML(totals) {
   if (!total) return "";
   return `
     <div class="split-bar">${entries.filter(([, v]) => v.minutes).map(([t, v]) => `<span class="split-seg split-${t}" style="flex:${v.minutes}" title="${TYPE_LABELS[t]} : ${fmtMinutes(v.minutes)}"></span>`).join("")}</div>
-    <ul class="split-list small">${entries.map(([t, v]) => `<li><span class="split-dot split-${t}"></span>${TYPE_LABELS[t] || t} — ${fmtMinutes(v.minutes)} · ${plural(v.sessions, "séance", "séances")}${v.avg_duration_min ? ` · ${v.avg_duration_min} min en moyenne` : ""}${v.avg_rpe != null ? ` · RPE ${String(v.avg_rpe).replace(".", ",")}` : ""}</li>`).join("")}</ul>`;
+    <ul class="split-list small">${entries.map(([t, v]) => `<li><span class="split-dot split-${t}"></span>${TYPE_LABELS[t] || t} — ${fmtMinutes(v.minutes)} · ${plural(v.sessions, "séance", "séances")}${v.avg_duration_min ? ` · ${v.avg_duration_min} min en moyenne` : ""}${v.avg_rpe != null ? ` · RPE ${rpeText(v.avg_rpe)}` : ""}${v.load_ua ? ` · ${fmtLoad(v.load_ua)}` : ""}</li>`).join("")}</ul>`;
 }
 
 function weekdayHTML(totals) {
@@ -140,6 +147,7 @@ export function activityTabHTML(s) {
     t.longest_gym ? `<li><span>Plus longue séance en salle</span><strong>${fmtMinutes(t.longest_gym.duration_min)}</strong><small>${shortDateFr(t.longest_gym.date)}</small></li>` : "",
     t.heaviest_gym ? `<li><span>Plus gros tonnage</span><strong>${fmtTonnage(t.heaviest_gym.tonnage_kg)}</strong><small>${shortDateFr(t.heaviest_gym.date)}</small></li>` : "",
     t.best_week ? `<li><span>Semaine la plus chargée</span><strong>${fmtMinutes(t.best_week.minutes)}</strong><small>sem. du ${shortDateFr(t.best_week.week_start)}</small></li>` : "",
+    t.best_load_week ? `<li><span>Semaine la plus intense</span><strong>${fmtLoad(t.best_load_week.load_ua)}</strong><small>sem. du ${shortDateFr(t.best_load_week.week_start)}</small></li>` : "",
     `<li><span>Jours d'affilée avec activité</span><strong>${t.current_run_days}</strong><small>record ${t.longest_run_days}</small></li>`,
   ].join("");
   return `
@@ -149,7 +157,9 @@ export function activityTabHTML(s) {
         ${tile("Temps en salle", fmtMinutes(t.gym.minutes), `${fmtMinutes(t.gym_month.minutes)} ce mois-ci`)}
         ${tile("Temps total", fmtMinutes(t.all.minutes), `${fmtMinutes(t.month.minutes)} ce mois-ci`)}
         ${tile("Séances", String(t.all.sessions), `${t.gym.sessions} en salle · ${t.active_days} jours actifs`)}
-        ${tile("Durée moyenne", t.gym.avg_duration_min ? `${t.gym.avg_duration_min} min` : "—", t.gym.avg_rpe != null ? `RPE moyen ${String(t.gym.avg_rpe).replace(".", ",")}` : "séance de muscu")}
+        ${tile("Durée moyenne", t.gym.avg_duration_min ? `${t.gym.avg_duration_min} min` : "—", "séance de muscu")}
+        ${tile("RPE moyen", t.all.avg_rpe != null ? rpeText(t.all.avg_rpe) : "—", t.gym.avg_rpe != null ? `muscu ${rpeText(t.gym.avg_rpe)}${t.by_type.rugby && t.by_type.rugby.avg_rpe != null ? ` · rugby ${rpeText(t.by_type.rugby.avg_rpe)}` : ""}` : "")}
+        ${tile("Charge (RPE × min)", fmtLoad(t.all.load_ua), `${fmtLoad(t.month.load_ua)} ce mois-ci`)}
         ${tile("Tonnage soulevé", fmtTonnage(t.gym.tonnage_kg), t.gym.sessions ? `${fmtTonnage(Math.round(t.gym.tonnage_kg / t.gym.sessions))} / séance` : "")}
         ${tile("Séries · reps", `${t.gym.sets} · ${t.gym.reps}`, t.gym.sessions ? `${Math.round(t.gym.sets / t.gym.sessions)} séries / séance` : "")}
       </div>
@@ -160,6 +170,7 @@ export function activityTabHTML(s) {
     </section>
     <section class="card">
       <div class="card-head"><h2>Semaine par semaine</h2></div>
+      <p class="small muted activity-note">Charge = RPE × minutes (u.a.), la même unité que la charge aiguë:chronique.</p>
       <div class="segmented metric-switch" role="tablist">${METRICS.map((m) => `<button type="button" class="segment${m.id === metricId ? " active" : ""}" data-activity-metric="${m.id}">${m.label}</button>`).join("")}</div>
       <div id="activity-weeks">${weeksChartHTML(stats, metricId)}</div>
     </section>
