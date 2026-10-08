@@ -9,6 +9,7 @@ import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
 import { formatFrDate } from "../date-utils.js";
 import { checkinPath } from "../data-paths.js";
+import { markSaved, clearDraft } from "./session-draft.js";
 import { getSessionTimerStart, setBlockTimerState, getBlockTimerState, formatDurationMs, startSessionRun, clearSessionRun, getSessionSnapshot, sessionWasAutosaved } from "./session-timer.js";
 import { ghPutJSON, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js";
 import { openExerciseSheet } from "../exercise-sheet.js";
@@ -281,6 +282,8 @@ function blockEndIndex(exercises, leaderIdx) {
   while (end < exercises.length && exercises[end].superset_with_previous) end++;
   return end;
 }
+
+sessionRuntime.syncForm = syncFormIntoSession;
 
 export function bindSessionContentEvents() {
   // Format select — shared by a solo exercise's own select (doubles as
@@ -625,6 +628,9 @@ export async function cancelSessionRun() {
   const autosaved = sessionWasAutosaved(date);
   if (sessionRuntime.liveCleanup) sessionRuntime.liveCleanup();
   clearSessionRun(date);
+  clearDraft(date);
+  working.touched = false;
+  working.draftNotice = null;
   if (snapshot !== undefined) working.session = snapshot ? JSON.parse(JSON.stringify(snapshot)) : null;
   renderSessionContent();
   const statusEl = document.getElementById("session-status");
@@ -744,6 +750,7 @@ registerQueuedOp("clearSessionLoad", async ({ date }) => {
 /** Même file d'attente hors-ligne que saveSession (même clé : une
  * suppression remplace une sauvegarde encore en attente pour cette date). */
 export async function deleteSession(date) {
+  clearDraft(date);
   return runQueued("deleteSession", { date }, { key: `session:${date}`, label: `Suppression de la séance du ${formatFrDate(date)}` });
 }
 
@@ -755,5 +762,6 @@ export async function saveSession(weekLabel, date, session) {
   const outcome = await runQueued("saveSession", { weekLabel, date, session }, { key: `session:${date}`, label: `Séance du ${formatFrDate(date)}` });
   // La séance vit désormais dans app-log : elle devient supprimable.
   if (sessionRuntime.working && sessionRuntime.working.date === date) sessionRuntime.working.path = `data/training/app-log/${date}.json`;
+  markSaved(date); // brouillon local devenu inutile (ADR-0103)
   return outcome;
 }

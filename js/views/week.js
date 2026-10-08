@@ -8,6 +8,8 @@ import { renderBlockTab } from "./block-view.js";
 import { SESSION_TYPES } from "../session-types.js";
 import { saveSession } from "../session/session-form.js";
 import { refineBoxHTML, wireRefineBox } from "../proposal-refine.js";
+import { loadPendingSkeletonInto } from "../forge-proposal.js";
+import { exercisesOverviewHTML } from "../proposal-overview.js";
 
 /** Numéro de semaine ISO 8601 d'une date (`YYYY-MM-DD`). */
 function isoWeekNumber(iso) {
@@ -134,8 +136,10 @@ export async function renderWeek(token) {
   });
 
   document.getElementById("pending-proposal").innerHTML = "";
+  watchPendingBadge();
   loadPendingProposal(token).catch(() => {});
   loadPendingSessionAdjustments(token).catch(() => {});
+  loadWeekPendingSkeleton(token).catch(() => {});
   renderWeekPlanning(token).catch(() => {});
 
 }
@@ -217,22 +221,49 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
  * accepted days' new content with rejected days' current content (see
  * buildMergedWeekPlan); "Tout refuser" still discards the whole pending
  * file at once, unchanged from before. */
+/** Semaine proposée par le coach (squelette Forge) — visible ici, sans
+ * passer par la Forge (ADR-0103), avec le détail des séances. */
+async function loadWeekPendingSkeleton(token) {
+  const box = document.getElementById("week-pending-forge-skeleton");
+  const shown = await loadPendingSkeletonInto(token, {
+    box,
+    view: "week",
+    onApplied: () => renderWeekPlanning(state.renderToken),
+  });
+  return shown;
+}
+
+/** Pastille sur l'onglet Planning dès qu'une proposition attend (plan,
+ * squelette de semaine ou ajustement de séance) — suivie sur le contenu des
+ * trois emplacements, quel que soit l'ordre dans lequel ils se chargent. */
+const PENDING_BOX_IDS = ["pending-proposal", "week-pending-forge-skeleton", "week-pending-session-adjustments"];
+function watchPendingBadge() {
+  const refresh = () => {
+    const tab = document.querySelector('#week-tabs .segment[data-week-tab="planning"]');
+    if (!tab) return;
+    tab.classList.toggle("has-pending", PENDING_BOX_IDS.some((id) => { const el = document.getElementById(id); return !!el && el.innerHTML.trim() !== ""; }));
+  };
+  PENDING_BOX_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) new MutationObserver(refresh).observe(el, { childList: true });
+  });
+  refresh();
+}
+
 async function loadPendingProposal(token) {
   const box = document.getElementById("pending-proposal");
   // Surfaced as a badge on the Planning tab too — a pending proposal must
   // never go unnoticed just because Historique/Bloc happened to be the
   // sub-tab left active from a previous visit to Semaine.
-  const planningTab = document.querySelector('#week-tabs .segment[data-week-tab="planning"]');
   const entries = await ghListDir("data/plans/pending");
   if (stale(token)) return;
   const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".md")).sort((a, b) => a.name.localeCompare(b.name));
-  if (files.length === 0) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
+  if (files.length === 0) { box.innerHTML = ""; return; }
 
   const target = files[0];
   const file = await ghGetFile(target.path);
   if (stale(token)) return;
-  if (!file) { box.innerHTML = ""; if (planningTab) planningTab.classList.remove("has-pending"); return; }
-  if (planningTab) planningTab.classList.add("has-pending");
+  if (!file) { box.innerHTML = ""; return; }
 
   const monday = target.name.slice(0, -3);
   const currentPath = `data/plans/${target.name}`;
@@ -369,20 +400,14 @@ async function loadPendingSessionAdjustments(token) {
 
   const date = proposal.date;
   const session = proposal.session;
-  const rows = (session.exercises || [])
-    .map((ex) => {
-      const p = ex.planned || {};
-      const detail = [p.sets, p.reps, p.load].filter((v) => v != null && v !== "").join(" × ");
-      return `<li>${escapeHtmlText(ex.name || "")}${detail ? ` — ${escapeHtmlText(String(detail))}` : ""}</li>`;
-    })
-    .join("");
+  const overview = exercisesOverviewHTML(session.exercises || []);
 
   box.innerHTML = `
     <section class="card pending-proposal-card">
       <h2>📝 Ajustement de séance proposé — à valider</h2>
       <p class="muted small">${formatFrDate(date)} — ${escapeHtmlText(session.name || "")}</p>
       ${proposal.rationale ? `<p class="small">${escapeHtmlText(proposal.rationale)}</p>` : ""}
-      <ul class="forge-pending-list">${rows || "<li class='muted small'>Aucun exercice.</li>"}</ul>
+      ${overview || "<p class='muted small'>Aucun exercice.</p>"}
       <div class="proposal-actions">
         <button type="button" id="session-adjust-reject" class="primary-button ghost small">❌ Refuser</button>
         <button type="button" id="session-adjust-accept" class="primary-button small">✅ Valider</button>

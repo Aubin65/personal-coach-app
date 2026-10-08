@@ -2,13 +2,14 @@ import { ghGetFile, ghListDir, ghDeleteFile } from "../github-api.js";
 import { state, stale, showView } from "../nav.js";
 import { todayISO, mondayOfWeek, addDaysISO, formatFrDate, sessionDayStatus, sessionIsBlankSkeleton } from "../date-utils.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
+export { forgeProposalDayToSession };
 import { bindBlockReferenceToggle, DAY_NAMES } from "../plan-overview.js";
 import { lookupDaySummary, findSessionForDate } from "../training-index.js";
 import { SESSION_TYPES } from "../session-types.js";
 import { blankSession, defaultSessionName } from "../session/session-model.js";
 import { saveSession } from "../session/session-form.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
-import { refineBoxHTML, wireRefineBox } from "../proposal-refine.js";
+import { loadPendingSkeletonInto, forgeProposalDayToSession } from "../forge-proposal.js";
 import { loadClubConfig, saveClubWeekdays } from "../club-training.js";
 
 // ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
@@ -188,59 +189,6 @@ async function quickSetDayType(date, type) {
   return { hasSession: true, type: session.type, name: session.name, hasExecuted: false };
 }
 
-/** A "🧠 Demander un squelette IA" request is answered asynchronously by
- * prompts/forge-skeleton.md (routed from app-chat.md, see
- * forgeSkeletonRequestText), which writes a structured proposal to
- * data/training/app-log/pending/<lundi>.json rather than applying it
- * directly — same validation-gate principle as the Semaine planning
- * proposals (loadPendingProposal/docs/adr/0019), but JSON/structured since
- * this feeds real session data, not prose. Shown regardless of which week
- * Forge currently browses (it carries its own Monday), like the Planning
- * tab's proposal card. At most one pending file expected at a time — the
- * request button disables itself while one exists. */
-/** Maps one proposed day from a pending Forge skeleton (see
- * loadForgePendingSkeleton) into the app's actual session schema — shared
- * by the bulk "Valider" (writes straight to GitHub) and the per-day "✏️"
- * (opens it as an editable draft in the session view first, see
- * renderSession's forgePrefillDraft handling). */
-export function forgeProposalDayToSession(date, d) {
-  return {
-    name: d.name || defaultSessionName(date, d.type),
-    date,
-    type: d.type,
-    exercises: (d.exercises || []).map((ex) => ({
-      name: ex.name,
-      format: ex.format || "standard",
-      planned: { sets: ex.planned && ex.planned.sets != null ? ex.planned.sets : null, reps: ex.planned && ex.planned.reps != null ? ex.planned.reps : null, load: ex.planned && ex.planned.load != null ? ex.planned.load : null },
-      executed: { sets: null, reps: null, load: null },
-      rir: null,
-      notes: ex.notes || null,
-      superset_with_previous: !!ex.superset_with_previous,
-    })),
-    notes: d.notes || "",
-    session_rpe: null,
-    session_duration_min: null,
-    distance_km: d.type === "autre" ? (d.distance_km != null ? d.distance_km : null) : undefined,
-  };
-}
-
-/** True while a "[Forge]" request has been sent but app-chat.yml hasn't
- * answered it yet (no assistant turn after it) — the request is in
- * flight even though `data/training/app-log/pending/` has nothing to
- * show yet (the coach can take a few minutes). Without this, leaving the
- * app and coming back (a fresh page load, no in-memory `disabled` state
- * left) re-enabled the "Demander un squelette IA" button while a request
- * was genuinely still being worked on, inviting a duplicate request. */
-async function hasUnansweredForgeRequest() {
-  const file = await ghGetFile("data/app-chat/conversation.json");
-  if (!file) return false;
-  let conversation;
-  try { conversation = JSON.parse(file.content); } catch (_) { return false; }
-  if (!Array.isArray(conversation)) return false;
-  const lastAssistantIdx = conversation.map((t) => t.role).lastIndexOf("assistant");
-  return conversation.slice(lastAssistantIdx + 1).some((t) => t.role === "user" && (t.text || "").startsWith("[Forge]"));
-}
-
 const WEEKDAY_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 
 /** Réglage des jours d'entraînement club par défaut (docs/adr/0087). */
@@ -265,143 +213,13 @@ async function setupClubDays() {
   draw();
 }
 
-const QUALITY_STATUS = {
-  bien_couvert: { label: "Bien couvert", cls: "ok" },
-  a_renforcer: { label: "À renforcer", cls: "warn" },
-  absent: { label: "Absent", cls: "bad" },
-};
-
-/** « Qualités vs objectifs » (docs/adr/0085) : ce que la semaine proposée
- * développe réellement au regard des objectifs du bloc (champ `qualities`
- * du squelette, écrit par le coach — prompts/forge-skeleton.md). */
-function qualitiesHTML(qualities) {
-  if (!Array.isArray(qualities) || !qualities.length) return "";
-  const rows = qualities.filter((q) => q && q.name).map((q) => {
-    const st = QUALITY_STATUS[q.status] || { label: "—", cls: "warn" };
-    return `<li class="quality-row quality-${st.cls}">
-      <span class="quality-dot" aria-hidden="true"></span>
-      <div><strong>${escapeHtmlText(q.name)}</strong> <span class="quality-badge">${st.label}</span>
-        ${q.objective ? `<div class="muted small">Objectif : ${escapeHtmlText(q.objective)}</div>` : ""}
-        ${q.detail ? `<div class="small">${escapeHtmlText(q.detail)}</div>` : ""}</div></li>`;
-  }).join("");
-  return `<div class="quality-block"><p class="small"><strong>Qualités développées vs objectifs du bloc</strong></p><ul class="quality-list">${rows}</ul></div>`;
-}
 
 async function loadForgePendingSkeleton(token) {
-  const box = document.getElementById("forge-skeleton-pending");
-  const requestBtn = document.getElementById("forge-skeleton-button");
-  const statusEl = document.getElementById("forge-skeleton-status");
-  const entries = await ghListDir("data/training/app-log/pending");
-  if (stale(token)) return;
-  // Excludes "adjust-*.json" — single-session adjustment proposals living
-  // in the same directory (see loadPendingSessionAdjustments), a different
-  // schema entirely ({date, rationale, session}, not {monday, days}).
-  const files = entries.filter((e) => e.type === "file" && e.name.endsWith(".json") && !e.name.startsWith("adjust-")).sort((a, b) => a.name.localeCompare(b.name));
-  if (files.length === 0) {
-    box.innerHTML = "";
-    const waiting = await hasUnansweredForgeRequest();
-    if (stale(token)) return;
-    if (requestBtn) requestBtn.disabled = waiting;
-    if (statusEl && !statusEl.textContent) statusEl.textContent = waiting ? "En attente de la réponse du coach…" : "";
-    return;
-  }
-
-  const target = files[0];
-  const file = await ghGetFile(target.path);
-  if (stale(token)) return;
-  let week = null;
-  try { week = file ? JSON.parse(file.content) : null; } catch (_) { week = null; }
-  if (!file || !week) { box.innerHTML = ""; if (requestBtn) requestBtn.disabled = false; return; }
-  if (requestBtn) requestBtn.disabled = true;
-
-  const monday = target.name.slice(0, -5);
-  const byDate = new Map((week.days || []).filter((d) => d && d.date).map((d) => [d.date, d]));
-  const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
-  const rows = dates
-    .map((date, i) => {
-      const d = byDate.get(date);
-      if (!d) return "";
-      const icon = SESSION_TYPES[d.type] ? SESSION_TYPES[d.type].icon : "🏋️";
-      const exCount = (d.exercises || []).length;
-      const detail = d.type === "musculation" && exCount ? ` · ${exCount} exercice(s)` : "";
-      return `<li>
-        <span>${icon} <strong>${DAY_NAMES[i]}</strong> ${date.slice(8, 10)}/${date.slice(5, 7)} — ${escapeHtmlText(d.name || "")}${detail}</span>
-        <button type="button" class="icon-button small forge-proposal-edit" data-date="${date}" title="Modifier avant validation" aria-label="Modifier avant validation">✏️</button>
-      </li>`;
-    })
-    .join("");
-
-  box.innerHTML = `
-    <section class="card pending-proposal-card">
-      <h2>🧠 Squelette proposé par le coach — à valider</h2>
-      <p class="muted small">Semaine du ${formatFrDate(monday)}</p>
-      ${week.rationale ? `<p class="small">${escapeHtmlText(week.rationale)}</p>` : ""}
-      ${qualitiesHTML(week.qualities)}
-      <ul class="forge-pending-list">${rows || "<li class='muted small'>Aucun jour proposé.</li>"}</ul>
-      <div class="proposal-actions">
-        <button type="button" id="forge-proposal-reject" class="primary-button ghost small">❌ Refuser</button>
-        <button type="button" id="forge-proposal-accept" class="primary-button small">✅ Valider</button>
-      </div>
-      <p id="forge-proposal-status" class="muted small"></p>
-      ${refineBoxHTML("Ex. : mets du repos jeudi, garde mardi tel quel, allège les jambes")}
-    </section>`;
-  wireRefineBox(box, {
-    prefix: `[Affiner Forge ${monday}]`,
-    pendingPath: target.path,
-    pendingSha: file.sha,
+  return loadPendingSkeletonInto(token, {
+    box: document.getElementById("forge-skeleton-pending"),
+    requestBtn: document.getElementById("forge-skeleton-button"),
+    statusEl: document.getElementById("forge-skeleton-status"),
     view: "forge",
-    onUpdated: () => loadForgePendingSkeleton(state.renderToken).catch(() => {}),
-  });
-
-  box.querySelectorAll(".forge-proposal-edit").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const date = btn.dataset.date;
-      const d = byDate.get(date);
-      if (!d) return;
-      state.forgePrefillDraft = { date, session: forgeProposalDayToSession(date, d) };
-      showView("session", { date });
-    });
-  });
-
-  document.getElementById("forge-proposal-accept").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    const statusEl = document.getElementById("forge-proposal-status");
-    btn.disabled = true;
-    statusEl.textContent = "Application…";
-    try {
-      let filled = 0;
-      let skipped = 0;
-      for (const date of dates) {
-        const d = byDate.get(date);
-        if (!d) continue;
-        const found = await findSessionForDate(date);
-        if (!sessionIsBlankSkeleton(found.session)) { skipped++; continue; } // never overwrite real content (incl. one just edited+saved via ✏️) — a quick-typed placeholder is fair game
-        await saveSession(found.weekLabel || "app", date, forgeProposalDayToSession(date, d));
-        filled++;
-      }
-      await ghDeleteFile(target.path, `Squelette Forge validé : ${target.name}`, file.sha);
-      statusEl.textContent = `Validé ✓ — ${filled} jour(s) appliqué(s)${skipped ? `, ${skipped} déjà renseigné(s) laissé(s) tel quel` : ""}.`;
-      box.innerHTML = "";
-      if (requestBtn) requestBtn.disabled = false;
-      await renderForgeContent(state.renderToken);
-    } catch (err) {
-      statusEl.textContent = `Échec : ${err.message}`;
-      btn.disabled = false;
-    }
-  });
-
-  document.getElementById("forge-proposal-reject").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    const statusEl = document.getElementById("forge-proposal-status");
-    btn.disabled = true;
-    statusEl.textContent = "Suppression…";
-    try {
-      await ghDeleteFile(target.path, `Squelette Forge refusé : ${target.name}`, file.sha);
-      box.innerHTML = "";
-      if (requestBtn) requestBtn.disabled = false;
-    } catch (err) {
-      statusEl.textContent = `Échec : ${err.message}`;
-      btn.disabled = false;
-    }
+    onApplied: () => renderForgeContent(state.renderToken),
   });
 }

@@ -601,7 +601,7 @@ async function pendingProposals() {
     if (e.name.startsWith("adjust-")) {
       out.push({ kind: "adjust", title: `Le coach propose d'ajuster la séance${date ? ` du ${frShortDate(date)}` : ""}`, detail: "À valider dans Plan", go: () => showView("week") });
     } else {
-      out.push({ kind: "skeleton", title: "Le coach a préparé une trame de semaine", detail: "À valider dans la Forge", go: () => showView("forge") });
+      out.push({ kind: "skeleton", title: "Le coach a préparé une semaine", detail: "À valider dans Plan", go: () => showView("week") });
     }
   });
   return out;

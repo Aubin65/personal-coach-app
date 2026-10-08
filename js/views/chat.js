@@ -3,6 +3,7 @@ import { state, stale } from "../nav.js";
 import { localISOWithOffset } from "../date-utils.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
 import { setupMicButton } from "../voice-input.js";
+import { keepDraft, dropDraft } from "../text-drafts.js";
 
 // ---- Chat ----
 let chatPollTimer = null;
@@ -82,6 +83,7 @@ export async function renderChat(token) {
       input.setSelectionRange(input.value.length, input.value.length);
     });
   });
+  keepDraft(document.getElementById("chat-input"), "chat");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     if (micBtn && micBtn.classList.contains("recording")) micBtn.click();
@@ -92,6 +94,7 @@ export async function renderChat(token) {
     appendChatBubble(text, "user");
     try {
       const dispatch = await postUserMessage(text);
+      dropDraft("chat");
       showChatStatus(dispatch.dispatched
         ? "Réponse en cours de préparation…"
         : `Message envoyé.${dispatchStatusNote(dispatch)}`);

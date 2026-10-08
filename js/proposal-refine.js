@@ -3,6 +3,7 @@ import { ghGetFile } from "./github-api.js";
 import { escapeHtmlText } from "./markdown.js";
 import { setupMicButton } from "./voice-input.js";
 import { postUserMessage, dispatchStatusNote } from "./views/chat.js";
+import { keepDraft, dropDraft } from "./text-drafts.js";
 
 // ============================================================================
 // Encart "Adapter la proposition" (docs/adr/0069) — sous chaque proposition
@@ -101,6 +102,7 @@ export async function wireRefineBox(scope, { prefix, pendingPath, pendingSha, vi
   const box = scope.querySelector(".refine-box");
   if (!box) return;
   const input = box.querySelector(".refine-input");
+  keepDraft(input, `refine:${prefix}`);
   const sendBtn = box.querySelector(".refine-send");
   const statusEl = box.querySelector(".refine-status");
 
@@ -121,6 +123,7 @@ export async function wireRefineBox(scope, { prefix, pendingPath, pendingSha, vi
     try {
       const dispatch = await postUserMessage(`${prefix} ${instruction}`);
       input.value = "";
+      dropDraft(`refine:${prefix}`);
       statusEl.textContent = `Demande envoyée ✓ — la proposition sera mise à jour ici dans quelques minutes.${dispatchStatusNote(dispatch)}`;
       startWaiting();
     } catch (err) {

@@ -2859,3 +2859,27 @@ body.live-open { overflow: hidden; }
 .ib-gauge-mark { position: absolute; top: -3px; width: 5px; height: 16px; margin-left: -2.5px; border-radius: 3px; background: var(--gold); }
 .ib-gauge-mark.in { background: var(--status-ok); }
 .ib-gauge-foot { display: flex; justify-content: space-between; }
+
+/* Aperçu des séances proposées + brouillons (ADR-0103) */
+.po-days { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.po-day { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); padding: 8px 10px; }
+.po-day > summary, .po-day-head { display: flex; align-items: center; gap: 8px; list-style: none; cursor: pointer; min-height: 36px; font-size: 0.9rem; }
+.po-day > summary::-webkit-details-marker { display: none; }
+.po-day > summary > span:first-child, .po-day-head > span:first-child { flex: 1; min-width: 0; }
+.po-day > summary::before { content: "▸"; color: var(--muted); font-size: 0.8rem; }
+.po-day[open] > summary::before { content: "▾"; }
+.po-day-flat { padding-left: 14px; }
+.po-day-flat .po-day-head { cursor: default; }
+.po-list { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.po-ex { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; font-size: 0.88rem; line-height: 1.35; padding-left: 4px; }
+.po-name { font-weight: 600; }
+.po-detail { color: var(--muted); font-variant-numeric: tabular-nums; }
+.po-note { flex-basis: 100%; color: var(--muted); font-size: 0.8rem; }
+.po-block { margin: 2px 0; padding: 6px 8px; border-left: 3px solid var(--gold); background: var(--surface-2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.po-block-head { font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.po-block .po-list { margin-top: 4px; }
+.po-day-notes { margin: 6px 0 0; }
+.quality-block > summary { cursor: pointer; padding: 6px 0; }
+.draft-notice { background: var(--status-warn-pale); border: 1px solid var(--status-warn); }
+.draft-notice p { margin: 0 0 8px; }
+.draft-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; }

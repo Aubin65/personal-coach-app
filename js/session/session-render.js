@@ -13,6 +13,7 @@ import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEve
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 import { setEventsListHTML } from "./set-events.js";
+import { sessionSig, loadDraft, clearDraft, pruneDrafts, touchSession, draftNoticeHTML } from "./session-draft.js";
 
 // ---------- Session detail : voir/loguer/planifier n'importe quelle date ----------
 // Reachable from Aujourd'hui ("Loguer la séance", aujourd'hui), un jour du
@@ -50,7 +51,39 @@ export async function renderSession(token) {
     session: useDraft
       ? JSON.parse(JSON.stringify(draft.session))
       : found.session ? JSON.parse(JSON.stringify(found.session)) : null,
+    // Version enregistrée telle que lue, et son empreinte (ADR-0103) : le
+    // brouillon local n'est repris tel quel que si elle n'a pas bougé.
+    remoteSession: found.session ? JSON.parse(JSON.stringify(found.session)) : null,
+    remoteSig: sessionSig(found.session),
+    touched: !!useDraft,
+    draftNotice: null,
   };
+  pruneDrafts();
+  if (useDraft) {
+    clearDraft(date); // l'utilisateur vient de choisir de retoucher la proposition
+  } else {
+    const saved = loadDraft(date);
+    if (saved && sessionSig(saved.session) !== sessionSig(sessionRuntime.working.session)) {
+      if (saved.remoteSig === sessionRuntime.working.remoteSig) {
+        sessionRuntime.working.session = saved.session;
+        sessionRuntime.working.touched = true;
+        sessionRuntime.working.draftNotice = { kind: "restored", savedAt: saved.savedAt };
+      } else {
+        sessionRuntime.working.draftNotice = { kind: "conflict", savedAt: saved.savedAt, draft: saved };
+      }
+    } else if (saved) {
+      clearDraft(date);
+    }
+  }
+  // Toute saisie dans la séance (clavier, boutons) écrit le brouillon local.
+  const contentEl = document.getElementById("session-content");
+  if (contentEl && !contentEl.dataset.draftBound) {
+    contentEl.dataset.draftBound = "1";
+    ["input", "change", "click"].forEach((evt) => contentEl.addEventListener(evt, (e) => {
+      if (evt === "click" && !e.target.closest("button")) return;
+      touchSession();
+    }));
+  }
   renderSessionContent();
   if (state.openLiveOnLoad) {
     state.openLiveOnLoad = false;
@@ -85,6 +118,7 @@ export function renderSessionContent() {
 
   const type = session.type || "musculation";
   el.innerHTML = `
+    ${draftNoticeHTML(sessionRuntime.working.draftNotice)}
     <section class="card">
       <div class="session-head-row"><div class="session-type-badge">${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${SESSION_TYPES[type] ? SESSION_TYPES[type].label : type}</div>${(sessionRuntime.working && sessionRuntime.working.date) ? `<span class="session-date">${escapeHtmlText(formatFrDate(sessionRuntime.working.date))}</span>` : ""}</div>
       ${session.cancelled_from ? `<p class="muted small session-cancelled-note">Remplace « ${escapeHtmlText(session.cancelled_from.name || "séance")} » (annulée).</p>` : ""}
@@ -106,6 +140,7 @@ export function renderSessionContent() {
     ${cancelSessionCardHTML(session)}
     ${deleteSessionHTML()}`;
 
+  bindDraftNotice();
   bindSessionContentEvents();
   bindCancelSession();
   bindDeleteSession();
@@ -114,6 +149,30 @@ export function renderSessionContent() {
   startTimerDisplayInterval();
   startSessionAutoSave();
   startBlockTimerIntervals();
+  // Séance guidée ouverte : chaque nouveau rendu suit une saisie validée.
+  if (sessionRuntime.liveCleanup || sessionRuntime.working.touched) touchSession();
+}
+
+/** Boutons de l'encart « brouillon » (restauré / en conflit), ADR-0103. */
+function bindDraftNotice() {
+  const w = sessionRuntime.working;
+  const discard = document.getElementById("draft-discard");
+  if (discard) discard.addEventListener("click", () => {
+    clearDraft(w.date);
+    w.session = w.remoteSession ? JSON.parse(JSON.stringify(w.remoteSession)) : null;
+    w.touched = false;
+    w.draftNotice = null;
+    renderSessionContent();
+  });
+  const restore = document.getElementById("draft-restore");
+  if (restore) restore.addEventListener("click", () => {
+    const saved = w.draftNotice && w.draftNotice.draft;
+    if (!saved) return;
+    w.session = saved.session;
+    w.touched = true;
+    w.draftNotice = { kind: "restored", savedAt: saved.savedAt };
+    renderSessionContent();
+  });
 }
 
 /** Entrée du mode séance guidée (docs/adr/0074) — série par série, sous le

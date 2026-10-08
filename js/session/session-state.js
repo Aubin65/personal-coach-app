@@ -17,6 +17,8 @@ export const sessionRuntime = {
 };
 
 export function stopAllSessionTimers() {
+  // Avant que la vue ne soit remplacée : garde ce qui a été saisi (ADR-0103).
+  if (sessionRuntime.flushDraft) sessionRuntime.flushDraft();
   if (sessionRuntime.liveCleanup) sessionRuntime.liveCleanup();
   if (sessionRuntime.timerIntervalId) {
     clearInterval(sessionRuntime.timerIntervalId);

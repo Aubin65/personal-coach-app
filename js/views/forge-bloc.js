@@ -5,6 +5,7 @@ import { loadClubConfig } from "../club-training.js";
 import { escapeAttr, escapeHtmlText, skeletonHTML } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
+import { keepDraft, dropDraft } from "../text-drafts.js";
 
 // ============================================================================
 // Forge de bloc (docs/adr/0085) — retour d'Aubin : « une forme de forge qui me
@@ -477,6 +478,7 @@ function wireBloc(root, token, ctx) {
   if (micBtn) setupMicButton(micBtn, root.querySelector("#bloc-voice-hint"), root.querySelector("#bloc-input"), root.querySelector("#bloc-live-caption"));
 
   const chatStatus = root.querySelector("#bloc-chat-status");
+  keepDraft(root.querySelector("#bloc-input"), `bloc:${label}`);
   root.querySelector("#bloc-send").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     if (micBtn && micBtn.classList.contains("recording")) micBtn.click();
@@ -492,6 +494,7 @@ function wireBloc(root, token, ctx) {
       await saveDraft(label, sections, { role: "user", text, at });
       const dispatch = await postUserMessage(`[Forge bloc ${label}] ${text}`);
       input.value = "";
+      dropDraft(`bloc:${label}`);
       chatStatus.textContent = (dispatch.dispatched
         ? "Envoyé ✓ — la réponse du coach apparaît ici toute seule (quelques minutes)."
         : "Envoyé ✓ — la réponse apparaîtra ici automatiquement.") + dispatchStatusNote(dispatch);

@@ -1,6 +1,7 @@
 import { showView, state } from "../nav.js";
 import { setupMicButton } from "../voice-input.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
+import { keepDraft, dropDraft } from "../text-drafts.js";
 
 // ---- Ajuster ma semaine ----
 const ADJUST_SUGGESTIONS = [
@@ -17,6 +18,7 @@ export async function renderAdjustWeek() {
     document.getElementById("adjust-live-caption")
   );
 
+  keepDraft(document.getElementById("adjust-text"), "adjust-week");
   if (state.adjustPrefill) {
     const textEl = document.getElementById("adjust-text");
     textEl.value = state.adjustPrefill;
@@ -46,6 +48,7 @@ export async function renderAdjustWeek() {
     try {
       const dispatch = await postUserMessage(text);
       textEl.value = "";
+      dropDraft("adjust-week");
       statusEl.innerHTML = "";
       const ok = document.createElement("span");
       ok.textContent = dispatch.dispatched

@@ -7,6 +7,7 @@ import { SESSION_TYPES, EXERCISE_FORMATS } from "./session-types.js";
 import { ghGetFile } from "./github-api.js";
 import { setupMicButton } from "./voice-input.js";
 import { postUserMessage, dispatchStatusNote } from "./views/chat.js";
+import { keepDraft, dropDraft } from "./text-drafts.js";
 
 // ============================================================================
 // Weekly plan overview — parses the plan markdown's day headers ("## Lundi
@@ -341,6 +342,10 @@ function wireDayAdjustComposer(date) {
   const chipsEl = document.getElementById("day-adjust-suggestions");
   chipsEl.innerHTML = DAY_ADJUST_SUGGESTIONS.map((s) => `<button type="button" class="suggestion-chip">${s}</button>`).join("");
   const textEl = document.getElementById("day-adjust-text");
+  if (keepDraft(textEl, `day-adjust:${date}`)) {
+    const det = textEl.closest("details");
+    if (det) det.open = true; // un texte déjà écrit se voit sans rouvrir le volet
+  }
   chipsEl.querySelectorAll(".suggestion-chip").forEach((chip) => {
     chip.addEventListener("click", () => { textEl.value = chip.textContent; textEl.focus(); });
   });
@@ -355,6 +360,7 @@ function wireDayAdjustComposer(date) {
     try {
       const dispatch = await postUserMessage(`Ajuste la séance du ${formatFrDate(date)} (${date}) : ${text}`);
       textEl.value = "";
+      dropDraft(`day-adjust:${date}`);
       statusEl.innerHTML = "";
       const ok = document.createElement("span");
       ok.textContent = dispatch.dispatched
