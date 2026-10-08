@@ -44,6 +44,17 @@ async function listPlans() {
  * tab was locked to the current week) so navigating to a week without a
  * plan reads as "no plan for this week", not silently falling back to an
  * older one. */
+/** Markdown minimal `## Jour d/m — titre` construit depuis les séances
+ * enregistrées de la semaine ; `null` si aucune (→ « pas de planning »). */
+async function markdownFromSessions(monday) {
+  const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
+  const summaries = await Promise.all(dates.map((d) => lookupDaySummary(d)));
+  if (!summaries.some((s) => s.hasSession)) return null;
+  return dates
+    .map((d, i) => `## ${DAY_NAMES[i]} ${parseInt(d.slice(8, 10), 10)}/${parseInt(d.slice(5, 7), 10)} — ${summaries[i].hasSession ? summaries[i].name || "Séance" : "Repos"}`)
+    .join("\n");
+}
+
 export async function renderWeekPlanning(token) {
   const monday = state.planningMonday;
   document.getElementById("planning-week-label").textContent = `Semaine ${isoWeekNumber(monday)}`;
@@ -55,17 +66,22 @@ export async function renderWeekPlanning(token) {
   const planFile = await ghGetFile(`data/plans/${monday}.md`);
   if (stale(token)) return;
 
+  // Sans prose de planning (cas typique : semaine construite via Forge), le
+  // bandeau est dérivé des séances réelles de la semaine (ADR-0104).
+  const planMarkdown = planFile ? planFile.content : await markdownFromSessions(monday);
+  if (stale(token)) return;
+
   let planDays = [];
-  if (planFile) {
+  if (planMarkdown) {
     renderWeekOverview(
       document.getElementById("week-day-strip"),
       document.getElementById("week-highlights"),
-      planFile.content,
+      planMarkdown,
       todayISO(),
       monday,
       token
     ).catch(() => {});
-    planDays = parseWeekOverview(planFile.content).days;
+    planDays = parseWeekOverview(planMarkdown).days;
   } else {
     document.getElementById("week-day-strip").innerHTML = "<p class='muted'>Pas de planning disponible pour cette semaine.</p>";
   }
@@ -74,8 +90,8 @@ export async function renderWeekPlanning(token) {
   // déplié, pour une semaine sans planning.
   const sessionsDetails = document.querySelector(".week-sessions-details");
   if (sessionsDetails) {
-    sessionsDetails.hidden = !!planFile;
-    sessionsDetails.open = !planFile;
+    sessionsDetails.hidden = !!planMarkdown;
+    sessionsDetails.open = !planMarkdown;
   }
   renderWeekSessionsTable(token, monday, planDays).catch(() => {});
 }
