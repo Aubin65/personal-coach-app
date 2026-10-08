@@ -2787,3 +2787,75 @@ body.live-open { overflow: hidden; }
 .quarter-table{width:100%;border-collapse:collapse;font-size:.9rem;margin:4px 0 12px}
 .quarter-table td{padding:5px 6px;border-bottom:1px solid var(--border,rgba(128,128,128,.2))}
 .quarter-table td:nth-child(n+2){text-align:right}
+
+/* Progrès › InBody (ADR-0102) */
+.progres-tabs .segment { font-size: 0.84rem; padding-left: 0; padding-right: 0; }
+.ib-chips { margin-bottom: 14px; overflow-x: auto; scrollbar-width: none; }
+.ib-chips .segment { flex: 1 0 auto; min-width: 56px; min-height: 36px; }
+.ib-mini { margin: 0; padding: 2px; }
+.ib-mini .segment { min-height: 30px; padding: 4px 12px; font-size: 0.8rem; }
+.ib-hero { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ib-big { font-size: 2.6rem; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
+.ib-big small { font-size: 1rem; font-weight: 600; color: var(--muted); }
+.ib-hero-delta { margin-top: 6px; font-weight: 700; }
+.ib-hero-delta .muted { font-weight: 400; font-size: 0.8rem; }
+.ib-score { text-align: center; flex: none; }
+.ib-score .ring-wrap, .ib-score .ring-wrap svg { width: 74px; height: 74px; }
+.ib-score .ring-num { font-size: 1.35rem; }
+.ib-good { color: var(--status-ok-text); }
+.ib-bad { color: var(--status-alert-text); }
+.ib-verdict { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 0.88rem; line-height: 1.35; }
+.ib-verdict b { font-size: 0.98rem; }
+.ib-lvl-ok { --lvl: var(--status-ok); background: var(--status-ok-pale); }
+.ib-lvl-info { --lvl: var(--muted); background: var(--surface-2); }
+.ib-lvl-warn { --lvl: var(--status-warn); background: var(--status-warn-pale); }
+.ib-since { margin: 10px 0 0; line-height: 1.45; }
+.ib-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+.ib-tile { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 10px 12px; min-height: 64px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text); font: inherit; cursor: pointer; }
+.ib-tile.selected { border-color: var(--gold); box-shadow: inset 0 0 0 1px var(--gold); }
+.ib-tile-label { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+.ib-tile-value { font-size: 1.3rem; font-weight: 700; }
+.ib-tile-value small { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
+.ib-tile-delta { font-size: 0.82rem; font-weight: 600; min-height: 1.1em; }
+.ib-hint { margin: 8px 0 0; }
+.ib-div { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.ib-div-row { display: grid; grid-template-columns: 76px 1fr 78px; align-items: center; gap: 8px; font-size: 0.86rem; }
+.ib-div-track { position: relative; height: 14px; background: var(--surface-2); border-radius: 7px; }
+.ib-div-track::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1.5px; background: var(--muted); opacity: .6; }
+.ib-div-bar { position: absolute; top: 0; height: 100%; min-width: 3px; }
+.ib-div-bar.pos { left: 50%; border-radius: 0 7px 7px 0; }
+.ib-div-bar.neg { right: 50%; border-radius: 7px 0 0 7px; }
+.ib-c-water { background: #6C8EAD; } .ib-c-protein { background: var(--green-light); } .ib-c-mineral { background: var(--gold); } .ib-c-fat { background: #C98A4B; }
+.ib-div-val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.ib-div-sum { margin: 12px 0 0; color: var(--muted); line-height: 1.4; }
+.ib-insights { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.ib-insights li { display: flex; gap: 10px; align-items: flex-start; background: none; }
+.ib-insights li > div { display: flex; flex-direction: column; font-size: 0.88rem; line-height: 1.4; }
+.ib-insights li > div span { color: var(--muted); }
+.ib-dot { flex: none; width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: var(--lvl, var(--muted)); }
+.ib-body { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+.ib-seg { display: flex; flex-direction: column; gap: 3px; padding: 10px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); min-width: 0; }
+.ib-seg-name { font-size: 0.68rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--muted); }
+.ib-seg-kg { font-size: 1.1rem; font-weight: 700; }
+.ib-seg-kg small { font-size: 0.7rem; color: var(--muted); font-weight: 600; }
+.ib-seg-bar { position: relative; height: 6px; border-radius: 3px; background: var(--surface-2); }
+.ib-seg-fill { display: block; height: 100%; border-radius: 3px; background: var(--green-light); }
+.ib-seg-fill.warn { background: var(--gold); }
+.ib-seg-bar i { position: absolute; top: -3px; bottom: -3px; width: 1.5px; background: var(--gold); }
+.ib-seg-pct { font-size: 0.7rem; color: var(--muted); }
+.ib-sym-box { display: flex; flex-direction: column; justify-content: center; gap: 6px; font-size: 0.78rem; }
+.ib-sym { display: inline-flex; align-items: center; gap: 6px; }
+.ib-sym .ib-dot { margin-top: 0; width: 8px; height: 8px; }
+.ib-sym.ib-lvl-ok, .ib-sym.ib-lvl-info, .ib-sym.ib-lvl-warn { background: none; }
+.ib-details > summary { list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
+.ib-details > summary::-webkit-details-marker { display: none; }
+.ib-details > summary h2 { margin: 0; }
+.ib-details > summary::after { content: "▾"; color: var(--muted); }
+.ib-details[open] > summary::after { content: "▴"; }
+.ib-gauge { margin-top: 14px; }
+.ib-gauge-head { display: flex; justify-content: space-between; font-size: 0.88rem; }
+.ib-gauge-track { position: relative; height: 10px; margin: 8px 0 4px; border-radius: 5px; background: var(--surface-2); }
+.ib-gauge-band { position: absolute; top: 0; bottom: 0; border-radius: 5px; background: var(--status-ok-pale); box-shadow: inset 0 0 0 1px var(--status-ok); }
+.ib-gauge-mark { position: absolute; top: -3px; width: 5px; height: 16px; margin-left: -2.5px; border-radius: 3px; background: var(--gold); }
+.ib-gauge-mark.in { background: var(--status-ok); }
+.ib-gauge-foot { display: flex; justify-content: space-between; }

@@ -3,6 +3,7 @@ import { stale, showView } from "../nav.js";
 import { todayISO } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { activityTabHTML, wireActivity } from "./activity.js";
+import { inbodyTabHTML, wireInbody } from "./inbody.js";
 import { statTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG, shortDateFr, painLevelColor } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -36,6 +37,7 @@ const PROGRES_TABS = [
   { id: "force", label: "Force" },
   { id: "activite", label: "Activité" },
   { id: "corps", label: "Corps" },
+  { id: "inbody", label: "InBody" },
 ];
 const PROGRES_TAB_KEY = "coach_progres_tab";
 const EXERCISE_KEY = "coach_progres_exercise";
@@ -71,7 +73,7 @@ export async function renderData(token) {
   if (!PROGRES_TABS.some((t) => t.id === tab)) tab = "forme";
 
   const draw = () => {
-    const body = tab === "force" ? forceTabHTML(s) : tab === "activite" ? activityTabHTML(s) : tab === "corps" ? corpsTabHTML(s) : formeTabHTML(s);
+    const body = tab === "force" ? forceTabHTML(s) : tab === "activite" ? activityTabHTML(s) : tab === "corps" ? corpsTabHTML(s) : tab === "inbody" ? inbodyTabHTML(s) : formeTabHTML(s);
     el.innerHTML = `
       <div class="segmented progres-tabs" role="tablist">${PROGRES_TABS.map((t) => `<button type="button" role="tab" class="segment${t.id === tab ? " active" : ""}" aria-selected="${t.id === tab}" data-progres-tab="${t.id}">${t.label}</button>`).join("")}</div>
       ${body}`;
@@ -84,6 +86,13 @@ export async function renderData(token) {
     }));
     if (tab === "force") wireExerciseCard(el, s);
     if (tab === "activite") wireActivity(el, s);
+    if (tab === "inbody") wireInbody(el, s);
+    el.querySelectorAll("[data-progres-goto]").forEach((b) => b.addEventListener("click", () => {
+      tab = b.dataset.progresGoto;
+      saveChoice(PROGRES_TAB_KEY, tab);
+      draw();
+      window.scrollTo({ top: 0 });
+    }));
     const painLink = el.querySelector("[data-open-pain]");
     if (painLink) painLink.addEventListener("click", () => showView("pain"));
   };
@@ -434,19 +443,18 @@ function corpsTabHTML(s) {
 
   html += quarterlyCardHTML(s.quarterly_progress);
 
-  const bc = s.body_composition || [];
-  if (bc.length) {
-    const latest = bc[bc.length - 1];
-    const prev = bc.length > 1 ? bc[bc.length - 2] : null;
-    const delta = (field) => (prev && latest[field] != null && prev[field] != null) ? latest[field] - prev[field] : null;
+  const scans = (s.inbody && s.inbody.scans) || [];
+  if (scans.length) {
+    const last = scans[scans.length - 1];
+    const dl = last.delta ? last.delta.lean_mass_kg : null;
     html += `
       <section class="card">
-        <div class="card-head"><h2>Composition corporelle</h2><span class="muted small">InBody du ${shortDateFr(latest.date)}</span></div>
+        <div class="card-head"><h2>Composition corporelle</h2><span class="muted small">InBody du ${shortDateFr(last.date)}</span></div>
         <div class="stat-grid">
-          ${latest.skeletal_muscle_mass_kg != null ? statTileSimple("Masse musculaire", `${latest.skeletal_muscle_mass_kg.toFixed(1)} kg`, delta("skeletal_muscle_mass_kg"), " kg", "up") : ""}
-          ${latest.fat_mass_kg != null ? statTileSimple("Masse grasse", `${latest.fat_mass_kg.toFixed(1)} kg`, delta("fat_mass_kg"), " kg", "down") : ""}
+          ${last.lean_mass_kg != null ? statTileSimple("Masse non grasse", `${last.lean_mass_kg.toFixed(1)} kg`, dl, " kg", "up") : ""}
+          ${last.fat_mass_kg != null ? statTileSimple("Masse grasse", `${last.fat_mass_kg.toFixed(1)} kg`, last.delta ? last.delta.fat_mass_kg : null, " kg", "down") : ""}
         </div>
-        ${latest.inbody_score != null ? `<p class="muted small" style="margin-top:8px">Score InBody : ${latest.inbody_score}${prev && prev.inbody_score != null ? ` (avant : ${prev.inbody_score})` : ""}</p>` : ""}
+        <button type="button" class="primary-button ghost small" data-progres-goto="inbody" style="margin-top:10px">Analyse InBody complète →</button>
       </section>`;
   } else {
     html += `<section class="card"><h2>Composition corporelle</h2><p class="muted small">Pas encore de scan InBody enregistré.</p></section>`;
