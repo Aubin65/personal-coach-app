@@ -374,6 +374,44 @@ function wireExerciseCard(el, s) {
 }
 
 // ---------------------------------------------------------------- Corps
+
+// ADR-0101 : plus de cible de poids — masse maigre (InBody) et force, par trimestre.
+const STRENGTH_LABELS = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar DL" };
+const fr1 = (n) => n.toFixed(1).replace(".", ",");
+const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "±") + fr1(Math.abs(n));
+const quarterLabel = (q) => { const [y, t] = q.split("-"); return `${t} ${y}`; };
+
+function quarterlyCardHTML(qp) {
+  if (!qp) return "";
+  const body = qp.body || [];
+  const strength = Object.entries(qp.strength || {}).filter(([, rows]) => rows.length);
+  if (!body.length && !strength.length) return "";
+  const tone = (d) => (d > 0 ? "trend-up" : d < 0 ? "trend-down" : "");
+  const bodyRows = body.map((r) => `
+      <tr><td>${quarterLabel(r.quarter)}${r.in_progress ? " <small>(en cours)</small>" : ""}</td><td><strong>${fr1(r.lean_mass_kg)} kg</strong></td>
+      <td class="${tone(r.delta_lean_kg)}">${r.delta_lean_kg != null ? signed(r.delta_lean_kg) : "—"}</td>
+      <td class="muted">${r.body_fat_percent != null ? fr1(r.body_fat_percent) + " % MG" : ""}</td></tr>`).join("");
+  // Trimestre en cours = partiel : jamais comparé comme une régression, affiché à part.
+  const strengthRows = strength.map(([key, rows]) => {
+    const done = rows.filter((r) => !r.in_progress);
+    const cur = rows.find((r) => r.in_progress);
+    const last = done[done.length - 1];
+    return `<tr><td>${STRENGTH_LABELS[key] || key}</td>
+      <td>${last ? `<strong>${last.best_load} kg</strong> <small class="muted">${quarterLabel(last.quarter)}</small>` : "—"}</td>
+      <td class="${last ? tone(last.delta_kg) : ""}">${last && last.delta_kg != null ? signed(last.delta_kg) : "—"}</td>
+      <td class="muted">${cur ? `${cur.best_load} kg <small>(${quarterLabel(cur.quarter)}, en cours)</small>` : ""}</td></tr>`;
+  }).join("");
+  return `
+      <section class="card">
+        <div class="card-head"><h2>Objectifs trimestriels</h2></div>
+        ${body.length ? `<h3 class="small">Masse maigre (poids − masse grasse, InBody)</h3>
+        <table class="quarter-table"><tbody>${bodyRows}</tbody></table>` : ""}
+        ${strengthRows ? `<h3 class="small">Force — meilleure charge du trimestre</h3>
+        <table class="quarter-table"><tbody>${strengthRows}</tbody></table>` : ""}
+        <p class="muted small">Variation vs trimestre précédent. Un scan InBody par trimestre suffit : le poids seul n'est plus un objectif.</p>
+      </section>`;
+}
+
 function corpsTabHTML(s) {
   let html = "";
   const bp = s.bodyweight_progress;
@@ -386,14 +424,15 @@ function corpsTabHTML(s) {
     html += `
       <section class="card">
         <div class="card-head"><h2>Poids de corps</h2><span class="card-head-value">${last.toFixed(1).replace(".", ",")}<small> kg</small></span></div>
-        ${bp ? `<div class="target-bar"><div class="target-bar-fill" style="width:${Math.round(Math.max(0, Math.min(1, bp.fraction)) * 100)}%"></div></div>
-        <p class="small target-bar-legend"><span>Départ ${bp.baseline_kg} kg</span><span>${Math.round(bp.fraction * 100)} % de l'objectif</span><span>Cible ${bp.target_kg} kg</span></p>` : ""}
+        ${bp ? `<p class="muted small">Pas de cible de poids — repère de stabilité. Départ ${String(bp.baseline_kg).replace(".", ",")} kg (${shortDateFr(bp.baseline_date)}).</p>` : ""}
         ${bw.length > 1 ? sparklineSVG(bw.map((h) => ({ date: h.week_start, value: h.weight_kg })), { axis: true }) : ""}
         ${delta != null && bw.length > 1 ? `<p class="small"><span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : "−"}${Math.abs(delta).toFixed(1).replace(".", ",")} kg</span> en ${bw.length - 1} semaines (≈ ${perWeek >= 0 ? "+" : "−"}${Math.abs(perWeek).toFixed(2).replace(".", ",")} kg/semaine, moyennes hebdomadaires)</p>` : ""}
       </section>`;
   } else {
     html += `<section class="card"><h2>Poids de corps</h2><p class="muted small">Pas encore assez de pesées récentes.</p></section>`;
   }
+
+  html += quarterlyCardHTML(s.quarterly_progress);
 
   const bc = s.body_composition || [];
   if (bc.length) {

@@ -2783,3 +2783,7 @@ body.live-open { overflow: hidden; }
 .ch-detail-pain ul { margin: 4px 0 0; padding-left: 18px; font-size: 0.85rem; }
 .ch-detail-pain strong { color: var(--danger); font-size: 0.85rem; }
 .activity-chart-card .ch-bar { max-width: 44px; }
+
+.quarter-table{width:100%;border-collapse:collapse;font-size:.9rem;margin:4px 0 12px}
+.quarter-table td{padding:5px 6px;border-bottom:1px solid var(--border,rgba(128,128,128,.2))}
+.quarter-table td:nth-child(n+2){text-align:right}
