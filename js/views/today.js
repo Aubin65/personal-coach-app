@@ -797,12 +797,12 @@ async function loadTodaySession(token) {
   const exercises = session.exercises || [];
   const shown = exercises.slice(0, 3);
   const done = sessionHasExecuted(session);
-  const meta = [typeLabel];
+  const meta = [session.primer ? "⚡ Primer" : typeLabel];
   if (session.session_duration_min) meta.push(`${session.session_duration_min} min`);
   box.innerHTML = `
     <section class="card today-session">
       <div class="today-session-tags"><span class="pill pill-gold">Séance du jour</span><span class="muted small">${escapeHtmlText(meta.join(" · "))}</span>${done ? '<span class="pill pill-ok">Loguée</span>' : ""}</div>
-      <div class="today-session-title">${kindIconHTML(/match/i.test(session.name || "") ? "match" : type)}<h2 class="today-session-name">${escapeHtmlText(session.name || typeLabel)}</h2></div>
+      <div class="today-session-title">${kindIconHTML(session.primer ? "primer" : /match/i.test(session.name || "") ? "match" : type)}<h2 class="today-session-name">${escapeHtmlText(session.name || typeLabel)}</h2></div>
       ${shown.length ? `<ul class="today-session-list">${shown.map((ex) => `<li><span>${escapeHtmlText(ex.name || "Exercice")}</span><span class="today-session-planned">${escapeHtmlText(plannedLine(ex))}</span></li>`).join("")}${exercises.length > shown.length ? `<li class="muted">+ ${exercises.length - shown.length} exercice${exercises.length - shown.length > 1 ? "s" : ""}</li>` : ""}</ul>` : ""}
       ${session.notes ? `<p class="today-session-notes">${escapeHtmlText(session.notes)}</p>` : ""}
       <div class="today-session-actions">

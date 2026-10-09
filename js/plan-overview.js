@@ -173,14 +173,16 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
       const type = summary && summary.hasSession && summary.type
         ? summary.type
         : /repos/i.test(d.title) ? "repos" : /rugby|club|match/i.test(d.title) ? "rugby" : "musculation";
-      const isMatch = /match/i.test(title) || /match/i.test(d.title);
-      const kind = type === "repos" ? "rest" : isMatch ? "match" : type;
+      // Un primer (« Primer match ») n'est pas le match : présentation à part (ADR-0105).
+      const isPrimer = !!(summary && summary.hasSession && summary.isPrimer);
+      const isMatch = !isPrimer && (/match/i.test(title) || /match/i.test(d.title));
+      const kind = type === "repos" ? "rest" : isPrimer ? "primer" : isMatch ? "match" : type;
       let status;
       if (type === "repos") status = "Repos";
       else if (summary && summary.hasExecuted) status = "Fait";
       else if (iso && iso > todayISOStr) status = summary && summary.hasSession ? "Prévu" : "À venir";
       else status = summary && summary.hasSession ? "Prévu" : "Non loggé";
-      const typeLabel = type === "rugby" ? "Rugby" : SESSION_TYPES[type] && type !== "repos" ? SESSION_TYPES[type].label.replace(/\s*\(.*\)$/, "") : "";
+      const typeLabel = isPrimer ? "Primer" : type === "rugby" ? "Rugby" : SESSION_TYPES[type] && type !== "repos" ? SESSION_TYPES[type].label.replace(/\s*\(.*\)$/, "") : "";
       const secondary = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
         ? ` · + ${SESSION_TYPES[summary.secondaryType].label.replace(/\s*\(.*\)$/, "").toLowerCase()}`
         : "";
@@ -194,7 +196,7 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
         : status === "Fait" ? '<span class="week-day-pill done">✓ Fait</span>'
         : toLog ? '<span class="week-day-pill to-log">À loguer</span>' : "";
       const sub = type === "repos" ? "" : `${status}${typeLabel && !isMatch ? ` · ${typeLabel}` : ""}${secondary}`;
-      const iconKind = type === "repos" ? "repos" : isMatch ? "match" : type;
+      const iconKind = type === "repos" ? "repos" : isPrimer ? "primer" : isMatch ? "match" : type;
       // Repos (docs/adr/0082) : une ligne basse et calme plutôt qu'une carte
       // vide en pointillés — lune, « Repos », et le détail du plan s'il en
       // donne un (« Repos actif », « mobilité »…), sinon « Récupération ».

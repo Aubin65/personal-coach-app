@@ -2198,6 +2198,9 @@ body.live-open { overflow: hidden; }
 .week-day.kind-rest .week-day-text strong { color: var(--rest-ink); }
 .week-day.kind-rest.is-today .week-day-card { border-color: var(--text); }
 .week-day.kind-rest.is-selected .week-day-card { border-color: var(--gold); }
+.week-day.kind-primer .week-day-card { background: var(--gold-pale); border-color: var(--gold); }
+.week-day.kind-primer .week-day-text strong { color: var(--status-warn-text); }
+.week-day.kind-primer.is-today .week-day-card { border-color: var(--text); }
 .week-day.kind-match .week-day-card { background: var(--green); color: white; }
 .week-day.kind-match .week-day-text small { color: #C9DCD0; }
 
@@ -2210,6 +2213,7 @@ body.live-open { overflow: hidden; }
 .kind-icon.k-rugby { background: var(--kind-rugby-bg); color: var(--kind-rugby-ink); }
 .kind-icon.k-autre { background: var(--status-ok-pale); color: var(--status-ok-text); }
 .kind-icon.k-repos { background: var(--rest-icon-bg); color: var(--rest-ink); }
+.kind-icon.k-primer { background: var(--gold); color: #3A2A08; }
 .kind-icon.k-match { background: rgba(255,255,255,0.14); color: #7BE0A0; }
 .week-day:not(.kind-match) .kind-icon.k-match { background: var(--green); color: #7BE0A0; }
 .week-sessions-details { padding: 0 16px; }

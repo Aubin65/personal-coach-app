@@ -15,11 +15,13 @@ const PATHS = {
   match: '<path d="M7 3.5v17M17 3.5v17M7 12.5h10"/><circle cx="12" cy="7.5" r="1.6"/>',
   // tracé d'effort (course, rando, vélo…)
   autre: '<path d="M3 12.5h4l2.6-7 4.8 13 2.6-6H21"/>',
+  // éclair (primer pré-match, ADR-0105)
+  primer: '<path d="M13 2.5L5 13.5h6l-1 8 8-11h-6z"/>',
   // lune
   repos: '<path d="M19.5 14.6A7.6 7.6 0 0 1 9.4 4.5a7.6 7.6 0 1 0 10.1 10.1z"/>',
 };
 
-/** `kind` : musculation | rugby | match | autre | repos (défaut : musculation). */
+/** `kind` : musculation | rugby | match | primer | autre | repos (défaut : musculation). */
 export function kindIconHTML(kind, extraClass = "") {
   const k = PATHS[kind] ? kind : "musculation";
   return `<span class="kind-icon k-${k}${extraClass ? ` ${extraClass}` : ""}" aria-hidden="true"><svg viewBox="0 0 24 24">${PATHS[k]}</svg></span>`;
