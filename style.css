@@ -2883,3 +2883,10 @@ body.live-open { overflow: hidden; }
 .draft-notice { background: var(--status-warn-pale); border: 1px solid var(--status-warn); }
 .draft-notice p { margin: 0 0 8px; }
 .draft-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Primer pré-match (ADR-0105) */
+.forge-primer { display: block; width: 100%; margin-top: 6px; padding: 8px 10px; border-radius: 10px; border: 1px dashed var(--border, #888); background: transparent; color: inherit; font: inherit; font-size: 0.82rem; text-align: left; }
+.forge-primer.is-set { border-style: solid; color: var(--status-ok-text); }
+.primer-choice { margin-top: 10px; display: grid; gap: 6px; }
+.primer-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.primer-status:empty { display: none; }

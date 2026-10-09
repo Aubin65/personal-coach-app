@@ -51,6 +51,7 @@ export function forgeProposalDayToSession(date, d) {
     name: d.name || defaultSessionName(date, d.type),
     date,
     type: d.type,
+    ...(d.primer === true && d.type === "musculation" ? { primer: true } : {}),
     exercises,
     notes: d.notes || "",
     session_rpe: null,

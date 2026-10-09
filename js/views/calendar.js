@@ -1,7 +1,8 @@
 import { ghGetFile, ghListDir, ghPutFile, ghPutJSON } from "../github-api.js";
 import { checkinPath } from "../data-paths.js";
 import { stale } from "../nav.js";
-import { todayISO, localISOWithOffset } from "../date-utils.js";
+import { todayISO, localISOWithOffset, addDaysISO } from "../date-utils.js";
+import { addPrimer } from "../primer.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
 import { dayInitial, shortDateFr } from "./data-viz.js";
@@ -40,6 +41,15 @@ const CONTACT_LABELS = Object.fromEntries(CONTACT_INTENSITIES.map((c) => [c.id, 
 const WEEKDAYS_FR = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 const MONTHS_LONG_FR = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
 
+/** Primer (ADR-0105) : salle légère la veille ou le matin du match. */
+function primerChoiceHTML(matchDate, days) {
+  const eve = addDaysISO(matchDate, -1);
+  const btns = [];
+  if (days >= 1) btns.push(`<button type="button" class="suggestion-chip primer-add" data-primer-date="${eve}">⚡ Primer la veille</button>`);
+  btns.push(`<button type="button" class="suggestion-chip primer-add" data-primer-date="${matchDate}">⚡ Primer le jour J</button>`);
+  return `<div class="primer-choice"><span class="muted small">Séance de salle courte et légère pour arriver affûté (20-30 min, sans fatigue)</span><div class="primer-actions">${btns.join("")}</div><p class="muted small primer-status" aria-live="polite"></p></div>`;
+}
+
 /** Carte « Prochain match » (maquette C, docs/adr/0077) : adversaire, compte
  * à rebours J-x, date, lieu, et si tu joues ou non. */
 function nextMatchHeroHTML(g, today, nextPlayed) {
@@ -60,6 +70,7 @@ function nextMatchHeroHTML(g, today, nextPlayed) {
         <div><span>Lieu</span><b>${escapeHtmlText(g.home_away || "")}</b></div>
       </div>
       <p class="next-match-note">${escapeHtmlText(g.phase ? `Phase ${g.phase.toLowerCase()}` : "")}${playing ? " · tu es dans le groupe" : " · tu ne joues pas encore en Première"}</p>
+      ${playing && days >= 0 && days <= 7 ? primerChoiceHTML(g.date, days) : ""}
     </section>`;
 }
 
@@ -206,6 +217,19 @@ export async function renderCalendar(token) {
   }
   html += "</div>";
   el.innerHTML = html;
+  el.querySelectorAll("[data-primer-date]").forEach((btn) => btn.addEventListener("click", async () => {
+    const status = el.querySelector(".primer-status");
+    el.querySelectorAll(".primer-add").forEach((b) => (b.disabled = true));
+    status.textContent = "Ajout…";
+    try {
+      const session = await addPrimer(btn.dataset.primerDate);
+      status.textContent = session ? "Primer ajouté ✓ — retrouve-le dans Plan › Semaine ou Aujourd'hui, charges à renseigner." : "Aucun changement.";
+    } catch (err) {
+      status.textContent = `Échec : ${err.message}`;
+    } finally {
+      el.querySelectorAll(".primer-add").forEach((b) => (b.disabled = false));
+    }
+  }));
   wireMatchPerformanceForms(el);
   el.querySelectorAll("[data-team-toggle]").forEach((chip) => chip.addEventListener("click", async () => {
     const t = chip.dataset.teamToggle;

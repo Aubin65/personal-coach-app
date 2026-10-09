@@ -11,6 +11,7 @@ import { saveSession } from "../session/session-form.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { loadPendingSkeletonInto, forgeProposalDayToSession } from "../forge-proposal.js";
 import { loadClubConfig, saveClubWeekdays } from "../club-training.js";
+import { loadPlayedMatchDates, primerKind, addPrimer } from "../primer.js";
 
 // ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
 
@@ -89,6 +90,16 @@ function quickTypeButtonsHTML(date, currentType) {
  * `patchForgeDayRow` (a single-row DOM patch after a quick-type tap), so
  * the two can never drift apart. `data-day-index` lets the patch path
  * recover `DAY_NAMES[i]` without recomputing it from the date. */
+let forgeMatchDates = new Set();
+
+/** Bouton « ⚡ Primer » : veille ou jour d'un match joué (ADR-0105). */
+function primerButtonHTML(date, s) {
+  const kind = primerKind(date, forgeMatchDates);
+  if (!kind) return "";
+  if (s.hasSession && s.isPrimer) return `<div class="forge-primer is-set">⚡ Primer ${kind === "veille" ? "veille de match" : "jour de match"} ✓</div>`;
+  return `<button type="button" class="forge-primer" data-date="${date}">⚡ Ajouter un primer ${kind === "veille" ? "(veille de match)" : "(jour de match)"}</button>`;
+}
+
 function forgeDayRowHTML(date, dayIndex, s, today) {
   const type = s.hasSession ? s.type || "musculation" : null;
   const label = s.hasSession ? `${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : "🏋️"} ${escapeHtmlText(s.name || "Séance")}` : "Aucune séance planifiée";
@@ -100,6 +111,7 @@ function forgeDayRowHTML(date, dayIndex, s, today) {
         <div class="forge-day-status">${sessionDayStatus(date, s.hasSession, s.hasExecuted, today, s.type)}</div>
       </button>
       <div class="forge-quick-types">${quickTypeButtonsHTML(date, type)}</div>
+      ${primerButtonHTML(date, s)}
     </div>`;
 }
 
@@ -110,6 +122,26 @@ function bindForgeDayRowEvents(scope) {
   scope.querySelectorAll(".forge-quick-type-button").forEach((btn) => {
     btn.addEventListener("click", () => handleForgeQuickType(btn));
   });
+  scope.querySelectorAll("button.forge-primer").forEach((btn) => {
+    btn.addEventListener("click", () => handleForgePrimer(btn));
+  });
+}
+
+async function handleForgePrimer(btn) {
+  const row = btn.closest(".forge-day-row");
+  const date = btn.dataset.date;
+  const dayIndex = +row.dataset.dayIndex;
+  btn.disabled = true;
+  btn.textContent = "Ajout…";
+  try {
+    const session = await addPrimer(date);
+    if (!session) { btn.disabled = false; btn.textContent = "⚡ Ajouter un primer"; return; }
+    row.outerHTML = forgeDayRowHTML(date, dayIndex, { hasSession: true, type: "musculation", name: session.name, hasExecuted: false, isPrimer: true }, todayISO());
+    bindForgeDayRowEvents(document.querySelector(`.forge-day-row[data-date="${date}"]`));
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = `Échec : ${err.message}`;
+  }
 }
 
 async function renderForgeContent(token) {
@@ -118,8 +150,12 @@ async function renderForgeContent(token) {
   document.getElementById("forge-days").innerHTML = skeletonHTML();
 
   const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));
-  const summaries = await Promise.all(dates.map((d) => lookupDaySummary(d)));
+  const [summaries, matchDates] = await Promise.all([
+    Promise.all(dates.map((d) => lookupDaySummary(d))),
+    loadPlayedMatchDates(todayISO()).catch(() => new Set()),
+  ]);
   if (stale(token)) return;
+  forgeMatchDates = matchDates;
 
   const today = todayISO();
   const daysEl = document.getElementById("forge-days");

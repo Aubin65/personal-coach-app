@@ -122,7 +122,7 @@ async function lookupRealDaySummary(date) {
     // secondaryType only ever comes from the live app-log scan — a
     // secondary session is an app-only concept (see blankSecondarySession,
     // docs/adr/0050), never present in the Sheets-sourced summary index.
-    return { date, name: s.name, type: s.type, hasSession: true, hasExecuted: sessionHasExecuted(s), secondaryType: s.secondary ? s.secondary.type : null };
+    return { date, name: s.name, type: s.type, hasSession: true, hasExecuted: sessionHasExecuted(s), secondaryType: s.secondary ? s.secondary.type : null, isPrimer: !!s.primer };
   }
   const summaryIndex = await loadSummaryIndex();
   const hit = summaryIndex.get(date);
