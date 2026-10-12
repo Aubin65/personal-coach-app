@@ -3,6 +3,7 @@ import { checkinPath } from "../data-paths.js";
 import { stale } from "../nav.js";
 import { todayISO, localISOWithOffset, addDaysISO } from "../date-utils.js";
 import { addPrimer } from "../primer.js";
+import { mentalRoutineHTML, wireMentalRoutine, preloadMentalPlans, cachedMentalPlan, mentalScalesHTML, goalsCheckHTML, wireMentalPost, readMental, mentalSummaryText } from "../mental.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
 import { dayInitial, shortDateFr } from "./data-viz.js";
@@ -59,6 +60,8 @@ function nextMatchHeroHTML(g, today, nextPlayed) {
   const dateLong = `${WEEKDAYS_FR[d.getDay()]} ${d.getDate()} ${MONTHS_LONG_FR[d.getMonth()]}`;
   const premiere = g.byTeam["Première"];
   const playing = premiere ? !!premiere.user_is_playing : !!nextPlayed;
+  // Primer / routine mentale : dès que tu joues dans n'importe quelle équipe (Réserve incluse).
+  const playsAny = Object.values(g.byTeam).some((m) => m && m.user_is_playing);
   return `
     <section class="next-match">
       <div class="next-match-head">
@@ -70,7 +73,8 @@ function nextMatchHeroHTML(g, today, nextPlayed) {
         <div><span>Lieu</span><b>${escapeHtmlText(g.home_away || "")}</b></div>
       </div>
       <p class="next-match-note">${escapeHtmlText(g.phase ? `Phase ${g.phase.toLowerCase()}` : "")}${playing ? " · tu es dans le groupe" : " · tu ne joues pas encore en Première"}</p>
-      ${playing && days >= 0 && days <= 7 ? primerChoiceHTML(g.date, days) : ""}
+      ${playsAny && days >= 0 && days <= 7 ? primerChoiceHTML(g.date, days) : ""}
+      ${playsAny && days >= 0 && days <= 7 ? mentalRoutineHTML(g.date, cachedMentalPlan(g.date)) : ""}
     </section>`;
 }
 
@@ -95,6 +99,7 @@ export async function renderCalendar(token) {
   // Réglage « je joue en … » appliqué tout de suite (summary.json n'est
   // régénéré qu'au digest) : ADR-0095.
   const teams = await loadPlayingTeams();
+  await preloadMentalPlans().catch(() => {});
   if (stale(token)) return;
   const matches = (s.season_matches || []).map((m) => ({ ...m, user_is_playing: playsIn(m, teams) }));
   if (!matches.length) { el.innerHTML = "<p class='muted'>Aucun match dans le calendrier de la saison.</p>"; return; }
@@ -217,6 +222,7 @@ export async function renderCalendar(token) {
   }
   html += "</div>";
   el.innerHTML = html;
+  wireMentalRoutine(el);
   el.querySelectorAll("[data-primer-date]").forEach((btn) => btn.addEventListener("click", async () => {
     const status = el.querySelector(".primer-status");
     el.querySelectorAll(".primer-add").forEach((b) => (b.disabled = true));
@@ -257,6 +263,7 @@ function matchPerformanceSummaryHTML(perf) {
     <div class="match-performance-summary">
       <p class="small">${perf.minutes_played}min · RPE ${perf.rpe} · Contacts ${escapeHtmlText(CONTACT_LABELS[perf.contact_intensity] || perf.contact_intensity || "?")}</p>
       ${perf.feel ? `<p class="small"><strong>Ressenti</strong> : ${escapeHtmlText(feelSummaryText(perf.feel))}</p>` : ""}
+      ${perf.mental ? `<p class="small"><strong>Mental</strong> : ${escapeHtmlText(mentalSummaryText(perf.mental))}</p>` : ""}
       ${perf.notes ? `<p class="small muted">${escapeHtmlText(perf.notes)}</p>` : ""}
       <button type="button" class="primary-button ghost small match-performance-edit">✏️ Modifier</button>
     </div>`;
@@ -283,6 +290,10 @@ function matchPerformanceHTML(m, alreadyPlayed) {
         <div class="suggestion-chips mp-intensity">${intensityChips}</div>
         <p class="small muted" style="margin-top:10px">Ressenti (1 = mauvais, 5 = très bien)</p>
         <div class="feel-scales">${feelScalesHTML(perf && perf.feel)}</div>
+        <details class="mental-post"${perf && perf.mental ? " open" : ""}><summary class="small muted">🧠 Mental (optionnel)</summary>
+          <div class="feel-scales">${mentalScalesHTML(perf && perf.mental)}</div>
+          ${goalsCheckHTML(cachedMentalPlan(m.date), perf && perf.mental)}
+        </details>
         <div class="compose-row" style="margin-top:10px">
           <textarea class="mp-notes" rows="3" placeholder="Ressenti physique, poste joué si différent du sien habituel, fait marquant, gêne apparue…">${perf ? escapeHtmlText(perf.notes || "") : ""}</textarea>
           <button type="button" class="mic-button mp-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -382,6 +393,7 @@ function wireMatchPerformanceForms(el) {
 
     wireMatchPerformanceEditButton(card);
     wireFeelScales(card);
+    wireMentalPost(card);
 
     card.querySelector(".mp-save").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
@@ -405,6 +417,8 @@ function wireMatchPerformanceForms(el) {
       };
       const feel = readFeel(card);
       if (feel) performance.feel = feel;
+      const mental = readMental(card);
+      if (mental) performance.mental = mental;
       btn.disabled = true;
       statusEl.textContent = "Enregistrement…";
       try {

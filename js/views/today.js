@@ -3,6 +3,7 @@ import { kindIconHTML } from "../session-icons.js";
 import { showView, stale, state } from "../nav.js";
 import { todayISO, addDaysISO, sessionHasExecuted, formatFrDate, localISOWithOffset } from "../date-utils.js";
 import { loadClubConfig } from "../club-training.js";
+import { mentalScalesHTML, goalsCheckHTML, wireMentalPost, readMental, loadMentalPlan } from "../mental.js";
 import { matchToRate, feelScalesHTML, wireFeelScales, readFeel, feelSummaryText, dismissMatchFeel, MATCH_FEEL_SCALES } from "../match-feel.js";
 import { saveMatchPerformance } from "./calendar.js";
 import { findSessionForDate } from "../training-index.js";
@@ -892,6 +893,8 @@ async function loadMatchFeel(token) {
   if (stale(token)) return;
   if (!m) { box.innerHTML = ""; return; }
   const perf = m.performance || null;
+  const mentalPlan = await loadMentalPlan(m.date).catch(() => null);
+  if (stale(token)) return;
   const when = m.date === today ? "de ce soir" : m.date === addDaysISO(today, -1) ? "d'hier" : `du ${formatFrDate(m.date)}`;
   const team = m.team || "Première";
   box.innerHTML = `
@@ -904,6 +907,10 @@ async function loadMatchFeel(token) {
         <div><label>RPE (0-10)</label><input type="number" id="mf-rpe" min="0" max="10" step="1" inputmode="numeric" placeholder="0-10"></div>
       </div>`}
       <div class="feel-scales">${feelScalesHTML(perf && perf.feel)}</div>
+      <details class="mental-post"${perf && perf.mental ? " open" : ""}><summary class="small muted">🧠 Mental (optionnel, 15 s)</summary>
+        <div class="feel-scales">${mentalScalesHTML(perf && perf.mental)}</div>
+        ${goalsCheckHTML(mentalPlan, perf && perf.mental)}
+      </details>
       <div class="compose-row" style="margin-top:10px">
         <textarea id="mf-note" rows="2" placeholder="Un mot sur le match : contact, fin de match, gêne…">${perf && perf.notes ? escapeHtmlText(perf.notes) : ""}</textarea>
         <button type="button" class="mic-button" id="mf-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -917,6 +924,7 @@ async function loadMatchFeel(token) {
       <p class="muted small" id="mf-status"></p>
     </section>`;
   wireFeelScales(box);
+  wireMentalPost(box);
   setupMicButton(box.querySelector("#mf-mic"), box.querySelector("#mf-voice-hint"), box.querySelector("#mf-note"), box.querySelector("#mf-live-caption"));
   box.querySelector("#mf-skip").addEventListener("click", () => { dismissMatchFeel(m.date); box.innerHTML = ""; });
   box.querySelector("#mf-save").addEventListener("click", async (e) => {
@@ -935,6 +943,8 @@ async function loadMatchFeel(token) {
       // Durée totale par défaut (échauffement compris), modifiable dans Matchs.
       performance = { minutes_played: Number(minutes), rpe: Number(rpe), duration_min: 90, contact_intensity: null, notes: note, feel, logged_at: localISOWithOffset() };
     }
+    const mental = readMental(box);
+    if (mental) performance.mental = mental;
     btn.disabled = true;
     status.textContent = "Enregistrement…";
     try {

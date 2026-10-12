@@ -2894,3 +2894,28 @@ body.live-open { overflow: hidden; }
 .primer-choice { margin-top: 10px; display: grid; gap: 6px; }
 .primer-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .primer-status:empty { display: none; }
+
+/* Préparation mentale (ADR-0106) */
+.mental-card { margin-top: 12px; border-top: 1px solid var(--border, rgba(128,128,128,.3)); padding-top: 10px; }
+.mental-card > summary { font-weight: 700; cursor: pointer; min-height: 44px; display: flex; align-items: center; }
+.mental-body { display: grid; gap: 8px; padding-bottom: 6px; }
+.mental-checklist { display: grid; gap: 4px; }
+.mental-check { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+.mental-check input { width: auto; flex-shrink: 0; }
+.mental-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.mental-goal, .mental-cue { width: 100%; }
+.mental-stage { display: grid; justify-items: center; gap: 6px; padding: 14px; border-radius: 16px; background: var(--card-bg); text-align: center; }
+.mental-orb { width: 72px; height: 72px; border-radius: 50%; background: var(--gold-pale); border: 3px solid var(--gold); }
+.mental-orb[data-phase="in"] { animation: orb-in var(--orb-seconds, 4s) ease-in-out forwards; }
+.mental-orb[data-phase="out"] { animation: orb-out var(--orb-seconds, 6s) ease-in-out forwards; }
+.mental-orb[data-phase="visu"] { animation: orb-visu 4s ease-in-out infinite; }
+@keyframes orb-in { from { transform: scale(0.7); } to { transform: scale(1.35); } }
+@keyframes orb-out { from { transform: scale(1.35); } to { transform: scale(0.7); } }
+@keyframes orb-visu { 0%, 100% { transform: scale(0.9); } 50% { transform: scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .mental-orb { animation: none !important; } }
+.mental-stage-text { font-weight: 600; margin: 0; }
+.mental-post { margin-top: 10px; }
+.mental-post > summary { min-height: 40px; display: flex; align-items: center; cursor: pointer; }
+.goal-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
+.goal-row > span:first-child { flex: 1; min-width: 160px; }
+.goal-chips { display: flex; gap: 6px; }
