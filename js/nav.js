@@ -6,6 +6,7 @@ import { renderForgeBloc } from "./views/forge-bloc.js";
 import { renderData } from "./views/data.js";
 import { renderCalendar } from "./views/calendar.js";
 import { renderChat } from "./views/chat.js";
+import { renderTouches } from "./views/touches.js";
 import { renderSession } from "./session/session-render.js";
 import { renderWriteNote } from "./views/write-note.js";
 import { renderAdjustWeek } from "./views/adjust-week.js";
@@ -51,6 +52,7 @@ const views = {
   "forge-bloc": { title: "Forge de bloc", render: renderForgeBloc },
   data: { title: "Progrès", render: renderData },
   calendar: { title: "Plan", render: renderCalendar },
+  touches: { title: "Plan", render: renderTouches },
   chat: { title: "Coach", render: renderChat },
   session: { title: "Séance", render: renderSession },
   "write-note": { title: "Nouvelle note", render: renderWriteNote },
@@ -69,10 +71,11 @@ const TAB_FOR_VIEW = {
   forge: "week",
   "forge-bloc": "week",
   calendar: "week",
+  touches: "week",
   data: "data",
   chat: "chat",
 };
-const PLAN_VIEWS = new Set(["week", "forge", "calendar"]);
+const PLAN_VIEWS = new Set(["week", "forge", "calendar", "touches"]);
 
 /** `params.date` (ISO) targets the "session" view at an arbitrary date —
  * set from the Aujourd'hui quick action (today), a day-strip/Forge/

@@ -234,6 +234,7 @@ button { font-family: inherit; -webkit-tap-highlight-color: transparent; }
   flex-shrink: 0;
 }
 .plan-switch-item {
+  padding: 0 2px;
   flex: 1;
   min-height: 40px;
   border: none;
@@ -2919,3 +2920,33 @@ body.live-open { overflow: hidden; }
 .goal-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
 .goal-row > span:first-child { flex: 1; min-width: 160px; }
 .goal-chips { display: flex; gap: 6px; }
+
+/* Carnet de touches (docs/adr/0107) */
+.tch-nav { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.tch-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.tch-gname { font-size: .75rem; color: var(--muted); min-width: 84px; }
+.tch-card { padding: 12px; }
+.tch-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.tch-tag { font-size: .8rem; color: var(--muted); }
+.tch-opts { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.tch-call { margin: 8px 0; font-weight: 600; color: var(--green); }
+.tch-field { width: 100%; height: auto; display: block; border-radius: 12px; }
+.tch-grass { fill: var(--green-pale); }
+.tch-touch { stroke: var(--green); stroke-width: .12; }
+.tch-m5 { stroke: var(--border); stroke-width: .06; stroke-dasharray: .3 .3; }
+.tch-lbl { font-size: .6px; fill: #fff; font-weight: 700; pointer-events: none; }
+.tch-ring { stroke: transparent; stroke-width: .12; }
+.tch-p { cursor: pointer; }
+.tch-p.is-out { opacity: .35; }
+.tch-p.is-feint .tch-ring { stroke: var(--gold); stroke-dasharray: .2 .15; }
+.tch-p.is-jump .tch-ring { stroke: var(--danger); stroke-width: .2; }
+.tch-p.is-lift .tch-ring { stroke: var(--green); stroke-width: .15; }
+.tch-ball { fill: var(--gold); stroke: var(--text); stroke-width: .06; }
+.tch-arrow { stroke: var(--danger); stroke-width: .12; stroke-dasharray: .3 .2; }
+.tch-phase { margin: 8px 0; min-height: 4.2em; }
+.tch-phase p { margin: 2px 0 0; }
+.tch-ctl, .tch-quizbar { display: flex; gap: 8px; }
+.tch-ctl .primary-button { flex: 1; }
+.tch-quizbar { margin-top: 10px; }
+.tch-sum { font-size: .85rem; margin-top: 10px; }
+.tch-interp { font-size: .8rem; color: var(--status-warn-text); background: var(--status-warn-pale); padding: 8px; border-radius: 10px; }
