@@ -179,10 +179,12 @@ function billintx(v) {
   return { players: [...fw(IDS5), NINE, HOOK], phases: ph };
 }
 function lacaze(v) {
-  const ids = range(4), b = blocks(ids, [3, 1]), x2 = b["2"][0], x4 = b["4"][0];
+  const ids = range(4);
+  // « 31 » : trio devant (espacé, il ne se lie qu'au moment du saut) et le 4 tout au fond (15 m).
+  const b = { 1: [5, 0], 2: [7.2, 0], 3: [9.4, 0], 4: [END, 0] }, x2 = b["2"][0], x4 = b["4"][0];
   const ph = [
     { t: "Placement", d: "Alignement à 4, écart normal.", p: line(ids, normal(4)) },
-    { t: "« Change » → 31", d: "Bloc de 3 devant, un joueur seul au fond.", p: b },
+    { t: "« Change » → 31", d: "Trio devant, un joueur seul au fond.", p: b },
   ];
   if (v === "A") {
     ph.push({ t: "« A » : saut direct", d: "Saut direct sur le premier bloc : le 2, lifté par le 1 et le 3.", p: unit(x2, "1", "2", "3"), jump: { J: "2", L: ["1", "3"] }, ball: [["T", "2"]] });
