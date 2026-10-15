@@ -1,4 +1,4 @@
-import { stale } from "../nav.js";
+import { stale, showView } from "../nav.js";
 import { escapeHtmlText, escapeAttr } from "../markdown.js";
 import {
   TOUCHES, byId, NOTES, validClassique, jumperOf, buildSpec, compute, specLabel, callText, specsOf, allSpecs,
@@ -30,12 +30,12 @@ const KIND_FILL = { fw: "var(--green-light)", hooker: "var(--gold)", nine: "#2F6
 
 function fieldSVG(tl) {
   const players = tl.players.map((p) =>
-    `<g class="tch-p" data-id="${escapeAttr(p.id)}"><circle class="tch-ring" r="0.62" fill="none"/><circle class="tch-dot" r="0.46" fill="${KIND_FILL[p.kind]}"/><text class="tch-lbl" y="0.17" text-anchor="middle">${escapeHtmlText(p.label)}</text></g>`).join("");
+    `<g class="tch-p" data-id="${escapeAttr(p.id)}"><circle class="tch-ring" r="0.86" fill="none"/><circle class="tch-dot" r="0.66" fill="${KIND_FILL[p.kind]}"/><text class="tch-lbl" y="0.17" text-anchor="middle">${escapeHtmlText(p.label)}</text></g>`).join("");
   return `<svg class="tch-field" viewBox="-1.5 -5.2 21 11.4" role="img" aria-label="Terrain de l'alignement">
     <rect x="-1.5" y="-5.2" width="21" height="11.4" class="tch-grass"/>
     <line x1="0" y1="-5.2" x2="19.5" y2="-5.2" class="tch-touch"/>
     <line x1="5" y1="-5.2" x2="5" y2="6.2" class="tch-m5"/><line x1="15" y1="-5.2" x2="15" y2="6.2" class="tch-m5"/>
-    <g id="tch-arrows"></g>${players}<circle id="tch-ball" r="0.28" class="tch-ball"/></svg>`;
+    <g id="tch-arrows"></g>${players}<circle id="tch-ball" r="0.38" class="tch-ball"/></svg>`;
 }
 
 function bez(a, b, via, t) {
@@ -68,21 +68,24 @@ function draw(root) {
   ui.phase = Math.min(ui.phase, tl.phases.length - 1);
 
   const groups = [...new Set(TOUCHES.map((x) => x.group))];
-  const nav = groups.map((g) => `<div class="tch-group"><span class="tch-gname">${escapeHtmlText(g)}</span>${TOUCHES.filter((x) => x.group === g)
-    .map((x) => `<button type="button" class="suggestion-chip${x.id === ui.id ? " active" : ""}" data-touche="${x.id}">${escapeHtmlText(x.name)}</button>`).join("")}</div>`).join("");
+  const GROUP_LBL = { "Complète · 7": "À 7", "À 5": "À 5", "À 4": "À 4" };
+  const grp = t.group;
+  const nav = `<div class="tch-seg" role="tablist">${groups.map((g) => `<button type="button" role="tab" aria-selected="${g === grp}" class="tch-seg-item${g === grp ? " active" : ""}" data-group="${escapeAttr(g)}">${escapeHtmlText(GROUP_LBL[g] || g)}<small>${TOUCHES.filter((x) => x.group === g).length}</small></button>`).join("")}</div>
+    <div class="tch-chips">${TOUCHES.filter((x) => x.group === grp).map((x) => `<button type="button" class="tch-chip${x.id === ui.id ? " active" : ""}" data-touche="${x.id}"><span>${escapeHtmlText(x.name)}</span><small>${escapeHtmlText(x.tag)}</small></button>`).join("")}</div>`;
 
   let opts = "";
   if (t.classique) {
     const codes = ["40", "50", "60"].map((c) => `<button type="button" class="suggestion-chip${ui.code === c ? " active" : ""}" data-code="${c}" ${NOTES.some((nn) => validClassique(t.classique, c, nn)) ? "" : "disabled"}>${c}</button>`).join("");
     const notes = NOTES.map((nn) => `<button type="button" class="suggestion-chip${ui.note === nn ? " active" : ""}" data-note="${nn}" ${validClassique(t.classique, ui.code, nn) ? "" : "disabled"} title="${jumperOf(t.classique, nn)}e">${nn}</button>`).join("");
-    opts = `<div class="tch-opts">${codes}</div><div class="tch-opts">${notes}</div>`;
+    opts = `<div class="tch-opts"><span class="tch-optlbl">Code</span>${codes}</div><div class="tch-opts"><span class="tch-optlbl">Sauteur</span>${notes}</div>`;
   } else if (t.variants) {
-    opts = `<div class="tch-opts">${t.variants.map((v) => `<button type="button" class="suggestion-chip${ui.v === v.k ? " active" : ""}" data-v="${v.k}">${escapeHtmlText(v.l)}</button>`).join("")}</div>`;
+    opts = `<div class="tch-opts"><span class="tch-optlbl">${t.annLbl ? "Annonce" : "Relayeur"}</span>${t.variants.map((v) => `<button type="button" class="suggestion-chip${ui.v === v.k ? " active" : ""}" data-v="${v.k}">${escapeHtmlText(v.l)}</button>`).join("")}</div>`;
   }
 
   const quiz = ui.quiz;
   const sc = ui.score;
   root.innerHTML = `
+    <button type="button" class="tch-back" id="tch-back">‹ Matchs</button>
     <div class="tch-nav">${nav}</div>
     <div class="card tch-card">
       <div class="tch-head"><strong>${escapeHtmlText(quiz ? "Quiz — qui saute ?" : specLabel(spec))}</strong>
@@ -172,6 +175,10 @@ function draw(root) {
   root.querySelector("#tch-prev").disabled = ui.phase === 0;
   root.querySelector("#tch-next").disabled = ui.phase === useTl.phases.length - 1;
 
+  $("tch-back").addEventListener("click", () => showView("calendar"));
+  root.querySelectorAll("[data-group]").forEach((b) => b.addEventListener("click", () => {
+    const first = TOUCHES.find((x) => x.group === b.dataset.group); ui.id = first.id; ui.v = null; ui.phase = 0; ui.quiz = null; draw(root);
+  }));
   root.querySelectorAll("[data-touche]").forEach((b) => b.addEventListener("click", () => { ui.id = b.dataset.touche; ui.v = null; ui.phase = 0; ui.quiz = null; draw(root); }));
   root.querySelectorAll("[data-code]").forEach((b) => b.addEventListener("click", () => { ui.code = b.dataset.code; ui.phase = 0; draw(root); }));
   root.querySelectorAll("[data-note]").forEach((b) => b.addEventListener("click", () => { ui.note = b.dataset.note; ui.phase = 0; draw(root); }));

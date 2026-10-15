@@ -124,7 +124,7 @@ export function showView(name, params = {}) {
       // la Forge (ouverte par « Modifier ») reste rattachée à Semaine.
       const on = btn.dataset.subtab
         ? (name === "week" && btn.dataset.subtab === state.weekSubTab) || (name === "forge" && btn.dataset.subtab === "planning")
-        : btn.dataset.view === name;
+        : btn.dataset.view === (name === "touches" ? "calendar" : name);
       btn.classList.toggle("active", on);
     });
   }

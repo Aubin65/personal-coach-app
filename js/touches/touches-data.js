@@ -7,19 +7,18 @@
 // ============================================================================
 
 // ---------- géométrie (mètres) ----------
-const U = 0.78, TIGHT = 0.85, OUT = 1.7;
+const U = 1.15, TIGHT = 1.2, OUT = 2.1, START = 5, END = 15; // alignement : des 5 m aux 15 m
 export const T0 = [-0.8, -0.55], NINE0 = [8.6, 2.7], R0 = [10.4, 2.9];
 const range = (n) => Array.from({ length: n }, (_, i) => String(i + 1));
 
 export function normal(n) {
-  const end = { 7: 14, 5: 12, 4: 10.5 }[n];
-  return Array.from({ length: n }, (_, i) => 6 + (i * (end - 6)) / (n - 1));
+  return Array.from({ length: n }, (_, i) => START + (i * (END - START)) / (n - 1));
 }
 function line(ids, xs) { const o = {}; ids.forEach((id, i) => (o[id] = [xs[i], 0])); return o; }
-function blocks(ids, sizes, end) {
+function blocks(ids, sizes, end = END) {
   const inner = sizes.reduce((s, k) => s + (k - 1) * TIGHT, 0);
-  const gap = (end - 6 - inner) / (sizes.length - 1);
-  let x = 6, i = 0;
+  const gap = (end - START - inner) / (sizes.length - 1);
+  let x = START, i = 0;
   const o = {};
   sizes.forEach((k) => {
     for (let j = 0; j < k; j++) { o[ids[i++]] = [x, 0]; if (j < k - 1) x += TIGHT; }
@@ -68,16 +67,16 @@ function classique(n, code, note) {
 // ---------- touches à 7 ----------
 const IDS7 = range(7);
 function samba() {
-  const b = blocks(IDS7, [3, 1, 3], 14), c = b["6"][0];
+  const b = blocks(IDS7, [3, 1, 3]), c = b["6"][0];
   return { players: [...fw(IDS7), NINE, HOOK], phases: [
     { t: "Placement", d: "Alignement à 7, écart normal.", p: line(IDS7, normal(7)) },
     { t: "« Change » → 313", d: "Bloc de 3, un joueur seul, bloc de 3.", p: b },
-    { t: "Saut en SOL", d: "Le 6 saute, lifté par le 5 et le 7. Le joueur seul (4) va couvrir : il contourne les sauteurs par derrière et se place au fond de l’alignement. Le premier bloc part en arc de cercle derrière l’alignement.", p: { ...unit(c, "5", "6", "7"), 4: [15.1, 0.2], 1: [16.3, 1.0], 2: [15.6, 1.8], 3: [17.0, 1.9] }, via: { 4: [13.2, 2.0], 1: [7, 3.7], 2: [8, 4.0], 3: [9, 4.4] }, jump: { J: "6", L: ["5", "7"] }, ball: [["T", "6"]] },
-    { t: "Percussion", d: "Le 6 donne au 1, qui arrive lancé avec le 2 et le 3 et percute plus loin que la touche.", p: { 1: [16.6, 0.35], 2: [16.0, 1.1], 3: [17.3, 1.15] }, ball: [["6", "1"]], arrows: [[16.6, 0.35, 17.3, -2.5]] },
+    { t: "Saut en SOL", d: "Le 6 saute, lifté par le 5 et le 7. Le joueur seul (4) va couvrir : il contourne les sauteurs par derrière et se place au fond de l’alignement. Le premier bloc part en arc de cercle derrière l’alignement.", p: { ...unit(c, "5", "6", "7"), 4: [16.2, 0.2], 1: [17.4, 1.0], 2: [16.7, 2.0], 3: [18.1, 2.0] }, via: { 4: [14.3, 2.3], 1: [6.5, 3.9], 2: [7.8, 4.2], 3: [9, 4.6] }, jump: { J: "6", L: ["5", "7"] }, ball: [["T", "6"]] },
+    { t: "Percussion", d: "Le 6 donne au 1, qui arrive lancé avec le 2 et le 3 et percute plus loin que la touche.", p: { 1: [17.4, 0.35], 2: [16.6, 1.4], 3: [18.2, 1.4] }, ball: [["6", "1"]], arrows: [[17.4, 0.35, 18.2, -2.5]] },
   ] };
 }
 function biarritz() {
-  const b = blocks(IDS7, [3, 1, 3], 14), x4 = b["4"][0];
+  const b = blocks(IDS7, [3, 1, 3]), x4 = b["4"][0];
   return { players: [...fw(IDS7), NINE, HOOK], phases: [
     { t: "Placement", d: "Alignement à 7, écart normal.", p: line(IDS7, normal(7)) },
     { t: "« Change » → 313", d: "Bloc de 3, un joueur seul au milieu, bloc de 3.", p: b },
@@ -89,39 +88,41 @@ function biarritz() {
 const IDS9 = ["9", "2", "3", "4", "5", "6", "7"];
 const PLAYERS9 = [{ id: "9", label: "9", kind: "nine" }, ...fw(IDS9.slice(1)), RELAY, HOOK];
 function paris(v) {
-  const b = blocks(IDS9, [3, 2, 2], 14), x3 = b["3"][0], x6 = b["6"][0];
+  const b = blocks(IDS9, [3, 2, 2]), x3 = b["3"][0], x6 = b["6"][0];
   const ph = [
-    { t: "Placement", d: "Le 9 entre en premier de l’alignement, un avant se place en relayeur (R).", p: { ...line(IDS9, normal(7)), R: [9.8, 2.9] } },
+    { t: "Placement", d: "Le 9 entre en premier de l’alignement, un avant se place en relayeur (R).", p: { ...line(IDS9, normal(7)), R: [9.8, 3.2] } },
     { t: "« Change » → 322", d: "Bloc de 3 (9-2-3), bloc de 2 (4-5), bloc de 2 (6-7).", p: b },
     { t: "Feinte sur le 4", d: "Les deux du milieu viennent feinter le saut au niveau du 3 : le 4 feinte le saut, le 3 feinte le lift devant, le 5 lifte derrière.", p: { 4: [x3 + U, 0], 5: [x3 + 2 * U, 0] }, feint: { J: "4", L: ["3", "5"] } },
   ];
   if (v === "1") {
-    ph.push({ t: "Relayeur : « 1 »", d: "La feinte devient le vrai saut : le 4, lifté par le 3 et le 5. Le relayeur s’approche.", p: { R: [6.6, 1.7] }, jump: { J: "4", L: ["3", "5"] }, ball: [["T", "4"]] });
-    ph.push({ t: "Duel dans le couloir", d: "Le 4 donne au relayeur, qui joue le duel dans le couloir avec le talonneur.", p: { R: [3.4, 0.9], T: [2.5, 0.35] }, ball: [["4", "R"]], arrows: [[3.4, 0.9, 2.9, -2.5]] });
+    ph.push({ t: "Relayeur : « 1 »", d: "La feinte devient le vrai saut : le 4, lifté par le 3 et le 5. Le relayeur s’approche.", p: { R: [6.8, 1.9] }, jump: { J: "4", L: ["3", "5"] }, ball: [["T", "4"]] });
+    ph.push({ t: "Duel dans le couloir", d: "Le 4 donne au relayeur, qui joue le duel dans le couloir avec le talonneur.", p: { R: [3.6, 1.0], T: [2.6, 0.4] }, ball: [["4", "R"]], arrows: [[3.6, 1.0, 3.0, -2.5]] });
   } else {
-    ph.push({ t: "Relayeur : « 2 »", d: "Après avoir feinté le lift devant, le 3 part lifter au fond : saut sur le 6, lifté par le 3 et le 7. Le 9 décroche.", p: { ...unit(x6, "3", "6", "7"), 9: [12.1, 1.9] }, via: { 3: [10.6, 1.1], 9: [8.5, 2.6] }, jump: { J: "6", L: ["3", "7"] }, ball: [["T", "6"]] });
-    ph.push({ t: "Jeu derrière", d: "Le 9 prend la balle et fait jouer les lignes arrière.", ball: [["6", "9"]], arrows: [[12.1, 1.9, 15.6, 4.4]] });
+    ph.push({ t: "Relayeur : « 2 »", d: "Après avoir feinté le lift devant, le 3 part lifter au fond : saut sur le 6, lifté par le 3 et le 7. Le 9 décroche.", p: { ...unit(x6, "3", "6", "7"), 9: [x6 - 2.4, 2.1] }, via: { 3: [x6 - 3.5, 1.3], 9: [8.5, 2.8] }, jump: { J: "6", L: ["3", "7"] }, ball: [["T", "6"]] });
+    ph.push({ t: "Jeu derrière", d: "Le 9 prend la balle et fait jouer les lignes arrière.", ball: [["6", "9"]], arrows: [[x6 - 2.4, 2.1, x6 + 1.4, 4.6]] });
   }
   return { players: PLAYERS9, phases: ph };
 }
 function specialeBase() {
-  const b = blocks(IDS9, [3, 2, 2], 14), x6 = b["6"][0];
+  const b = blocks(IDS9, [3, 2, 2]), x6 = b["6"][0];
   return [
     { t: "Placement", d: "Comme Paris : le 9 devant, un avant en relayeur (R).", p: { ...line(IDS9, normal(7)), R: [9.8, 2.9] } },
     { t: "« Change » → 322", d: "Bloc de 3 (9-2-3), bloc de 2 (4-5), bloc de 2 (6-7).", p: b },
-    { t: "Saut direct au fond", d: "Le relayeur s’avance pour lifter devant le 6 (avant-dernier), le 7 lifte derrière. Le 5 va couvrir : il contourne les sauteurs par derrière et se place au fond de l’alignement. Le 4 fait semblant d’aller devant.", p: { ...unit(x6, "R", "6", "7"), 5: [15.1, 0.2], 4: [8.6, 0] }, via: { R: [11.6, 1.7], 5: [13.4, 2.2] }, jump: { J: "6", L: ["R", "7"] }, ball: [["T", "6"]] },
+    { t: "Saut direct au fond", d: "Le relayeur s’avance pour lifter devant le 6 (avant-dernier), le 7 lifte derrière. Le 5 va couvrir : il contourne les sauteurs par derrière et se place au fond de l’alignement. Le 4 fait semblant d’aller devant.", p: { ...unit(x6, "R", "6", "7"), 5: [x6 + 1.5, 0.2], 4: [8.6, 0] }, via: { R: [x6 - 2, 1.9], 5: [x6 - 0.2, 2.4] }, jump: { J: "6", L: ["R", "7"] }, ball: [["T", "6"]] },
   ];
 }
 function speciale() {
+  const x6 = blocks(IDS9, [3, 2, 2])["6"][0];
   return { players: PLAYERS9, phases: [...specialeBase(),
-    { t: "Décalage du bloc 2-3-4", d: "Le bloc 2-3-4 se décale dans l’alignement vers le relayeur. En l’air, le 6 donne au 3.", p: { 2: [10.0, 0], 3: [10.8, 0], 4: [11.6, 0] }, ball: [["6", "3"]] },
-    { t: "Maul désaxé", d: "Le maul se forme à hauteur du relayeur, autour du 3 : le 2, le 3 et le 4 restent dans l’alignement, le relayeur, le 6 et le 7 se lient derrière.", p: { 2: [10.7, 0], 3: [11.45, 0], 4: [12.2, 0], R: [12.0, 0.75], 6: [12.85, 0.55], 7: [13.6, 0.3], 9: [11.3, 1.6] }, via: { 9: [9, 2.3] }, arrows: [[11.45, 0, 9.6, -2.2]] },
+    { t: "Décalage du bloc 2-3-4", d: "Le bloc 2-3-4 se décale dans l’alignement vers le relayeur. En l’air, le 6 donne au 3.", p: { 2: [x6 - 4.0, 0], 3: [x6 - 2.8, 0], 4: [x6 - 1.6, 0] }, ball: [["6", "3"]] },
+    { t: "Maul désaxé", d: "Le maul se forme à hauteur du relayeur, autour du 3 : le 2, le 3 et le 4 restent dans l’alignement, le relayeur, le 6 et le 7 se lient derrière.", p: { 2: [x6 - 3.6, 0], 3: [x6 - 2.4, 0], 4: [x6 - 1.2, 0], R: [x6 - 1.1, 1.1], 6: [x6 + 0.1, 0.8], 7: [x6 + 1.3, 0.5], 9: [x6 - 2.8, 2.2] }, via: { 9: [9, 2.5] }, arrows: [[x6 - 2.4, 0, x6 - 4.4, -2.4]] },
   ] };
 }
 function smart() {
+  const x6 = blocks(IDS9, [3, 2, 2])["6"][0];
   return { players: PLAYERS9, phases: [...specialeBase(),
-    { t: "Le 3 sort en arc", d: "Celui qui devait faire le maul (3) sort de la touche en décrivant un arc de cercle.", p: { 3: [11.0, 1.8] }, via: { 3: [8.0, 3.9] } },
-    { t: "Percussion au milieu", d: "Le 6 donne au 3 lancé, qui percute au milieu de l’alignement, là où le 4 et le 5 ont libéré l’espace.", p: { 3: [10.7, 0.3] }, ball: [["6", "3"]], arrows: [[10.7, 0.3, 10.2, -2.5]] },
+    { t: "Le 3 sort en arc", d: "Celui qui devait faire le maul (3) sort de la touche en décrivant un arc de cercle.", p: { 3: [x6 - 3.0, 2.0] }, via: { 3: [8.0, 4.2] } },
+    { t: "Percussion au milieu", d: "Le 6 donne au 3 lancé, qui percute au milieu de l’alignement, là où le 4 et le 5 ont libéré l’espace.", p: { 3: [x6 - 3.4, 0.3] }, ball: [["6", "3"]], arrows: [[x6 - 3.4, 0.3, x6 - 3.9, -2.5]] },
   ] };
 }
 
@@ -131,9 +132,9 @@ function t121() {
   return { players: [...fw(IDS5), NINE, HOOK], phases: [
     { t: "Placement", d: "Alignement à 5, écart normal.", p: line(IDS5, X5) },
     { t: "Feinte devant", d: "Les trois premiers feintent le saut sur le 2.", p: unit(X5[1], "1", "2", "3"), feint: { J: "2", L: ["1", "3"] } },
-    { t: "Deuxième feinte", d: "Le 2 sort et se replace en premier lifteur, tout devant. Le 1 et le 3 reculent et feintent plus loin avec le 4 : lift 1, sauteur 3, lift 4.", p: { 2: [6.0, 0], ...unit(X5[3] - U, "1", "3", "4") }, via: { 2: [6.7, 1.3], 1: [8.2, 0.8] }, feint: { J: "3", L: ["1", "4"] } },
-    { t: "Saut devant", d: "Le lifteur avant (1) sort ; le bloc 3-4 revient devant où le 2 l’attend : lift 2, sauteur 3, lift 4.", p: { 1: [X5[3] - 2 * U, OUT], ...unit(6.0 + U, "2", "3", "4") }, out: ["1"], jump: { J: "3", L: ["2", "4"] }, ball: [["T", "3"]] },
-    toNine("3", 7.1),
+    { t: "Deuxième feinte", d: "Le 2 sort et se replace en premier lifteur, tout devant. Le 1 et le 3 reculent et feintent plus loin avec le 4 : lift 1, sauteur 3, lift 4.", p: { 2: [START, 0], ...unit(X5[3] - U, "1", "3", "4") }, via: { 2: [START + 0.9, 1.5], 1: [8.2, 1.0] }, feint: { J: "3", L: ["1", "4"] } },
+    { t: "Saut devant", d: "Le lifteur avant (1) sort ; le bloc 3-4 revient devant où le 2 l’attend : lift 2, sauteur 3, lift 4.", p: { 1: [X5[3] - 2 * U, OUT], ...unit(START + U, "2", "3", "4") }, out: ["1"], jump: { J: "3", L: ["2", "4"] }, ball: [["T", "3"]] },
+    toNine("3", START + U + 0.4),
   ] };
 }
 function t131() {
@@ -148,15 +149,15 @@ function t131() {
 }
 function anglet(v) {
   const ph = [
-    { t: "Placement", d: "Alignement à 5, écart normal, avec un relayeur (R).", p: { ...line(IDS5, X5), 9: [7.6, 2.7], R: [10.6, 2.9] } },
-    { t: "Les 3 premiers devant", d: "Le 1, le 2 et le 3 se mettent en position de saut devant. Le relayeur annonce 1 ou 2.", p: unit(6.4, "1", "2", "3"), feint: { J: "2", L: ["1", "3"] } },
+    { t: "Placement", d: "Alignement à 5, écart normal, avec un relayeur (R).", p: { ...line(IDS5, X5), 9: [7.6, 2.7], R: [10.6, 3.2] } },
+    { t: "Les 3 premiers devant", d: "Le 1, le 2 et le 3 se mettent en position de saut devant. Le relayeur annonce 1 ou 2.", p: unit(START + U, "1", "2", "3"), feint: { J: "2", L: ["1", "3"] } },
   ];
   if (v === "1") {
     ph.push({ t: "Relayeur : « 1 »", d: "Ballon au premier bloc : le 2 saute, lifté par le 1 et le 3.", jump: { J: "2", L: ["1", "3"] }, ball: [["T", "2"]] });
-    ph.push(toNine("2", 6.8));
+    ph.push(toNine("2", START + U + 0.4));
   } else {
-    ph.push({ t: "Relayeur : « 2 »", d: "Ballon au second bloc : le relayeur rentre lifter devant le 4, qui saute ; le 5 lifte derrière.", p: unit(X5[3], "R", "4", "5"), via: { R: [10.4, 1.4] }, jump: { J: "4", L: ["R", "5"] }, ball: [["T", "4"]] });
-    ph.push(toNine("4", 10.8));
+    ph.push({ t: "Relayeur : « 2 »", d: "Ballon au second bloc : le relayeur rentre lifter devant le 4, qui saute ; le 5 lifte derrière.", p: unit(X5[3], "R", "4", "5"), via: { R: [X5[3] - 2, 1.6] }, jump: { J: "4", L: ["R", "5"] }, ball: [["T", "4"]] });
+    ph.push(toNine("4", X5[3] + 0.4));
   }
   return { players: [...fw(IDS5), NINE, RELAY, HOOK], phases: ph };
 }
@@ -165,37 +166,37 @@ function billintx(v) {
   const ph = [
     { t: "Placement", d: "Alignement à 5, écart normal.", p: line(IDS5, X5) },
     { t: "Feinte en RE", d: "Le premier bloc feinte le saut en RE : le 2, avec le 1 et le 3.", p: unit(X5[1], "1", "2", "3"), feint: { J: "2", L: ["1", "3"] } },
-    { t: "Le 1 feinte en SOL", d: "Le 1 contourne et va feinter en SOL avec les deux qui restent : lift 1, sauteur 4, lift 5.", p: unit(X5[3], "1", "4", "5"), via: { 1: [8.4, 1.4] }, feint: { J: "4", L: ["1", "5"] } },
-    { t: "Le 1 revient lifter derrière", d: "Le 1 revient lifter derrière ceux restés devant : lift 2, sauteur 3, lift 1.", p: { 1: [c + U, 0] }, via: { 1: [9.9, 0.9] }, feint: { J: "3", L: ["2", "1"] } },
+    { t: "Le 1 feinte en SOL", d: "Le 1 contourne et va feinter en SOL avec les deux qui restent : lift 1, sauteur 4, lift 5.", p: unit(X5[4] - U, "1", "4", "5"), via: { 1: [8.4, 1.6] }, feint: { J: "4", L: ["1", "5"] } },
+    { t: "Le 1 revient lifter derrière", d: "Le 1 revient lifter derrière ceux restés devant : lift 2, sauteur 3, lift 1.", p: { 1: [c + U, 0] }, via: { 1: [X5[3] - 1, 1.1] }, feint: { J: "3", L: ["2", "1"] } },
   ];
   if (v === "1") {
-    ph.push({ t: "Annonce « 1 » : saut devant", d: "Le trio avance et saute plus devant : le 3, lifté par le 2 et le 1.", p: unit(6.5, "2", "3", "1"), jump: { J: "3", L: ["2", "1"] }, ball: [["T", "3"]] });
-    ph.push(toNine("3", 6.8));
+    ph.push({ t: "Annonce « 1 » : saut devant", d: "Le trio avance et saute plus devant : le 3, lifté par le 2 et le 1.", p: unit(START + U, "2", "3", "1"), jump: { J: "3", L: ["2", "1"] }, ball: [["T", "3"]] });
+    ph.push(toNine("3", START + U + 0.4));
   } else {
-    ph.push({ t: "Annonce « 2 » : saut au fond", d: "Le 2, resté tout devant, repart lever au fond ; le trio recule et saute plus au fond : lift 2, sauteur 4, lift 5.", p: { ...unit(11.5, "2", "4", "5"), 1: [9.0, 0.55] }, via: { 2: [8.6, 1.5] }, jump: { J: "4", L: ["2", "5"] }, ball: [["T", "4"]] });
-    ph.push(toNine("4", 11.8));
+    ph.push({ t: "Annonce « 2 » : saut au fond", d: "Le 2, resté tout devant, repart lever au fond ; le trio recule et saute plus au fond : lift 2, sauteur 4, lift 5.", p: { ...unit(X5[4] - U, "2", "4", "5"), 1: [X5[4] - U - 2 * U - 0.2, 0.55] }, via: { 2: [8.6, 1.7] }, jump: { J: "4", L: ["2", "5"] }, ball: [["T", "4"]] });
+    ph.push(toNine("4", X5[4] - U + 0.4));
   }
   return { players: [...fw(IDS5), NINE, HOOK], phases: ph };
 }
 function lacaze(v) {
-  const ids = range(4), b = blocks(ids, [3, 1], 10.5), x2 = b["2"][0], x4 = b["4"][0];
+  const ids = range(4), b = blocks(ids, [3, 1]), x2 = b["2"][0], x4 = b["4"][0];
   const ph = [
     { t: "Placement", d: "Alignement à 4, écart normal.", p: line(ids, normal(4)) },
     { t: "« Change » → 31", d: "Bloc de 3 devant, un joueur seul au fond.", p: b },
   ];
   if (v === "A") {
     ph.push({ t: "« A » : saut direct", d: "Saut direct sur le premier bloc : le 2, lifté par le 1 et le 3.", p: unit(x2, "1", "2", "3"), jump: { J: "2", L: ["1", "3"] }, ball: [["T", "2"]] });
-    ph.push(toNine("2", 7.2));
+    ph.push(toNine("2", x2 + 0.4));
   } else {
     ph.push({ t: "Feinte sur le 2", d: "Le premier bloc feinte le saut sur le 2.", p: unit(x2, "1", "2", "3"), feint: { J: "2", L: ["1", "3"] } });
-    const step = { p: { 2: [x2, OUT], ...unit(x4 - U, "1", "3", "4") }, via: { 1: [8, 0.8] }, out: ["2"] };
+    const step = { p: { 2: [x2, OUT], ...unit(x4 - U, "1", "3", "4") }, via: { 1: [8, 1.0] }, out: ["2"] };
     if (v === "ouais") {
       ph.push({ t: "« Ouais » : saut sur le 3", d: "Le 2 sort ; le 1 vient lever le 3 au niveau du 4, qui lifte derrière.", ...step, jump: { J: "3", L: ["1", "4"] }, ball: [["T", "3"]] });
       ph.push(toNine("3", x4 - U + 0.3));
     } else {
       ph.push({ t: "Le 2 sort, feinte sur le 3", d: "Le 2 sort ; le 1 et le 4 font mine de lever le 3.", ...step, feint: { J: "3", L: ["1", "4"] } });
-      ph.push({ t: "« Non » : retour devant", d: "Le lifteur avant (1) sort ; on revient sauter en premier bloc sur le 2, qui avait feinté au début.", p: { 1: [x4 - 2 * U, OUT], ...unit(x2, "3", "2", "4") }, via: { 3: [7.5, 0.7] }, out: ["1"], back: ["2"], jump: { J: "2", L: ["3", "4"] }, ball: [["T", "2"]] });
-      ph.push(toNine("2", 7.2));
+      ph.push({ t: "« Non » : retour devant", d: "Le lifteur avant (1) sort ; on revient sauter en premier bloc sur le 2, qui avait feinté au début.", p: { 1: [x4 - 2 * U, OUT], ...unit(x2, "3", "2", "4") }, via: { 3: [7.5, 0.9] }, out: ["1"], back: ["2"], jump: { J: "2", L: ["3", "4"] }, ball: [["T", "2"]] });
+      ph.push(toNine("2", x2 + 0.4));
     }
   }
   return { players: [...fw(ids), NINE, HOOK], phases: ph };

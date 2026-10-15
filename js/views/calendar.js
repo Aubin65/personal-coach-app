@@ -1,6 +1,6 @@
 import { ghGetFile, ghListDir, ghPutFile, ghPutJSON } from "../github-api.js";
 import { checkinPath } from "../data-paths.js";
-import { stale } from "../nav.js";
+import { stale, showView } from "../nav.js";
 import { todayISO, localISOWithOffset, addDaysISO } from "../date-utils.js";
 import { addPrimer } from "../primer.js";
 import { mentalRoutineHTML, wireMentalRoutine, preloadMentalPlans, cachedMentalPlan, mentalScalesHTML, goalsCheckHTML, wireMentalPost, readMental, mentalSummaryText } from "../mental.js";
@@ -170,6 +170,7 @@ export async function renderCalendar(token) {
   if (upcomingAll.length) sections.push({ label: "À venir", groups: upcomingAll.slice(0, 3) });
   if (past.length) sections.push({ label: `Joués${playedPremiere.length ? ` · ${wins} V · ${losses} D${draws ? ` · ${draws} N` : ""}` : ""}`, groups: past });
   if (upcomingAll.length > 3) sections.push({ label: `Suite de la saison · ${upcomingAll.length - 3} matchs`, groups: upcomingAll.slice(3), collapsed: true });
+  html += `<button type="button" class="touches-entry" id="open-touches"><span class="touches-entry-ico" aria-hidden="true">🏉</span><span class="touches-entry-txt"><strong>Carnet de touches</strong><span class="muted small">12 touches animées · quiz pour réviser les annonces</span></span><span aria-hidden="true">›</span></button>`;
   html += "<div class='calendar-list'>";
   for (const section of sections) {
     if (section.collapsed) html += `<details class="calendar-rest"><summary class="calendar-section-label">${escapeHtmlText(section.label)}</summary>`;
@@ -223,6 +224,7 @@ export async function renderCalendar(token) {
   html += "</div>";
   el.innerHTML = html;
   wireMentalRoutine(el);
+  el.querySelector("#open-touches")?.addEventListener("click", () => showView("touches"));
   el.querySelectorAll("[data-primer-date]").forEach((btn) => btn.addEventListener("click", async () => {
     const status = el.querySelector(".primer-status");
     el.querySelectorAll(".primer-add").forEach((b) => (b.disabled = true));

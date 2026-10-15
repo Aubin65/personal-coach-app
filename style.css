@@ -2922,9 +2922,18 @@ body.live-open { overflow: hidden; }
 .goal-chips { display: flex; gap: 6px; }
 
 /* Carnet de touches (docs/adr/0107) */
-.tch-nav { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
-.tch-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.tch-gname { font-size: .75rem; color: var(--muted); min-width: 84px; }
+.tch-back { background: none; border: none; color: var(--green-light); font-weight: 600; padding: 4px 0 8px; min-height: 32px; cursor: pointer; }
+.tch-nav { margin-bottom: 10px; }
+.tch-seg { display: flex; gap: 4px; padding: 4px; background: var(--border); border-radius: 12px; }
+.tch-seg-item { flex: 1; min-height: 40px; border: none; background: none; border-radius: 9px; font-weight: 600; color: var(--muted); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+.tch-seg-item small { font-size: .65rem; font-weight: 500; }
+.tch-seg-item.active { background: var(--card-bg); color: var(--text); box-shadow: 0 1px 3px rgba(17,24,20,0.12); }
+.tch-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; margin-top: 8px; }
+.tch-chip { min-height: 46px; padding: 6px 8px; border: 1px solid var(--border); background: var(--card-bg); border-radius: 12px; display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; font-weight: 600; color: var(--text); cursor: pointer; }
+.tch-chip small { font-size: .7rem; font-weight: 500; color: var(--muted); }
+.tch-chip.active { background: var(--green); border-color: var(--green); color: #fff; }
+.tch-chip.active small { color: var(--green-pale); }
+.tch-optlbl { font-size: .75rem; color: var(--muted); min-width: 56px; align-self: center; }
 .tch-card { padding: 12px; }
 .tch-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .tch-tag { font-size: .8rem; color: var(--muted); }
@@ -2934,14 +2943,14 @@ body.live-open { overflow: hidden; }
 .tch-grass { fill: var(--green-pale); }
 .tch-touch { stroke: var(--green); stroke-width: .12; }
 .tch-m5 { stroke: var(--border); stroke-width: .06; stroke-dasharray: .3 .3; }
-.tch-lbl { font-size: .6px; fill: #fff; font-weight: 700; pointer-events: none; }
+.tch-lbl { font-size: .8px; fill: #fff; font-weight: 700; pointer-events: none; }
 .tch-ring { stroke: transparent; stroke-width: .12; }
 .tch-p { cursor: pointer; }
 .tch-p.is-out { opacity: .35; }
 .tch-p.is-feint .tch-ring { stroke: var(--gold); stroke-dasharray: .2 .15; }
 .tch-p.is-jump .tch-ring { stroke: var(--danger); stroke-width: .2; }
 .tch-p.is-lift .tch-ring { stroke: var(--green); stroke-width: .15; }
-.tch-ball { fill: var(--gold); stroke: var(--text); stroke-width: .06; }
+.tch-ball { fill: var(--gold); stroke: var(--text); stroke-width: .08; }
 .tch-arrow { stroke: var(--danger); stroke-width: .12; stroke-dasharray: .3 .2; }
 .tch-phase { margin: 8px 0; min-height: 4.2em; }
 .tch-phase p { margin: 2px 0 0; }
@@ -2950,3 +2959,9 @@ body.live-open { overflow: hidden; }
 .tch-quizbar { margin-top: 10px; }
 .tch-sum { font-size: .85rem; margin-top: 10px; }
 .tch-interp { font-size: .8rem; color: var(--status-warn-text); background: var(--status-warn-pale); padding: 8px; border-radius: 10px; }
+
+.touches-entry { display: flex; align-items: center; gap: 12px; width: 100%; margin: 12px 0; padding: 12px 14px; background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px; text-align: left; color: var(--text); cursor: pointer; }
+.touches-entry-txt { flex: 1; display: flex; flex-direction: column; }
+.touches-entry-ico { font-size: 1.4rem; }
+.tch-quizbar .ghost, .tch-ctl .ghost { min-height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--card-bg); color: var(--text); font-weight: 600; cursor: pointer; }
+.tch-ctl .primary-button { min-height: 44px; }
