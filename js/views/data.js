@@ -4,6 +4,7 @@ import { todayISO } from "../date-utils.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { activityTabHTML, wireActivity } from "./activity.js";
 import { inbodyTabHTML, wireInbody } from "./inbody.js";
+import { sleepCardHTML, wireSleepCard } from "../sleep-chart.js";
 import { statTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG, shortDateFr, painLevelColor } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -84,6 +85,7 @@ export async function renderData(token) {
       draw();
       window.scrollTo({ top: 0 });
     }));
+    if (tab === "forme") wireSleepCard(el, s.sleep_recent || {}, (s.recovery_recent && s.recovery_recent.history) || []);
     if (tab === "force") wireExerciseCard(el, s);
     if (tab === "activite") wireActivity(el, s);
     if (tab === "inbody") wireInbody(el, s);
@@ -154,7 +156,7 @@ function formeTabBodyHTML(s) {
     html += `
       <section class="card">
         <div class="card-head"><h2>Sommeil</h2>${sr.avg_7d != null ? `<span class="card-head-value">${formatHoursFr(sr.avg_7d)}<small> / nuit</small></span>` : ""}</div>
-        ${sleepHist.length ? barChartSVG(sleepHist.map((h) => ({ date: h.date, value: h.hours })), { reference: SLEEP_TARGET_HOURS, dayLabels: true }) : ""}
+        ${sleepCardHTML(sr)}
         <p class="small">${delta != null ? `<span class="${delta >= 0 ? "trend-up" : "trend-down"}">${delta >= 0 ? "+" : "−"}${Math.round(Math.abs(delta) * 60)} min</span> par rapport aux 7 nuits d'avant` : ""}${sr.week_avg != null ? `${delta != null ? " · " : ""}cette semaine ${formatHoursFr(sr.week_avg)} sur ${sr.week_nights_logged} nuit${sr.week_nights_logged > 1 ? "s" : ""}` : ""}</p>
         ${(sr.weekly_average || []).length > 1 ? `<details class="card-more"><summary>Moyenne par semaine</summary>${sparklineSVG(sr.weekly_average.map((w) => ({ date: w.week_start, value: w.avg_hours })), { axis: true })}</details>` : ""}
         ${formeHelp("Sommeil", `Repère : au moins ${formatHoursFr(SLEEP_TARGET_HOURS)} par nuit — les barres dorées sont sous ce seuil.`)}
