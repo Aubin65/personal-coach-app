@@ -92,16 +92,22 @@ export function sparklineSVG(points, opts = {}) {
   const plotW = w - padLeft - padRight;
   const plotH = h - padTop - padBottom;
   const stepX = plotW / (points.length - 1);
-  const yFor = (v) => padTop + plotH * (1 - (v - min) / range);
+  // `opts.invert` : une valeur plus basse est meilleure (allure) — la courbe
+  // monte quand on progresse, max en bas et min en haut. `opts.fmt` : libellé
+  // des repères (par défaut une décimale).
+  const yFor = (v) => padTop + plotH * (opts.invert ? (v - min) / range : 1 - (v - min) / range);
+  const fmt = opts.fmt || ((v) => v.toFixed(1));
+  const topVal = opts.invert ? min : max;
+  const bottomVal = opts.invert ? max : min;
   const coords = points.map((p, i) => [padLeft + i * stepX, yFor(p.value)]);
   const path = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
   const [lastX, lastY] = coords[coords.length - 1];
   const axis = opts.axis
     ? `
       <line x1="${padLeft}" y1="${padTop.toFixed(1)}" x2="${w - padRight}" y2="${padTop.toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
-      <text x="${padLeft - 4}" y="${(padTop + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${max.toFixed(1)}</text>
+      <text x="${padLeft - 4}" y="${(padTop + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${fmt(topVal)}</text>
       <line x1="${padLeft}" y1="${(padTop + plotH).toFixed(1)}" x2="${w - padRight}" y2="${(padTop + plotH).toFixed(1)}" stroke="var(--border)" stroke-width="1" stroke-dasharray="2,3"/>
-      <text x="${padLeft - 4}" y="${(padTop + plotH + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${min.toFixed(1)}</text>
+      <text x="${padLeft - 4}" y="${(padTop + plotH + 3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${fmt(bottomVal)}</text>
       <text x="${padLeft}" y="${h - 3}" text-anchor="start" font-size="9" fill="var(--muted)">${shortDateFr(points[0].date)}</text>
       <text x="${w - padRight}" y="${h - 3}" text-anchor="end" font-size="9" fill="var(--muted)">${shortDateFr(points[points.length - 1].date)}</text>`
     : "";

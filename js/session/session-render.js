@@ -13,6 +13,7 @@ import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEve
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 import { setEventsListHTML } from "./set-events.js";
+import { MACHINES, cardioPrescription, cardioStats, headlineMetric, totalsLine, fmtDuration, num } from "../cardio.js";
 import { sessionSig, loadDraft, clearDraft, pruneDrafts, touchSession, draftNoticeHTML } from "./session-draft.js";
 
 // ---------- Session detail : voir/loguer/planifier n'importe quelle date ----------
@@ -334,6 +335,7 @@ function musculationBodyHTML(session) {
       <button type="button" class="primary-button ghost small add-block-button" data-add-format="amrap">+ AMRAP</button>
       <button type="button" class="primary-button ghost small add-block-button" data-add-format="emom">+ EMOM</button>
       <button type="button" class="primary-button ghost small add-block-button" data-add-format="circuit">+ Circuit</button>
+      <button type="button" class="primary-button ghost small add-block-button" data-add-format="cardio">+ Cardio</button>
     </div>`;
 }
 
@@ -354,6 +356,9 @@ function blockCardHTML(indices, exercises, blockPos = { first: false, last: fals
 
   if (format === "standard" && !isChain) {
     return exerciseCardHTML(leader, leaderIdx, { up: blockPos.first, down: blockPos.last }, true);
+  }
+  if (format === "cardio" && !isChain) {
+    return cardioCardHTML(leader, leaderIdx, { up: blockPos.first, down: blockPos.last });
   }
 
   const timingFields = BLOCK_TIMING_FIELDS[format] || [];
@@ -406,7 +411,7 @@ function blockCardHTML(indices, exercises, blockPos = { first: false, last: fals
       <div class="exercise-block-header">
         <span class="exercise-block-format-tag">${format === "standard" ? "🔗 Superset" : (EXERCISE_FORMATS[format] || format)}</span>
         <select class="f-block-format" data-leader-idx="${leaderIdx}">
-          ${Object.entries(EXERCISE_FORMATS).map(([key, label]) => `<option value="${key}"${format === key ? " selected" : ""}>${label}</option>`).join("")}
+          ${Object.entries(EXERCISE_FORMATS).filter(([key]) => key !== "cardio").map(([key, label]) => `<option value="${key}"${format === key ? " selected" : ""}>${label}</option>`).join("")}
         </select>
         <div class="reorder-buttons block-reorder">
           <button type="button" class="icon-button small move-block-up" data-leader-idx="${leaderIdx}" ${blockPos.first ? "disabled" : ""} title="Monter le bloc" aria-label="Monter le bloc">▲</button>
@@ -525,5 +530,75 @@ function exerciseCardHTML(ex, idx, limits, showFormatControls) {
       ${execRowsHTML(hydrateExecRows(executed, ex.rir))}
       ${setEventsListHTML(ex, escapeAttr)}
       <label class="per-hand-toggle"><input type="checkbox" class="f-load-per-hand"${executed.load_per_hand ? " checked" : ""}> Charge par main</label>
+    </div>`;
+}
+
+/** Exercice cardio sur machine (docs/adr/0112) : machine en un tap, prévu en
+ * rounds (effort / repos / cible), puis une ligne par round — temps (le
+ * prescrit par défaut), distance, calories, FC facultative — et les totaux
+ * calculés (allure aux 500 m, cal/min, vitesse). */
+function cardioCardHTML(ex, idx, limits) {
+  const planned = ex.planned || {};
+  const machine = ex.machine || "rameur";
+  const rounds = Math.max(parseInt(planned.sets, 10) || 1, ((ex.executed || {}).intervals || []).length);
+  const intervals = ((ex.executed || {}).intervals || []).slice();
+  while (intervals.length < rounds) intervals.push({});
+  const workS = num(planned.work_s);
+  const showHr = !!ex.track_hr || intervals.some((r) => num(r.hr_avg) != null);
+  const stats = cardioStats(ex);
+  const headline = headlineMetric(machine, stats);
+  const empty = !num(planned.work_s);
+  const machineChips = Object.entries(MACHINES).map(([key, m]) =>
+    `<button type="button" class="cardio-machine${key === machine ? " active" : ""}" data-machine="${key}" aria-pressed="${key === machine}"><span aria-hidden="true">${m.icon}</span>${m.label}</button>`).join("");
+  const head = `<span>#</span><span>Temps</span><span>Distance (m)</span><span>Cal</span>${showHr ? "<span>FC</span>" : ""}<span></span>`;
+  const rowsHTML = intervals.map((r, i) => `
+        <div class="cardio-row">
+          <span class="cardio-row-num">${i + 1}</span>
+          <input type="text" inputmode="numeric" class="f-cr-time" value="${escapeAttr(num(r.time_s) != null ? fmtDuration(num(r.time_s)) : "")}" placeholder="${escapeAttr(workS ? fmtDuration(workS) : "m:ss")}" aria-label="Temps du round ${i + 1}">
+          <input type="text" inputmode="numeric" class="f-cr-dist" value="${escapeAttr(r.distance_m ?? "")}" placeholder="—" aria-label="Distance du round ${i + 1}">
+          <input type="text" inputmode="numeric" class="f-cr-cal" value="${escapeAttr(r.cal ?? "")}" placeholder="—" aria-label="Calories du round ${i + 1}">
+          ${showHr ? `<input type="text" inputmode="numeric" class="f-cr-hr" value="${escapeAttr(r.hr_avg ?? "")}" placeholder="—" aria-label="FC moyenne du round ${i + 1}">` : ""}
+          <button type="button" class="icon-button small remove-cardio-round" data-round="${i}" title="Retirer le round" aria-label="Retirer le round ${i + 1}">✕</button>
+        </div>`).join("");
+  return `
+    <div class="exercise-row exercise-log-card cardio-card" data-idx="${idx}">
+      <div class="exercise-log-head">
+        <input type="text" class="f-name" value="${escapeAttr(ex.name || "")}" placeholder="Ex. Rameur 4×4">
+        <button type="button" class="icon-button small exercise-history-button" title="Historique de l'exercice" aria-label="Historique de l'exercice">📈</button>
+        <details class="exercise-more">
+          <summary class="icon-button small" title="Déplacer ou retirer" aria-label="Déplacer ou retirer">⋯</summary>
+          <div class="reorder-buttons">
+            <select class="f-block-format exercise-format-select" data-leader-idx="${idx}" aria-label="Format de l'exercice">
+              <option value="standard">Standard</option>
+              ${Object.entries(EXERCISE_FORMATS).filter(([key]) => key !== "standard").map(([key, label]) => `<option value="${key}"${key === "cardio" ? " selected" : ""}>${label}</option>`).join("")}
+            </select>
+            <button type="button" class="icon-button small move-up" ${limits.up ? "disabled" : ""} title="Monter" aria-label="Monter">▲</button>
+            <button type="button" class="icon-button small move-down" ${limits.down ? "disabled" : ""} title="Descendre" aria-label="Descendre">▼</button>
+            <button type="button" class="icon-button small danger remove-exercise" title="Retirer" aria-label="Retirer">✕</button>
+          </div>
+        </details>
+      </div>
+      <div class="cardio-machines" role="group" aria-label="Machine">${machineChips}</div>
+      <details class="planned-details"${empty ? " open" : ""}>
+        <summary><span class="planned-label">Prévu</span><span class="planned-summary">${escapeHtmlText(cardioPrescription(ex) || "à définir")}</span><span class="planned-edit">Modifier</span></summary>
+        <div class="cardio-plan-grid">
+          <div><label>Rounds</label><input type="number" min="1" inputmode="numeric" class="f-cardio-rounds" value="${escapeAttr(planned.sets ?? "")}"></div>
+          <div><label>Effort</label><input type="text" class="f-cardio-work" value="${escapeAttr(workS ? fmtDuration(workS) : "")}" placeholder="4:00"></div>
+          <div><label>Repos</label><input type="text" class="f-cardio-rest" value="${escapeAttr(num(planned.rest_s) != null ? fmtDuration(num(planned.rest_s)) : "")}" placeholder="3:00"></div>
+          <div><label>Rounds / série</label><input type="number" min="0" inputmode="numeric" class="f-cardio-block" value="${escapeAttr(planned.block_size ?? "")}" placeholder="—"></div>
+          <div class="cardio-plan-span2"><label>Repos entre séries</label><input type="text" class="f-cardio-block-rest" value="${escapeAttr(num(planned.block_rest_s) != null ? fmtDuration(num(planned.block_rest_s)) : "")}" placeholder="ex. 3:00"></div>
+          <div class="cardio-plan-target"><label>Cible</label><input type="text" class="f-cardio-target" value="${escapeAttr(planned.target || "")}" placeholder="ex. 171-181 bpm"></div>
+        </div>
+      </details>
+      <div class="field-row-label">Fait</div>
+      <div class="cardio-rows${showHr ? " with-hr" : ""}">
+        <div class="cardio-row cardio-row-head">${head}</div>
+        ${rowsHTML}
+      </div>
+      <div class="cardio-row-actions">
+        <button type="button" class="primary-button ghost small add-cardio-round">+ Round</button>
+        <label class="cardio-hr-toggle"><input type="checkbox" class="f-cardio-hr"${showHr ? " checked" : ""}> FC (facultatif)</label>
+      </div>
+      <p class="cardio-summary">${escapeHtmlText([totalsLine(stats), headline].filter(Boolean).join(" · ") || "Temps vide = durée prévue. Distance et calories : ce qu'affiche la machine en fin de round.")}</p>
     </div>`;
 }

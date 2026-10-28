@@ -5,6 +5,8 @@ import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { activityTabHTML, wireActivity } from "./activity.js";
 import { inbodyTabHTML, wireInbody } from "./inbody.js";
 import { sleepCardHTML, wireSleepCard } from "../sleep-chart.js";
+import { cardioMetric } from "../exercise-sheet.js";
+import { MACHINES } from "../cardio.js";
 import { statTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG, shortDateFr, painLevelColor } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -191,6 +193,28 @@ function formeTabBodyHTML(s) {
         ${block("HRV", hrv, "ms", true)}
         ${formeHelp("Récupération", "FC repos basse et HRV stable ou haute = bonne récupération. Une tendance inverse qui dure plusieurs jours est un signal précoce de fatigue.")}
       </section>`;
+  }
+
+  // Cardio sur machine (ADR-0112) : une ligne par exercice, indicateur suivi.
+  const cardio = Object.entries(s.cardio_history || {}).filter(([, rows]) => rows.length);
+  if (cardio.length) {
+    html += `<section class="card"><h2>Cardio</h2>${cardio.map(([name, rows]) => {
+      const scored = rows.map((r) => ({ r, m: cardioMetric(r) })).filter((x) => x.m);
+      const last = scored[scored.length - 1];
+      const first = scored[0];
+      const machine = MACHINES[rows[rows.length - 1].machine] || { icon: "🫀" };
+      let trend = "";
+      if (last && first && scored.length > 1) {
+        const better = last.m.lowerIsBetter ? last.m.value < first.m.value : last.m.value > first.m.value;
+        const same = Math.abs(last.m.value - first.m.value) < 1e-9;
+        trend = same ? "" : `<span class="${better ? "trend-up" : "trend-down"} small">${better ? "mieux" : "moins bien"} qu'au ${shortDateFr(first.r.date)}</span>`;
+      }
+      return `<div class="cardio-prog">
+        <div class="cardio-prog-name">${machine.icon} ${escapeHtmlText(name)}</div>
+        <div class="cardio-prog-row"><strong>${last ? escapeHtmlText(last.m.fmt(last.m.value)) : "—"}</strong>${trend}</div>
+        ${scored.length > 1 ? sparklineSVG(scored.map((x) => ({ date: x.r.date, value: x.m.value })), { axis: true, invert: scored[0].m.lowerIsBetter, fmt: scored[0].m.short }) : `<p class="muted small">${rows.length} séance${rows.length > 1 ? "s" : ""} — la courbe apparaît dès la 2e.</p>`}
+      </div>`;
+    }).join("")}${formeHelp("Cardio", "Rameur et SkiErg : allure moyenne aux 500 m (plus bas = mieux) ; Assault Bike et vélo : calories par minute ou vitesse. À intensité comparable (même fréquence cardiaque visée), une meilleure valeur = un meilleur cardio.")}</section>`;
   }
 
   const well = (s.wellness_recent && s.wellness_recent.history) || [];

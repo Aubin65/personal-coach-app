@@ -9,6 +9,7 @@ import { hydrateExecRows, hydrateSetRows, serializeExecRows } from "./session-ex
 import { ghGetFile } from "../github-api.js";
 import { normalizeName } from "../exercise-stats.js";
 import { escapeHtmlText, escapeAttr } from "../markdown.js";
+import { MACHINES, filledIntervals, cardioStats, headlineMetric, totalsLine, cardioPrescription, fmtDuration, writeCardioExecuted, num, restAfter, blockSize } from "../cardio.js";
 
 // ============================================================================
 // Mode séance guidée (docs/adr/0074) — une surcouche plein écran qui fait
@@ -35,6 +36,11 @@ import { escapeHtmlText, escapeAttr } from "../markdown.js";
 //
 // Les blocs AMRAP / EMOM / Circuit / For Time ne sont pas proposés ici : leur
 // résultat se saisit au niveau du bloc, dans le formulaire.
+//
+// Cardio sur machine (docs/adr/0112) : écran dédié — chrono effort/repos qui
+// enchaîne les rounds avec un bip à chaque changement (écran maintenu allumé
+// si le navigateur le permet), et une ligne par round (temps, distance, cal,
+// FC facultative) à remplir pendant le repos.
 //
 // Navigation série par série (docs/adr/0082) : `live.cursor` désigne la série
 // affichée dans l'exercice courant — une série faite (modifiable, supprimable)
@@ -63,7 +69,7 @@ function setRestSeconds(v) {
 export function liveExerciseIndices(session) {
   return (session.exercises || [])
     .map((ex, i) => ({ ex, i }))
-    .filter(({ ex }) => (ex.format || "standard") === "standard" && (ex.name || "").trim())
+    .filter(({ ex }) => ["standard", "cardio"].includes(ex.format || "standard") && (ex.name || "").trim())
     .map(({ i }) => i);
 }
 
@@ -108,6 +114,9 @@ function nextMember(pos, strict = false) {
 }
 
 function doneRows(ex) {
+  // Cardio : un round compte comme « fait » dès qu'un chiffre y est saisi
+  // (lignes factices, seulement pour les compteurs et la progression).
+  if (ex.format === "cardio") return filledIntervals(ex.executed).map(() => ({ load: "", reps: "1", rir: "" }));
   return hydrateExecRows(ex.executed || {}, ex.rir).filter((r) => (r.reps || "").trim() || (r.load || "").trim());
 }
 
@@ -224,6 +233,7 @@ function ensureAudio() {
 
 function tick() {
   if (!live) return;
+  cardioTick();
   const chrono = live.el.querySelector("#live-chrono");
   const startedAt = getSessionTimerStart(sessionRuntime.working.date);
   if (chrono) chrono.textContent = startedAt ? formatElapsed(startedAt) : "--:--";
@@ -323,6 +333,7 @@ function render() {
   const pos = live.pos;
   const idx = indices[pos];
   const ex = session.exercises[idx];
+  if (ex.format === "cardio" && !live.picker) { renderCardio(session, ex, idx, pos); return; }
   const rows = doneRows(ex);
   const target = targetCount(ex, idx);
   if (live.cursor > rows.length) live.cursor = rows.length;
@@ -455,6 +466,208 @@ function render() {
   tick();
 }
 
+// ---------------------------------------------------------------- Cardio
+
+function segsHTML(session) {
+  return live.indices.map((i, k) => {
+    const e = session.exercises[i];
+    const t = targetCount(e, i);
+    const n = doneRows(e).length;
+    const cls = k === live.pos ? "current" : (t != null ? n >= t : n > 0) ? "done" : "";
+    return `<span class="live-seg ${cls}"></span>`;
+  }).join("");
+}
+
+function cardioRounds(ex) {
+  const planned = parseInt((ex.planned || {}).sets, 10);
+  const have = ((ex.executed || {}).intervals || []).length;
+  return Math.max(Number.isFinite(planned) && planned > 0 ? planned : 1, have);
+}
+
+function cardioRunFor(idx) {
+  if (!live.cardio || live.cardio.idx !== idx) live.cardio = { idx, phase: "ready", round: 1, end: null, left: null, paused: false };
+  return live.cardio;
+}
+
+function phaseDuration(ex, phase) {
+  const p = ex.planned || {};
+  if (phase === "rest") return restAfter(p, live.cardio ? live.cardio.round : 1) * 1000;
+  return (num(p.work_s) || 0) * 1000;
+}
+
+async function keepAwake(on) {
+  try {
+    if (on && !live.wakeLock && navigator.wakeLock) live.wakeLock = await navigator.wakeLock.request("screen");
+    if (!on && live.wakeLock) { await live.wakeLock.release(); live.wakeLock = null; }
+  } catch (_) { /* facultatif */ }
+}
+
+/** Passe à la phase suivante : effort → repos → effort du round suivant… */
+function cardioAdvance(ex) {
+  const run = live.cardio;
+  const rounds = cardioRounds(ex);
+  const restMs = phaseDuration(ex, "rest");
+  if (run.phase === "work") {
+    if (run.round >= rounds) { run.phase = "done"; run.end = null; keepAwake(false); }
+    else if (restMs > 0) { run.phase = "rest"; run.end = Date.now() + restMs; }
+    else { run.round += 1; run.phase = "work"; run.end = Date.now() + phaseDuration(ex, "work"); }
+  } else if (run.phase === "rest") {
+    run.round += 1; run.phase = "work"; run.end = Date.now() + phaseDuration(ex, "work");
+  }
+  beep();
+}
+
+function cardioTick() {
+  const run = live.cardio;
+  if (!run || run.paused || !run.end) return;
+  const ex = sessionRuntime.working.session.exercises[run.idx];
+  if (!ex) return;
+  if (Date.now() >= run.end) {
+    cardioAdvance(ex);
+    if (live.indices[live.pos] === run.idx && !live.picker) render();
+    return;
+  }
+  const clock = live.el.querySelector("#cardio-clock");
+  if (clock) clock.textContent = fmtDuration((run.end - Date.now()) / 1000);
+  const fill = live.el.querySelector(".cardio-phase-fill");
+  const total = phaseDuration(ex, run.phase);
+  if (fill && total) fill.style.width = `${Math.min(100, 100 - ((run.end - Date.now()) / total) * 100)}%`;
+}
+
+function cardioLastText(name) {
+  const hist = live.cardioHistory || {};
+  const key = Object.keys(hist).find((k) => normalizeName(k) === normalizeName(name));
+  const rows = key ? hist[key].filter((r) => r.date !== sessionRuntime.working.date) : [];
+  const last = rows[rows.length - 1];
+  if (!last) return "";
+  const headline = headlineMetric(last.machine, last);
+  return `Dernière fois (${last.date.slice(8, 10)}/${last.date.slice(5, 7)}) : ${[headline, totalsLine(last)].filter(Boolean).join(" · ")}`;
+}
+
+function renderCardio(session, ex, idx, pos) {
+  const run = cardioRunFor(idx);
+  const machine = MACHINES[ex.machine] || { label: "Cardio", icon: "🫀", pace: false };
+  const rounds = cardioRounds(ex);
+  const intervals = ((ex.executed || {}).intervals || []).slice();
+  while (intervals.length < rounds) intervals.push({});
+  const workS = num((ex.planned || {}).work_s);
+  const stats = cardioStats(ex);
+  const headline = headlineMetric(ex.machine, stats);
+  const isLast = pos === live.indices.length - 1;
+  const showHr = !!ex.track_hr || intervals.some((r) => num(r.hr_avg) != null);
+  const target = (ex.planned || {}).target;
+
+  const block = blockSize(ex.planned);
+  const seriesRest = run.phase === "rest" && block && run.round % block === 0;
+  const phaseLabel = { ready: "Prêt", work: "Effort", rest: seriesRest ? "Repos entre séries" : "Repos", done: "Terminé" }[run.phase];
+  const remaining = run.end ? Math.max(0, run.end - Date.now()) / 1000 : run.phase === "ready" ? (workS || 0) : 0;
+  const entryRound = run.phase === "rest" ? run.round : run.phase === "done" ? rounds : null;
+  const hint = run.phase === "rest" ? `Note le round ${run.round} pendant le repos.`
+    : run.phase === "work" ? (target ? `Cible : ${target}` : "Tiens l'allure.")
+    : run.phase === "done" ? "Complète les rounds manquants puis passe à la suite."
+    : "Lance le chrono quand tu es installé.";
+
+  const controls = run.phase === "ready"
+    ? `<button type="button" class="cardio-ctl primary" data-cardio="start">▶ Démarrer</button>`
+    : run.phase === "done"
+      ? `<button type="button" class="cardio-ctl" data-cardio="reset">↺ Recommencer le chrono</button>`
+      : `<button type="button" class="cardio-ctl" data-cardio="${run.paused ? "resume" : "pause"}">${run.paused ? "▶ Reprendre" : "❚❚ Pause"}</button>
+         <button type="button" class="cardio-ctl" data-cardio="skip">Passer ⏭</button>
+         <button type="button" class="cardio-ctl ghost" data-cardio="reset">Arrêter</button>`;
+
+  const rowsHTML = intervals.map((r, i) => `
+      <div class="cardio-live-row${entryRound === i + 1 || (run.phase === "work" && run.round === i + 1) ? " current" : ""}${filledIntervals({ intervals: [r] }).length ? " filled" : ""}">
+        <span class="cardio-live-num">${i + 1}</span>
+        <label><span>Temps</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="time_s" value="${escapeAttr(num(r.time_s) != null ? fmtDuration(num(r.time_s)) : "")}" placeholder="${escapeAttr(workS ? fmtDuration(workS) : "m:ss")}"></label>
+        <label><span>Distance (m)</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="distance_m" value="${escapeAttr(r.distance_m ?? "")}" placeholder="—"></label>
+        <label><span>Cal</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="cal" value="${escapeAttr(r.cal ?? "")}" placeholder="—"></label>
+        ${showHr ? `<label><span>FC moy.</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="hr_avg" value="${escapeAttr(r.hr_avg ?? "")}" placeholder="—"></label>` : ""}
+      </div>`).join("");
+
+  const last = cardioLastText(ex.name);
+  live.el.innerHTML = `
+    <header class="live-head">
+      <button type="button" class="live-icon-btn" data-live="close" aria-label="Revenir au formulaire"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+      <div class="live-head-text">
+        <span class="live-head-name">${escapeHtmlText(session.name || "Séance")}</span>
+        <span class="live-head-chrono" id="live-chrono">--:--</span>
+      </div>
+      <button type="button" class="live-finish" data-live="finish">Terminer</button>
+    </header>
+    <div class="live-segs" aria-hidden="true">${segsHTML(session)}</div>
+    <main class="live-body">
+      <div class="live-ex-head">
+        <button type="button" class="live-kicker" data-live="picker">Exercice ${pos + 1} / ${live.indices.length} · ${escapeHtmlText(machine.icon + " " + machine.label)} <span aria-hidden="true">▾</span></button>
+        <h2 class="live-ex-name">${escapeHtmlText(ex.name)}</h2>
+        <p class="live-last">${escapeHtmlText(cardioPrescription(ex))}</p>
+        ${last ? `<p class="live-last">${escapeHtmlText(last)}</p>` : ""}
+        ${ex.notes ? `<p class="live-notes">${escapeHtmlText(ex.notes)}</p>` : ""}
+      </div>
+      <section class="cardio-timer phase-${run.phase}${run.paused ? " paused" : ""}">
+        <div class="cardio-phase"><span>${phaseLabel}${run.paused ? " (pause)" : ""}</span><span>${block ? `Série ${Math.ceil(Math.min(run.round, rounds) / block)} · ` : ""}Round ${Math.min(run.round, rounds)} / ${rounds}</span></div>
+        <div class="cardio-clock" id="cardio-clock" aria-live="off">${fmtDuration(remaining)}</div>
+        <div class="cardio-phase-bar"><div class="cardio-phase-fill"></div></div>
+        <p class="cardio-hint">${escapeHtmlText(hint)}</p>
+        <div class="cardio-controls">${controls}</div>
+      </section>
+      <section class="cardio-live-rows" aria-label="Rounds">${rowsHTML}</section>
+      <div class="cardio-live-actions">
+        <button type="button" class="live-link" data-cardio="add-round">+ Round</button>
+        <label class="cardio-hr-toggle"><input type="checkbox" data-cardio="hr"${showHr ? " checked" : ""}> FC (facultatif)</label>
+      </div>
+      <p class="cardio-live-summary" id="cardio-summary">${escapeHtmlText([totalsLine(stats), headline].filter(Boolean).join(" · ")) || "Rien de saisi pour l'instant."}</p>
+      <div class="live-nav">
+        ${pos > 0 ? `<button type="button" data-live="prev-ex">← Exercice précédent</button>` : "<span></span>"}
+        ${!isLast ? `<button type="button" data-live="next-ex">Exercice suivant →</button>` : "<span></span>"}
+      </div>
+      <button type="button" class="live-cancel-run" data-live="cancel-run">Annuler la séance</button>
+    </main>
+    <footer class="live-foot">
+      ${!isLast ? `<button type="button" class="live-validate" data-live="next-ex">Exercice suivant →</button>` : `<button type="button" class="live-validate" data-live="finish">Terminer la séance</button>`}
+    </footer>`;
+
+  const commit = () => {
+    const rows = [];
+    live.el.querySelectorAll(".cardio-live-row").forEach((rowEl, i) => {
+      const val = (f) => { const inp = rowEl.querySelector(`[data-field="${f}"]`); return inp ? inp.value : (intervals[i] || {})[f]; };
+      const t = val("time_s");
+      rows.push({ time_s: typeof t === "string" ? (t.trim() ? parseClock(t) : null) : t, distance_m: val("distance_m"), cal: val("cal"), hr_avg: val("hr_avg") });
+    });
+    writeCardioExecuted(ex, rows);
+    const sum = live.el.querySelector("#cardio-summary");
+    const st = cardioStats(ex);
+    if (sum) sum.textContent = [totalsLine(st), headlineMetric(ex.machine, st)].filter(Boolean).join(" · ") || "Rien de saisi pour l'instant.";
+  };
+  live.el.querySelectorAll(".cardio-live-row input").forEach((inp) => {
+    inp.addEventListener("input", commit);
+    inp.addEventListener("change", () => { commit(); renderSessionContent(); });
+  });
+  live.el.querySelectorAll("[data-cardio]").forEach((b) => b.addEventListener(b.type === "checkbox" ? "change" : "click", () => {
+    const what = b.dataset.cardio;
+    commit();
+    if (what === "start") { ensureAudio(); keepAwake(true); run.phase = "work"; run.round = 1; run.paused = false; run.end = Date.now() + phaseDuration(ex, "work"); }
+    else if (what === "pause") { run.paused = true; run.left = run.end - Date.now(); }
+    else if (what === "resume") { run.paused = false; run.end = Date.now() + (run.left || 0); }
+    else if (what === "skip") { run.paused = false; cardioAdvance(ex); }
+    else if (what === "reset") { keepAwake(false); live.cardio = null; }
+    else if (what === "add-round") { const list = ((ex.executed || {}).intervals || []).slice(); while (list.length < cardioRounds(ex)) list.push({}); list.push({}); writeCardioExecuted(ex, list); }
+    else if (what === "hr") { ex.track_hr = b.checked; }
+    renderSessionContent();
+    render();
+  }));
+  live.el.querySelectorAll("[data-live]").forEach((b) => b.addEventListener("click", () => action(b.dataset.live)));
+  tick();
+}
+
+/** « 4:05 » → 245 ; « 245 » → 245 (secondes). */
+function parseClock(text) {
+  const t = String(text).trim();
+  const m = t.match(/^(\d+)[:'’](\d{1,2})$/);
+  if (m) return +m[1] * 60 + +m[2];
+  const n = Number(t.replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
 function wireEventSheet(ex) {
   const sh = live.sheet;
   if (!sh) return;
@@ -549,6 +762,7 @@ function action(name) {
       if (live.cursor < rows.length) setCursor(live.cursor + 1);
       else if (blockEndPos(live.pos) < live.indices.length - 1) goTo(blockEndPos(live.pos) + 1);
       break;
+    case "prev-ex": if (live.pos > 0) goTo(live.pos - 1, true); break;
     case "next-ex": if (blockEndPos(live.pos) < live.indices.length - 1) goTo(blockEndPos(live.pos) + 1); break;
     case "next-member": { const nm = nextMember(live.pos, true); if (nm) goTo(nm.pos); break; }
     case "event-open": {
@@ -618,6 +832,7 @@ function action(name) {
 export function closeLiveMode() {
   if (!live) return;
   clearInterval(live.interval);
+  if (live.wakeLock) { try { live.wakeLock.release(); } catch (_) {} }
   if (live.audio) { try { live.audio.close(); } catch (_) {} }
   live.el.remove();
   document.body.classList.remove("live-open");
@@ -647,7 +862,7 @@ export async function openLiveMode() {
   el.setAttribute("aria-label", "Séance guidée");
   document.body.appendChild(el);
   document.body.classList.add("live-open");
-  live = { el, indices, sheet: null, zones: null, pos: 0, cursor: 0, targets: {}, picker: false, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, audio: null };
+  live = { el, indices, sheet: null, zones: null, pos: 0, cursor: 0, targets: {}, picker: false, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, cardioHistory: null, cardio: null, wakeLock: null, audio: null };
   live.interval = setInterval(tick, 500);
   sessionRuntime.liveCleanup = closeLiveMode;
   goTo(firstOpen >= 0 ? firstOpen : 0);
@@ -657,6 +872,7 @@ export async function openLiveMode() {
     if (live && file) {
       const summary = JSON.parse(file.content);
       live.history = summary.exercise_history || {};
+      live.cardioHistory = summary.cardio_history || {};
       live.zones = (summary.pain_recent || {}).zones || null;
       render();
     }

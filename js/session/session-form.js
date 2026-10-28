@@ -4,6 +4,7 @@ import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
 import { notesLabelFor, notesPlaceholderFor, renderSessionContent, plannedSummary } from "./session-render.js";
 import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName, moveBlock, moveWithinBlock } from "./session-model.js";
 import { removeSetEvent } from "./set-events.js";
+import { makeCardio, writeCardioExecuted, parseDuration, fmtShortDuration, cardioStats, totalsLine, headlineMetric, filledIntervals, num as cardioNum } from "../cardio.js";
 import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows, hydrateExecRows } from "./session-exec.js";
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
@@ -59,7 +60,7 @@ function rpeHelpDetailsHTML() {
  * écrit en plus. */
 function sessionRecapHTML(session) {
   const exercises = (session.exercises || []).filter((ex) => (ex.name || "").trim());
-  const done = exercises.filter((ex) => ex.executed && (ex.executed.reps || ex.executed.load)).length;
+  const done = exercises.filter((ex) => ex.executed && (ex.executed.reps || ex.executed.load || (ex.format === "cardio" && filledIntervals(ex.executed).length))).length;
   let tonnage = 0;
   for (const ex of exercises) {
     if ((ex.format || "standard") !== "standard") continue;
@@ -202,6 +203,37 @@ export function syncFormIntoSession() {
     const nameInput = row.querySelector(".f-name");
     if (nameInput) ex.name = nameInput.value.trim() || ex.name;
 
+    // Cardio sur machine (docs/adr/0112) : prévu en rounds + une ligne par round.
+    if (row.classList.contains("cardio-card")) {
+      const rounds = parseInt(row.querySelector(".f-cardio-rounds").value, 10);
+      const work = parseDuration(row.querySelector(".f-cardio-work").value);
+      const rest = parseDuration(row.querySelector(".f-cardio-rest").value);
+      ex.planned = {
+        sets: Number.isFinite(rounds) && rounds > 0 ? rounds : null,
+        reps: work ? fmtShortDuration(work) : null,
+        load: null,
+        work_s: work,
+        rest_s: rest,
+        target: row.querySelector(".f-cardio-target").value.trim(),
+      };
+      const block = parseInt(row.querySelector(".f-cardio-block").value, 10);
+      const blockRest = parseDuration(row.querySelector(".f-cardio-block-rest").value);
+      if (Number.isFinite(block) && block > 0) ex.planned.block_size = block;
+      if (blockRest != null) ex.planned.block_rest_s = blockRest;
+      const before = (ex.executed || {}).intervals || [];
+      const rows = Array.from(row.querySelectorAll(".cardio-row:not(.cardio-row-head)")).map((r, i) => {
+        const hrInput = r.querySelector(".f-cr-hr");
+        return {
+          time_s: parseDuration(r.querySelector(".f-cr-time").value),
+          distance_m: r.querySelector(".f-cr-dist").value,
+          cal: r.querySelector(".f-cr-cal").value,
+          hr_avg: hrInput ? hrInput.value : ((before[i] || {}).hr_avg ?? null),
+        };
+      });
+      writeCardioExecuted(ex, rows);
+      return;
+    }
+
     const stationReps = row.querySelector(".f-station-reps");
     if (stationReps) {
       const stationLoad = row.querySelector(".f-station-load");
@@ -294,6 +326,14 @@ export function bindSessionContentEvents() {
     syncFormIntoSession();
     const leaderIdx = +sel.dataset.leaderIdx;
     const exercises = sessionRuntime.working.session.exercises;
+    if (sel.value === "cardio") {
+      // Un exercice cardio est toujours seul : on le détache de son bloc.
+      const next = exercises[leaderIdx + 1];
+      if (next && next.superset_with_previous) next.superset_with_previous = false;
+      makeCardio(exercises[leaderIdx]);
+      renderSessionContent();
+      return;
+    }
     if (sel.value === "superset") {
       // Concatène : insère un deuxième exercice standard juste après,
       // chaîné à celui-ci — même résultat que le bouton "+ Superset" du
@@ -307,6 +347,13 @@ export function bindSessionContentEvents() {
     }
     const end = blockEndIndex(exercises, leaderIdx);
     const newFormat = sel.value;
+    if (exercises[leaderIdx].format === "cardio") {
+      // Quitter le cardio : on repart d'un prévu/réalisé classique.
+      const ex = exercises[leaderIdx];
+      delete ex.machine; delete ex.track_hr;
+      ex.planned = { sets: null, reps: null, load: null, load_per_hand: false };
+      ex.executed = { sets: null, reps: null, load: null, load_per_hand: false };
+    }
     for (let i = leaderIdx; i < end; i++) exercises[i].format = newFormat;
     const leader = exercises[leaderIdx];
     leader.block_meta = newFormat === "standard" ? undefined : (leader.block_meta || defaultBlockMeta(newFormat));
@@ -332,7 +379,9 @@ export function bindSessionContentEvents() {
     syncFormIntoSession();
     const exercises = sessionRuntime.working.session.exercises;
     const kind = btn.dataset.addFormat;
-    if (kind === "standard") {
+    if (kind === "cardio") {
+      exercises.push(makeCardio(blankExercise(), "rameur"));
+    } else if (kind === "standard") {
       exercises.push(blankExercise());
     } else if (kind === "superset") {
       exercises.push(blankExercise(), blankStationExercise("standard"));
@@ -399,6 +448,55 @@ export function bindSessionContentEvents() {
   }));
   // ▲/▼ d'un exercice : seul → déplace son bloc ; dans un bloc → réordonne
   // les stations sans jamais sortir du bloc ni casser la chaîne.
+  // ---- Cardio (docs/adr/0112) ----
+  const cardioEx = (el) => sessionRuntime.working.session.exercises[+el.closest(".cardio-card").dataset.idx];
+  document.querySelectorAll(".cardio-machine").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const ex = cardioEx(btn);
+    const hadPlan = cardioNum((ex.planned || {}).work_s);
+    ex.machine = btn.dataset.machine;
+    if (!hadPlan) makeCardio(ex, ex.machine);
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".add-cardio-round").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const ex = cardioEx(btn);
+    const list = ((ex.executed || {}).intervals || []).slice();
+    const shown = Math.max(parseInt((ex.planned || {}).sets, 10) || 1, list.length);
+    while (list.length < shown) list.push({});
+    list.push({});
+    writeCardioExecuted(ex, list);
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".remove-cardio-round").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const ex = cardioEx(btn);
+    const list = ((ex.executed || {}).intervals || []).slice();
+    list.splice(+btn.dataset.round, 1);
+    // Retirer une ligne prévue : le nombre de rounds prévu suit.
+    const planned = parseInt((ex.planned || {}).sets, 10);
+    if (Number.isFinite(planned) && planned > list.length && planned > 1) ex.planned.sets = planned - 1;
+    writeCardioExecuted(ex, list);
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".f-cardio-rounds, .f-cardio-work").forEach((inp) => inp.addEventListener("change", () => {
+    syncFormIntoSession();
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".f-cardio-hr").forEach((cb) => cb.addEventListener("change", () => {
+    syncFormIntoSession();
+    cardioEx(cb).track_hr = cb.checked;
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".cardio-card input").forEach((inp) => inp.addEventListener("input", () => {
+    syncFormIntoSession();
+    const card = inp.closest(".cardio-card");
+    const ex = cardioEx(inp);
+    const st = cardioStats(ex);
+    const out = card.querySelector(".cardio-summary");
+    if (out) out.textContent = [totalsLine(st), headlineMetric(ex.machine, st)].filter(Boolean).join(" · ");
+  }));
+
   document.querySelectorAll(".move-up, .move-down").forEach((btn) => btn.addEventListener("click", () => {
     syncFormIntoSession();
     const dir = btn.classList.contains("move-up") ? -1 : 1;

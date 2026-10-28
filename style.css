@@ -3046,3 +3046,56 @@ body.live-open { overflow: hidden; }
 .stat-grid.lifts .ring-wrap, .stat-grid.lifts .ring-wrap svg { width: 78px; height: 78px; }
 .stat-grid.lifts .ring-value { font-size: 1.05rem; }
 .lifts-note { margin: 10px 0 0; }
+
+/* Cardio sur machine (ADR-0112) — formulaire */
+.cardio-machines { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin: 8px 0; }
+.cardio-machine { min-height: 48px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); border-radius: 12px; font-size: .75rem; font-weight: 600; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; cursor: pointer; padding: 4px 2px; }
+.cardio-machine span { font-size: 1.1rem; line-height: 1; }
+.cardio-machine.active { background: var(--green); border-color: var(--green); color: #fff; }
+.cardio-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+.cardio-plan-grid .cardio-plan-target { grid-column: 1 / -1; }
+.cardio-plan-grid .cardio-plan-span2 { grid-column: span 2; }
+.cardio-plan-grid input { width: 100%; }
+.cardio-rows { display: flex; flex-direction: column; gap: 6px; }
+.cardio-row { display: grid; grid-template-columns: 22px 1fr 1fr 1fr 32px; gap: 6px; align-items: center; }
+.cardio-rows.with-hr .cardio-row { grid-template-columns: 22px 1fr 1fr 1fr 1fr 32px; }
+.cardio-row input { width: 100%; min-width: 0; text-align: center; font-variant-numeric: tabular-nums; padding-left: 4px; padding-right: 4px; }
+.cardio-row-head { font-size: .68rem; color: var(--muted); text-align: center; }
+.cardio-row-num { font-weight: 700; color: var(--muted); text-align: center; }
+.cardio-row-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.cardio-hr-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: .8rem; color: var(--muted); }
+.cardio-hr-toggle input { width: auto; }
+.cardio-summary { font-size: .85rem; font-weight: 600; margin: 8px 0 0; font-variant-numeric: tabular-nums; }
+
+/* Cardio — séance guidée */
+.cardio-timer { border-radius: 18px; padding: 14px; background: var(--surface-2); text-align: center; margin: 10px 0; }
+.cardio-timer.phase-work { background: var(--green); color: #fff; }
+.cardio-timer.phase-rest { background: var(--gold-pale); }
+.cardio-timer.phase-done { background: var(--green-pale); }
+.cardio-phase { display: flex; justify-content: space-between; font-weight: 700; font-size: .9rem; }
+.cardio-clock { font-family: var(--font-display); font-size: 3.6rem; font-weight: 700; line-height: 1.05; margin: 6px 0; font-variant-numeric: tabular-nums; }
+.cardio-timer.paused .cardio-clock { opacity: .55; }
+.cardio-phase-bar { height: 6px; border-radius: 3px; background: rgba(127,127,127,.25); overflow: hidden; }
+.cardio-phase-fill { height: 100%; width: 0; background: var(--gold); }
+.cardio-hint { margin: 8px 0; font-size: .85rem; }
+.cardio-controls { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.cardio-ctl { min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); font-weight: 700; cursor: pointer; }
+.cardio-ctl.primary { background: var(--gold); border-color: var(--gold); color: #111; flex: 1; font-size: 1.05rem; }
+.cardio-ctl.ghost { background: transparent; }
+.cardio-timer.phase-work .cardio-ctl { background: rgba(255,255,255,.15); color: #fff; border-color: rgba(255,255,255,.35); }
+.cardio-live-rows { display: flex; flex-direction: column; gap: 8px; }
+.cardio-live-row { display: grid; grid-template-columns: 26px repeat(3, minmax(0, 1fr)); gap: 6px; align-items: end; padding: 8px; border-radius: 14px; border: 1px solid var(--border); background: var(--card-bg); }
+.cardio-live-row:has(label:nth-of-type(4)) { grid-template-columns: 26px repeat(4, minmax(0, 1fr)); }
+.cardio-live-row.current { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-pale); }
+.cardio-live-row.filled .cardio-live-num { color: var(--green-light); }
+.cardio-live-num { font-weight: 800; align-self: center; text-align: center; color: var(--muted); }
+.cardio-live-row label { display: flex; flex-direction: column; gap: 3px; font-size: .68rem; color: var(--muted); min-width: 0; }
+.cardio-live-row input { width: 100%; min-width: 0; min-height: 44px; font-size: 1.05rem; text-align: center; font-variant-numeric: tabular-nums; padding: 4px; }
+.cardio-live-actions { display: flex; justify-content: space-between; align-items: center; margin: 8px 0; }
+.cardio-live-summary { font-weight: 700; font-variant-numeric: tabular-nums; margin: 4px 0 10px; }
+
+/* Progrès › Forme : carte Cardio */
+.cardio-prog + .cardio-prog { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 10px; }
+.cardio-prog-name { font-weight: 600; font-size: .9rem; }
+.cardio-prog-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin: 2px 0 4px; }
+.cardio-prog-row strong { font-family: var(--font-display); font-size: 1.35rem; font-variant-numeric: tabular-nums; }

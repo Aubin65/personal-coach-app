@@ -28,6 +28,7 @@ export const EXERCISE_FORMATS = {
   emom: "EMOM",
   circuit: "Circuit",
   other: "Autre format",
+  cardio: "Cardio (machine)",
 };
 
 // Which `block_meta` fields a format's block header exposes, and how —
