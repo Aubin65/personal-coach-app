@@ -63,6 +63,11 @@ const LIFT_KEYS = {
   "bench press": "bench",
   "développé couché": "bench",
   "trap bar deadlift": "trap_bar_deadlift",
+  "chin-ups": "chin_up",
+  "chin-up": "chin_up",
+  "chin ups": "chin_up",
+  "chin-ups lestés": "chin_up",
+  "tractions supination": "chin_up",
 };
 
 /** Clé de `strength_trajectory` pour un des trois mouvements de référence. */

@@ -3037,3 +3037,12 @@ body.live-open { overflow: hidden; }
 .sl-chip { display: inline-flex; align-items: baseline; gap: 4px; padding: 5px 10px; border-radius: 999px; background: var(--surface-2); }
 .sl-chip small { color: var(--muted); font-size: .7rem; }
 .sl-note { margin: 6px 0 0; }
+
+/* Mouvement lesté suivi (chin-ups, ADR-0109) */
+.bw-lift { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.bw-lift-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.bw-lift-head span { font-variant-numeric: tabular-nums; font-weight: 700; }
+.bw-lift-head small { font-weight: 500; color: var(--muted); }
+.bw-lift-bar { height: 8px; border-radius: 4px; background: var(--surface-2); margin: 8px 0 6px; overflow: hidden; }
+.bw-lift-bar span { display: block; height: 100%; background: var(--green-light); border-radius: 4px; }
+.bw-lift-foot { line-height: 1.45; }

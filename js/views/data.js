@@ -278,6 +278,29 @@ function pinnedExercises(s) {
   return list.filter((n) => known.includes(n));
 }
 
+/** Mouvement au poids du corps suivi au lest (ADR-0109) : 1RM de lest estimé
+ * (Epley sur corps + lest) vers la cible en ratio du poids de corps. */
+function addedLoadHTML(entry, label) {
+  if (!entry || !entry.target) return "";
+  const t = entry.target;
+  const plus = (v) => `+${fmtKg(v)}`;
+  const best = entry.recent_best;
+  const pct = entry.progress_fraction != null ? Math.round(entry.progress_fraction * 100) : null;
+  const last = entry.latest;
+  const lastTxt = last ? `${last.load > 0 ? plus(last.load) : "PDC"} × ${last.reps} (${shortDateFr(last.date)})` : null;
+  return `
+    <div class="bw-lift">
+      <div class="bw-lift-head"><strong>${label}</strong>
+        <span>${best && best.e1rm_added != null ? `${plus(best.e1rm_added)} <small>1RM de lest estimé</small>` : "<small class='muted'>pas encore de série loggée</small>"}</span></div>
+      <div class="bw-lift-bar" role="img" aria-label="Progression ${pct != null ? pct + " %" : "inconnue"}"><span style="width:${pct != null ? pct : 0}%"></span></div>
+      <div class="bw-lift-foot small muted">
+        Cible ${plus(t.one_rm_fictif)} au 1RM (${String(t.ratio).replace(".", ",")} × PdC) · soit ${plus(t.four_rm)} × 4
+        ${entry.baseline_load != null ? ` · départ ${plus(entry.baseline_load)}` : ""}${pct != null ? ` · ${pct} %` : ""}
+        ${lastTxt ? `<br>Dernière séance : ${lastTxt}` : `<br>Saisis l'exercice « Chin-ups », charge « PDC » ou le lest (ex. +5).`}
+      </div>
+    </div>`;
+}
+
 function forceTabHTML(s) {
   const today = todayISO();
   let html = "";
@@ -290,7 +313,7 @@ function forceTabHTML(s) {
     tiles += statTile(label, best ? best.load : null, " kg", entry.progress_fraction,
       entry.target ? `${entry.target.four_rm.toFixed(1).replace(".", ",")} kg` : "—", entry.baseline_load, entry.baseline_date);
   }
-  if (tiles) html += `<section class="card"><h2>Trajectoire de force</h2><div class="stat-grid three">${tiles}</div></section>`;
+  if (tiles) html += `<section class="card"><h2>Trajectoire de force</h2><div class="stat-grid three">${tiles}</div>${addedLoadHTML(s.strength_trajectory && s.strength_trajectory.chin_up, "Chin-ups lestés")}</section>`;
 
   html += `<section class="card exercise-card" id="exercise-card"></section>`;
 

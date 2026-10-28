@@ -88,6 +88,10 @@ function targetHTML(name, summary, stats) {
   const key = liftTargetKey(name);
   const target = key && summary.strength_trajectory && summary.strength_trajectory[key] && summary.strength_trajectory[key].target;
   if (!target || !target.four_rm) return "";
+  if (key === "chin_up") {
+    // Cible en lest (kg ajoutés au poids du corps), ADR-0109.
+    return `<li><span class="exercise-sheet-label">Cible (lest)</span><span>+${formatNumber(target.one_rm_fictif)} kg au 1RM · +${formatNumber(target.four_rm)} kg × 4</span></li>`;
+  }
   const fourRm = target.four_rm;
   const top = stats.last && stats.last.top;
   const pct = top && top.reps >= 4 ? Math.round((top.load / fourRm) * 100) : null;

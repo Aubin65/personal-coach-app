@@ -199,6 +199,12 @@ function startingPoint(sum, matches) {
     facts.push(`${label} : ${best != null ? `${best}` : "—"} → ${target} kg${pct != null ? ` (${pct} %)` : ""}`);
     if (pct == null || pct < 100) quick.push(`${label} : ${best != null ? `${best} → ` : ""}${target} kg (4RM)`);
   }
+  const chin = (sum.strength_trajectory || {}).chin_up;
+  if (chin && chin.target) {
+    const cur = chin.recent_best && chin.recent_best.e1rm_added;
+    const tgt = chin.target.one_rm_fictif.toFixed(1).replace(".", ",");
+    facts.push(`Chin-ups lestés : ${cur != null ? `+${String(cur).replace(".", ",")}` : "—"} → +${tgt} kg (1RM de lest, 0,5 × PdC)`);
+  }
   // Bilan du bloc précédent, objectif par objectif (coach.block_progress, ADR-0094).
   const forgedNum = Number(String(state.forgeBlocLabel || "").replace(/\D/g, "")) || Infinity;
   const previous = Object.values(sum.block_progress || {})
