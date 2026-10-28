@@ -266,7 +266,11 @@ function recentRecords(history, today) {
 }
 
 const PINNED_KEY = "coach_progres_pinned";
-const DEFAULT_PINNED = ["Back Squat", "Bench", "Trap Bar Deadlift"];
+const DEFAULT_PINNED = ["Back Squat", "Bench", "Trap Bar Deadlift", "Strict Press", "Chin-ups", "Tractions"];
+// ADR-0110 : Strict Press et tractions rejoignent les exercices suivis, y
+// compris pour une liste déjà personnalisée sur l'appareil (ajout unique).
+const PINNED_ADDED_V2 = ["Strict Press", "Chin-ups", "Tractions"];
+const PINNED_V2_FLAG = "coach_progres_pinned_v2";
 
 /** Exercices suivis (mémorisés sur l'appareil) : par défaut les 3 grands
  * mouvements ; ceux qui n'existent plus dans l'historique sont ignorés. */
@@ -274,46 +278,44 @@ function pinnedExercises(s) {
   const known = Object.keys(s.exercise_history || {});
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(PINNED_KEY)); } catch (_) { saved = null; }
+  try {
+    if (Array.isArray(saved) && !localStorage.getItem(PINNED_V2_FLAG)) {
+      saved = [...saved, ...PINNED_ADDED_V2.filter((n) => !saved.includes(n))];
+      localStorage.setItem(PINNED_KEY, JSON.stringify(saved));
+      localStorage.setItem(PINNED_V2_FLAG, "1");
+    }
+  } catch (_) { /* confort seulement */ }
   const list = Array.isArray(saved) ? saved : DEFAULT_PINNED;
   return list.filter((n) => known.includes(n));
 }
 
-/** Mouvement au poids du corps suivi au lest (ADR-0109) : 1RM de lest estimé
- * (Epley sur corps + lest) vers la cible en ratio du poids de corps. */
-function addedLoadHTML(entry, label) {
-  if (!entry || !entry.target) return "";
-  const t = entry.target;
-  const plus = (v) => `+${fmtKg(v)}`;
-  const best = entry.recent_best;
-  const pct = entry.progress_fraction != null ? Math.round(entry.progress_fraction * 100) : null;
-  const last = entry.latest;
-  const lastTxt = last ? `${last.load > 0 ? plus(last.load) : "PDC"} × ${last.reps} (${shortDateFr(last.date)})` : null;
-  return `
-    <div class="bw-lift">
-      <div class="bw-lift-head"><strong>${label}</strong>
-        <span>${best && best.e1rm_added != null ? `${plus(best.e1rm_added)} <small>1RM de lest estimé</small>` : "<small class='muted'>pas encore de série loggée</small>"}</span></div>
-      <div class="bw-lift-bar" role="img" aria-label="Progression ${pct != null ? pct + " %" : "inconnue"}"><span style="width:${pct != null ? pct : 0}%"></span></div>
-      <div class="bw-lift-foot small muted">
-        Cible ${plus(t.one_rm_fictif)} au 1RM (${String(t.ratio).replace(".", ",")} × PdC) · soit ${plus(t.four_rm)} × 4
-        ${entry.baseline_load != null ? ` · départ ${plus(entry.baseline_load)}` : ""}${pct != null ? ` · ${pct} %` : ""}
-        ${lastTxt ? `<br>Dernière séance : ${lastTxt}` : `<br>Saisis l'exercice « Chin-ups », charge « PDC » ou le lest (ex. +5).`}
-      </div>
-    </div>`;
-}
+// Mouvements de référence suivis en anneau (charge à 4 reps vs cible).
+const TRACKED_LIFTS = { ...LIFT_LABELS, strict_press: "Strict Press" };
+const formatKgNum = (v) => String(Math.round(v * 10) / 10).replace(".", ",");
 
 function forceTabHTML(s) {
   const today = todayISO();
   let html = "";
 
   let tiles = "";
-  for (const [key, label] of Object.entries(LIFT_LABELS)) {
-    const entry = s.strength_trajectory && s.strength_trajectory[key];
+  const st = s.strength_trajectory || {};
+  for (const [key, label] of Object.entries(TRACKED_LIFTS)) {
+    const entry = st[key];
     if (!entry) continue;
     const best = entry.recent_best;
     tiles += statTile(label, best ? best.load : null, " kg", entry.progress_fraction,
       entry.target ? `${entry.target.four_rm.toFixed(1).replace(".", ",")} kg` : "—", entry.baseline_load, entry.baseline_date);
   }
-  if (tiles) html += `<section class="card"><h2>Trajectoire de force</h2><div class="stat-grid three">${tiles}</div>${addedLoadHTML(s.strength_trajectory && s.strength_trajectory.chin_up, "Chin-ups lestés")}</section>`;
+  // Tractions : valeurs en lest (kg ajoutés au poids du corps), 4RM estimé (ADR-0110).
+  const chin = st.chin_up;
+  if (chin && chin.target) {
+    const kg = (v) => (v < 0 ? "−" : "") + formatKgNum(Math.abs(v));
+    const cur = chin.recent_best && chin.recent_best.e4rm_added;
+    tiles += statTile("Tractions (lest)", cur != null ? kg(cur) : null, " kg", chin.progress_fraction,
+      `${kg(chin.target.four_rm)} kg`, chin.baseline_e4rm != null ? kg(chin.baseline_e4rm) : null, chin.baseline_date);
+  }
+  if (tiles) html += `<section class="card"><h2>Trajectoire de force</h2><div class="stat-grid lifts">${tiles}</div>
+    <p class="muted small lifts-note">Cibles à 4 répétitions. Tractions : lest ajouté au poids du corps (0 = poids du corps seul), 4RM estimé depuis ta meilleure série récente${chin && chin.latest ? ` (dernière : ${chin.latest.load > 0 ? "+" + formatKgNum(chin.latest.load) + " kg" : "PDC"} × ${chin.latest.reps})` : " — saisis « Chin-ups » ou « Tractions », charge « PDC » ou le lest (ex. +5)"}.</p></section>`;
 
   html += `<section class="card exercise-card" id="exercise-card"></section>`;
 
@@ -410,7 +412,7 @@ function wireExerciseCard(el, s) {
 // ---------------------------------------------------------------- Corps
 
 // ADR-0101 : plus de cible de poids — masse maigre (InBody) et force, par trimestre.
-const STRENGTH_LABELS = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar DL" };
+const STRENGTH_LABELS = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar DL", strict_press: "Strict Press" };
 const fr1 = (n) => n.toFixed(1).replace(".", ",");
 const signed = (n) => (n > 0 ? "+" : n < 0 ? "−" : "±") + fr1(Math.abs(n));
 const quarterLabel = (q) => { const [y, t] = q.split("-"); return `${t} ${y}`; };

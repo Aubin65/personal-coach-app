@@ -189,7 +189,7 @@ async function upcomingMatches(today) {
 function startingPoint(sum, matches) {
   const facts = [];
   const quick = [];
-  const LIFTS = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar Deadlift" };
+  const LIFTS = { back_squat: "Back Squat", bench: "Bench", trap_bar_deadlift: "Trap Bar Deadlift", strict_press: "Strict Press" };
   for (const [key, label] of Object.entries(LIFTS)) {
     const t = (sum.strength_trajectory || {})[key];
     if (!t || !t.target) continue;
@@ -201,9 +201,9 @@ function startingPoint(sum, matches) {
   }
   const chin = (sum.strength_trajectory || {}).chin_up;
   if (chin && chin.target) {
-    const cur = chin.recent_best && chin.recent_best.e1rm_added;
-    const tgt = chin.target.one_rm_fictif.toFixed(1).replace(".", ",");
-    facts.push(`Chin-ups lestés : ${cur != null ? `+${String(cur).replace(".", ",")}` : "—"} → +${tgt} kg (1RM de lest, 0,5 × PdC)`);
+    const cur = chin.recent_best && chin.recent_best.e4rm_added;
+    const tgt = chin.target.four_rm.toFixed(1).replace(".", ",");
+    facts.push(`Tractions (lest) : ${cur != null ? String(cur).replace(".", ",") : "—"} → ${tgt} kg × 4`);
   }
   // Bilan du bloc précédent, objectif par objectif (coach.block_progress, ADR-0094).
   const forgedNum = Number(String(state.forgeBlocLabel || "").replace(/\D/g, "")) || Infinity;
