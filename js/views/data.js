@@ -7,6 +7,7 @@ import { inbodyTabHTML, wireInbody } from "./inbody.js";
 import { sleepCardHTML, wireSleepCard } from "../sleep-chart.js";
 import { cardioMetric } from "../exercise-sheet.js";
 import { MACHINES } from "../cardio.js";
+import { ORIENTATIONS } from "../fv-profile.js";
 import { statTile, sparklineSVG, barChartSVG, formatHoursFr, statTileSimple, workloadGaugeHTML, workloadTrendSVG, shortDateFr, painLevelColor } from "./data-viz.js";
 
 // ---- Data (trajectoire, sommeil, poids, charge aiguë:chronique) ----
@@ -99,6 +100,7 @@ export async function renderData(token) {
     }));
     const painLink = el.querySelector("[data-open-pain]");
     if (painLink) painLink.addEventListener("click", () => showView("pain"));
+    el.querySelectorAll("[data-open-fv]").forEach((b) => b.addEventListener("click", () => showView("fv-test")));
   };
   draw();
 }
@@ -341,6 +343,8 @@ function forceTabHTML(s) {
   if (tiles) html += `<section class="card"><h2>Trajectoire de force</h2><div class="stat-grid lifts">${tiles}</div>
     <p class="muted small lifts-note">Cibles à 4 répétitions. Tractions : lest ajouté au poids du corps (0 = poids du corps seul), 4RM estimé depuis ta meilleure série récente${chin && chin.latest ? ` (dernière : ${chin.latest.load > 0 ? "+" + formatKgNum(chin.latest.load) + " kg" : "PDC"} × ${chin.latest.reps})` : " — saisis « Chin-ups » ou « Tractions », charge « PDC » ou le lest (ex. +5)"}.</p></section>`;
 
+  html += fvCardHTML(s.fv_history || []);
+
   html += `<section class="card exercise-card" id="exercise-card"></section>`;
 
   const pinned = pinnedExercises(s);
@@ -360,6 +364,31 @@ function forceTabHTML(s) {
   html += tonnageSectionHTML(s.tonnage);
 
   return html;
+}
+
+/** Profil force-vitesse (ADR-0113) : dernier test, tendance, accès au test guidé. */
+function fvCardHTML(history) {
+  if (!history.length) {
+    return `<section class="card"><h2>Profil force-vitesse</h2>
+      <p class="muted small">Mesure l'équilibre entre ta force et ta vitesse en squat jump lesté (filmé au ralenti) et te dit quoi prioriser. ~15 min, à refaire tous les 2-3 mois.</p>
+      <button type="button" class="primary-button" data-open-fv>Faire le test</button></section>`;
+  }
+  const last = history[history.length - 1];
+  const o = last.orientation ? ORIENTATIONS[last.orientation] : null;
+  const f = (v, d = 1) => (v == null ? "—" : v.toFixed(d).replace(".", ","));
+  const curve = (key, opts) => history.length > 1 ? sparklineSVG(history.filter((h) => h[key] != null).map((h) => ({ date: h.date, value: h[key] })), { axis: true, ...opts }) : "";
+  return `<section class="card">
+    <div class="card-head"><h2>Profil force-vitesse</h2><span class="card-head-value">${shortDateFr(last.date)}</span></div>
+    ${o ? `<div class="fv-banner tone-${o.tone}"><strong>${o.label}</strong><span>Déséquilibre ${f(last.fv_imb_pct, 0)} %${last.fv_imb_sd != null ? ` ± ${f(last.fv_imb_sd, 0)}` : ""}</span></div>` : ""}
+    <div class="mini-stats">
+      <div><span>Puissance max</span><strong>${f(last.Pmax_rel)}<small> W/kg</small></strong></div>
+      <div><span>Force max (F0)</span><strong>${f(last.F0_rel)}<small> N/kg</small></strong></div>
+      <div><span>Vitesse max (v0)</span><strong>${f(last.V0, 2)}<small> m/s</small></strong></div>
+    </div>
+    ${history.length > 1 ? `<p class="muted small">Puissance max (W/kg)</p>${curve("Pmax_rel", {})}<p class="muted small">Déséquilibre (%, plus bas = mieux)</p>${curve("fv_imb_pct", { invert: true, fmt: (v) => v.toFixed(0) })}` : ""}
+    ${o ? `<p class="fv-advice">${o.advice}</p>` : ""}
+    <button type="button" class="primary-button ghost" data-open-fv>Nouveau test</button>
+  </section>`;
 }
 
 /** Fiche exercice : les exercices SUIVIS (puces), choisis dans une liste de

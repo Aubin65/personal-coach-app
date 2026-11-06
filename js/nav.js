@@ -4,6 +4,7 @@ import { renderWeek } from "./views/week.js";
 import { renderForge } from "./views/forge.js";
 import { renderForgeBloc } from "./views/forge-bloc.js";
 import { renderData } from "./views/data.js";
+import { renderFvTest } from "./views/fv-test.js";
 import { renderCalendar } from "./views/calendar.js";
 import { renderChat } from "./views/chat.js";
 import { renderTouches } from "./views/touches.js";
@@ -51,6 +52,7 @@ const views = {
   forge: { title: "Plan", render: renderForge },
   "forge-bloc": { title: "Forge de bloc", render: renderForgeBloc },
   data: { title: "Progrès", render: renderData },
+  "fv-test": { title: "Test F-v", render: renderFvTest },
   calendar: { title: "Plan", render: renderCalendar },
   touches: { title: "Plan", render: renderTouches },
   chat: { title: "Coach", render: renderChat },
@@ -73,6 +75,7 @@ const TAB_FOR_VIEW = {
   calendar: "week",
   touches: "week",
   data: "data",
+  "fv-test": "data",
   chat: "chat",
 };
 const PLAN_VIEWS = new Set(["week", "forge", "calendar", "touches"]);
