@@ -184,7 +184,7 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
       else status = summary && summary.hasSession ? "Prévu" : "Non loggé";
       const typeLabel = isPrimer ? "Primer" : type === "rugby" ? "Rugby" : SESSION_TYPES[type] && type !== "repos" ? SESSION_TYPES[type].label.replace(/\s*\(.*\)$/, "") : "";
       const secondary = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
-        ? ` · + ${SESSION_TYPES[summary.secondaryType].label.replace(/\s*\(.*\)$/, "").toLowerCase()}`
+        ? ` · + ${summary.secondaryType === "rugby" ? "club" : SESSION_TYPES[summary.secondaryType].label.replace(/\s*\(.*\)$/, "").toLowerCase()}`
         : "";
       // Passé / réalisé lisible d'un coup d'œil (ADR-0092) : jour passé
       // atténué, ✓ quand c'est logué, « À loguer » quand une séance passée ne
@@ -200,8 +200,13 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
       // Repos (docs/adr/0082) : une ligne basse et calme plutôt qu'une carte
       // vide en pointillés — lune, « Repos », et le détail du plan s'il en
       // donne un (« Repos actif », « mobilité »…), sinon « Récupération ».
+      // Une séance réellement enregistrée l'emporte sur le titre du plan écrit :
+      // un repos posé dans l'app ne doit pas hériter du « Rugby » d'un plan
+      // rédigé avant un changement (jours de club déplacés, 11/11/2026).
       const restDetail = type === "repos"
-        ? (summary && summary.hasSession && summary.name && !/^repos$/i.test(summary.name.trim()) ? summary.name : (!/^repos$/i.test(d.title.trim()) ? d.title : "Récupération"))
+        ? (summary && summary.hasSession
+          ? (summary.name && !/^repos$/i.test(summary.name.trim()) ? summary.name : "Récupération")
+          : (!/^repos$/i.test(d.title.trim()) ? d.title : "Récupération"))
         : "";
       const secondaryIcon = summary && summary.secondaryType ? kindIconHTML(summary.secondaryType, "mini") : "";
       stripHTML += type === "repos" ? `
