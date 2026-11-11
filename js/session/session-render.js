@@ -58,6 +58,7 @@ export async function renderSession(token) {
     remoteSig: sessionSig(found.session),
     touched: !!useDraft,
     draftNotice: null,
+    clubSecondaryExpected: !!found.clubSecondaryExpected,
   };
   pruneDrafts();
   if (useDraft) {

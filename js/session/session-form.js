@@ -123,6 +123,15 @@ export function workloadSectionHTML(session) {
  * primary session's own charge section. */
 export function secondarySessionSectionHTML(session) {
   if (!session.secondary) {
+    // Jour de club (docs/adr/0113) : le club du soir est proposé tel quel.
+    if (sessionRuntime.working && sessionRuntime.working.clubSecondaryExpected) {
+      return `
+      <section class="card secondary-club-cta">
+        <p class="small"><strong>🏉 Entraînement club ce jour-là</strong></p>
+        <p class="muted small">Note-le ici en 2e séance : RPE et durée s'ajoutent à ta charge du jour.</p>
+        <button type="button" id="add-secondary-session" data-kind="club" class="primary-button ghost small">+ Noter l'entraînement club</button>
+      </section>`;
+    }
     return `
       <section class="card">
         <button type="button" id="add-secondary-session" class="primary-button ghost small">+ Ajouter une deuxième séance ce jour-là</button>
@@ -683,6 +692,7 @@ export function bindSessionContentEvents() {
   if (addSecondaryBtn) addSecondaryBtn.addEventListener("click", () => {
     syncFormIntoSession();
     sessionRuntime.working.session.secondary = blankSecondarySession(sessionRuntime.working.date, "rugby");
+    if (addSecondaryBtn.dataset.kind === "club") sessionRuntime.working.session.secondary.name = "Entraînement club";
     renderSessionContent();
   });
 

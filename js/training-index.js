@@ -1,5 +1,5 @@
 import { ghGetFile, ghListDir } from "./github-api.js";
-import { sessionHasExecuted } from "./date-utils.js";
+import { sessionHasExecuted, todayISO, addDaysISO } from "./date-utils.js";
 import { blankSession } from "./session/session-model.js";
 import { isClubDay, loadClubConfig } from "./club-training.js";
 
@@ -109,6 +109,13 @@ export async function currentBlockLabel() {
  * name and a status, not full exercise detail. */
 export async function lookupDaySummary(date) {
   const real = await lookupRealDaySummary(date);
+  // Pas pour les jours passés (à part hier) : l'historique ne doit pas
+  // afficher un club que rien n'atteste.
+  if (real.hasSession && date >= addDaysISO(todayISO(), -1) && clubCanBeSecondary(real.type, real.secondaryType) && (await isClubDay(date))) {
+    // Jour de club déjà occupé par une autre séance (salle, primer…) : le
+    // club reste attendu en 2e séance (docs/adr/0113).
+    return { ...real, secondaryType: "rugby", virtualSecondary: true };
+  }
   if (real.hasSession || !(await isClubDay(date))) return real;
   const cfg = await loadClubConfig();
   return { date, name: cfg.name, type: "rugby", hasSession: true, hasExecuted: false, secondaryType: null, virtualClub: true };
@@ -137,8 +144,26 @@ async function lookupRealDaySummary(date) {
  * yet, for creating a brand-new session there. Used when actually opening
  * a day (renderSession, Forge's quick-set/skeleton, the prefill picker's
  * clone action) — listing views should use lookupDaySummary instead. */
+/** Une séance de ce type, sans 2e séance, laisse place au club du soir. */
+function clubCanBeSecondary(type, secondaryType) {
+  return !secondaryType && !["rugby", "repos"].includes(type || "musculation");
+}
+
+/** 2e séance « Entraînement club » prête à être notée (jamais écrite seule). */
+export async function clubSecondarySession(date) {
+  const cfg = await loadClubConfig();
+  return { name: cfg.name, type: "rugby", notes: "", session_rpe: null, session_duration_min: null };
+}
+
 export async function findSessionForDate(date) {
   const real = await findRealSessionForDate(date);
+  if (real.session && clubCanBeSecondary(real.session.type, real.session.secondary && real.session.secondary.type) && (await isClubDay(date))) {
+    // Jour de club où une autre séance existe déjà (docs/adr/0113) : avant, la
+    // séance réelle masquait le club (ADR-0087) et l'entraînement du soir ne
+    // se retrouvait nulle part. Le club est signalé comme 2e séance attendue,
+    // sans rien écrire tant qu'il n'est pas noté.
+    return { ...real, clubSecondaryExpected: true };
+  }
   if (real.session || !(await isClubDay(date))) return real;
   // Entraînement club par défaut (docs/adr/0087) : séance rugby vierge, jamais
   // écrite tant que l'utilisateur ne la logue pas ; `virtualClub` vit sur

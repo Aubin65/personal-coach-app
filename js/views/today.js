@@ -6,7 +6,7 @@ import { loadClubConfig } from "../club-training.js";
 import { mentalScalesHTML, goalsCheckHTML, wireMentalPost, readMental, loadMentalPlan } from "../mental.js";
 import { matchToRate, feelScalesHTML, wireFeelScales, readFeel, feelSummaryText, dismissMatchFeel, MATCH_FEEL_SCALES } from "../match-feel.js";
 import { saveMatchPerformance } from "./calendar.js";
-import { findSessionForDate } from "../training-index.js";
+import { findSessionForDate, clubSecondarySession } from "../training-index.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
 import { ghDispatchWorkflow, ghGetFile, ghPutJSON, ghListDir } from "../github-api.js";
@@ -18,7 +18,7 @@ import { setupMicButton } from "../voice-input.js";
 import { renderSystemStatus, latestDigestDate } from "../system-status.js";
 import { openRpeSheet } from "../rpe-sheet.js";
 import { saveSession } from "../session/session-form.js";
-import { blankSession } from "../session/session-model.js";
+import { blankSession, blankSecondarySession } from "../session/session-model.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
 import { READINESS_LEVEL_LABELS, WORKLOAD_ZONE_LABELS } from "./data.js";
 import { formatHoursFr } from "./data-viz.js";
@@ -530,15 +530,29 @@ export async function pendingLoadSessions() {
   const today = todayISO();
   const found = [];
   for (const date of [today, addDaysISO(today, -1)]) {
-    let dismissed = false;
-    try { dismissed = !!localStorage.getItem(quickLoadDismissKey(date)); } catch (_) {}
-    if (dismissed) continue;
     const day = await findSessionForDate(date);
     const session = day && day.session;
-    if (!session || !QUICK_LOAD_TYPES.includes(session.type || "musculation")) continue;
-    if (session.session_rpe != null || session.session_duration_min != null) continue;
-    if ((session.type || "musculation") === "musculation" && !hasLoggedExerciseValues(session)) continue;
-    found.push({ date, session, weekLabel: day.weekLabel });
+    if (!session) continue;
+    let dismissed = false;
+    try { dismissed = !!localStorage.getItem(quickLoadDismissKey(date)); } catch (_) {}
+    const primaryPending = !dismissed
+      && QUICK_LOAD_TYPES.includes(session.type || "musculation")
+      && session.session_rpe == null && session.session_duration_min == null
+      && !((session.type || "musculation") === "musculation" && !hasLoggedExerciseValues(session));
+    if (primaryPending) found.push({ date, session, weekLabel: day.weekLabel });
+    // 2e séance du jour (docs/adr/0113) : déjà créée sans charge, ou club
+    // attendu un jour déjà occupé — hier toujours, aujourd'hui à partir de 19 h
+    // (le club est le soir).
+    let dismissed2 = false;
+    try { dismissed2 = !!localStorage.getItem(quickLoadDismissKey(date) + "_2"); } catch (_) {}
+    if (dismissed2) continue;
+    const sec = session.secondary;
+    if (sec && (sec.session_rpe == null || sec.session_duration_min == null)) {
+      found.push({ date, session, weekLabel: day.weekLabel, secondary: true, title: sec.name || "2e séance" });
+    } else if (!sec && day.clubSecondaryExpected && (date !== today || new Date().getHours() >= 19)) {
+      const club = await clubSecondarySession(date);
+      found.push({ date, session, weekLabel: day.weekLabel, secondary: true, title: club.name });
+    }
   }
   return found;
 }
@@ -568,9 +582,22 @@ function frShortDate(iso) {
  * bouton + (add-sheet.js). Renvoie le résultat ou `null` si fermée. */
 export async function promptSessionLoad(item) {
   const label = item.date === todayISO() ? "aujourd'hui" : item.date === addDaysISO(todayISO(), -1) ? "hier" : frShortDate(item.date);
+  if (item.secondary) return promptSecondaryLoad(item, label);
   const result = await openRpeSheet({ title: `${item.session.name || "Séance"} — ${label}` });
   if (!result) return null;
   const updated = { ...item.session, session_rpe: result.rpe, session_duration_min: result.duration };
+  const outcome = await saveSession(item.weekLabel || "app", item.date, updated);
+  return { ...result, queued: !!(outcome && outcome.queued) };
+}
+
+/** RPE + durée d'une 2e séance (club du soir…) : écrite dans
+ * `session.secondary` de la séance du jour ; la charge des deux séances est
+ * additionnée par saveSession (`session_loads`, ADR-0050). docs/adr/0113. */
+async function promptSecondaryLoad(item, label) {
+  const base = item.session.secondary || (item.secondaryBase) || (await clubSecondarySession(item.date));
+  const result = await openRpeSheet({ title: `${base.name || "2e séance"} — ${label}` });
+  if (!result) return null;
+  const updated = { ...item.session, secondary: { ...base, session_rpe: result.rpe, session_duration_min: result.duration } };
   const outcome = await saveSession(item.weekLabel || "app", item.date, updated);
   return { ...result, queued: !!(outcome && outcome.queued) };
 }
@@ -666,7 +693,7 @@ async function loadTodo(token) {
   loads.forEach((item, i) => rows.push(`
     <li class="todo-row" data-load-date="${item.date}"><button type="button" class="todo-main" data-todo="load" data-i="${i}">
       <span class="todo-ico gold">${TODO_ICONS.clock}</span>
-      <span class="todo-text"><strong>RPE et durée : ${escapeHtmlText(item.session.name || "séance")}</strong><small class="todo-load-status">${item.date === todayISO() ? "Aujourd'hui" : "Hier"} · sinon la séance ne compte pas dans ta charge</small></span>
+      <span class="todo-text"><strong>RPE et durée : ${escapeHtmlText(item.title || item.session.name || "séance")}</strong><small class="todo-load-status">${item.date === todayISO() ? "Aujourd'hui" : "Hier"} · sinon la séance ne compte pas dans ta charge</small></span>
       <span class="todo-chevron">${TODO_ICONS.chevron}</span>
     </button><button type="button" class="todo-dismiss" data-todo="dismiss" data-i="${i}" aria-label="Ignorer cette saisie">${TODO_ICONS.close}</button></li>`));
   proposals.forEach((p, i) => rows.push(`
@@ -690,7 +717,7 @@ async function loadTodo(token) {
       if (kind === "alert") openAlertSheet(alerts[i], () => loadTodo(state.renderToken).catch(() => {}));
       else if (kind === "proposal") proposals[i].go();
       else if (kind === "dismiss") {
-        try { localStorage.setItem(quickLoadDismissKey(loads[i].date), "1"); } catch (_) {}
+        try { localStorage.setItem(quickLoadDismissKey(loads[i].date) + (loads[i].secondary ? "_2" : ""), "1"); } catch (_) {}
         loadTodo(state.renderToken).catch(() => {});
       } else if (kind === "load") {
         const status = btn.querySelector(".todo-load-status");
@@ -800,6 +827,18 @@ async function loadTodaySession(token) {
   const done = sessionHasExecuted(session);
   const meta = [session.primer ? "⚡ Primer" : typeLabel];
   if (session.session_duration_min) meta.push(`${session.session_duration_min} min`);
+  // 2e séance du jour (docs/adr/0113) : notée, attendue (club un jour déjà
+  // occupé) ou à ajouter (footing, vélo…).
+  const secondary = session.secondary || (day.clubSecondaryExpected ? await clubSecondarySession(date) : null);
+  if (stale(token)) return;
+  const secLogged = !!(secondary && secondary.session_rpe != null && secondary.session_duration_min != null);
+  const secondaryRowHTML = secondary
+    ? `<div class="today-secondary">
+        <span class="today-secondary-ico" aria-hidden="true">${SESSION_TYPES[secondary.type] ? SESSION_TYPES[secondary.type].icon : "➕"}</span>
+        <span class="today-secondary-text"><strong>${escapeHtmlText(secondary.name || "2e séance")}</strong><small>${secLogged ? `2e séance · RPE ${secondary.session_rpe} · ${secondary.session_duration_min} min` : session.secondary ? "2e séance · RPE et durée à noter" : "2e séance prévue · à noter après l'entraînement"}</small></span>
+        <button type="button" class="today-secondary-log">${secLogged ? "Modifier" : "Noter"}</button>
+      </div>`
+    : '<button type="button" class="today-secondary-add delete-link">+ 2e séance aujourd\'hui</button>';
   box.innerHTML = `
     <section class="card today-session">
       <div class="today-session-tags"><span class="pill pill-gold">Séance du jour</span><span class="muted small">${escapeHtmlText(meta.join(" · "))}</span>${done ? '<span class="pill pill-ok">Loguée</span>' : ""}</div>
@@ -814,11 +853,39 @@ async function loadTodaySession(token) {
       </div>
       ${type === "musculation" && !done ? '<button type="button" class="today-session-form">Voir le détail de la séance</button>' : ""}
       ${type === "rugby" && !done && !/match/i.test(session.name || "") ? '<div class="today-session-clubrow"><button type="button" class="today-session-cancel delete-link">Annulé ce soir ?</button><button type="button" class="today-session-move delete-link">Déplacé à un autre jour ?</button></div>' : ""}
+      ${secondaryRowHTML}
     </section>`;
   // « Démarrer » ouvre directement la séance guidée (ADR-0074) ; « Adapter »
   // ouvre « Ajuster ma semaine » pré-rempli pour cette séance (docs/adr/0076).
   const startBtn = box.querySelector(".today-session-start");
   if (startBtn) startBtn.addEventListener("click", () => { state.openLiveOnLoad = true; open(); });
+  const refreshAll = () => { loadTodaySession(state.renderToken).catch(() => {}); loadTodo(state.renderToken).catch(() => {}); };
+  const secLogBtn = box.querySelector(".today-secondary-log");
+  if (secLogBtn) secLogBtn.addEventListener("click", async () => {
+    try {
+      const r = await promptSecondaryLoad({ date, session, weekLabel: day.weekLabel, secondaryBase: secondary }, "aujourd'hui");
+      if (r) refreshAll();
+    } catch (err) { window.alert(`Échec : ${err.message}`); }
+  });
+  const secAddBtn = box.querySelector(".today-secondary-add");
+  if (secAddBtn) secAddBtn.addEventListener("click", () => {
+    const sheet = openSheet(`
+      <h3>2e séance aujourd'hui</h3>
+      <p class="muted small">RPE et durée s'ajoutent à la charge du jour.</p>
+      <div class="secondary-pick">
+        <button type="button" class="action-button" data-sec-type="rugby"><span class="action-icon">${SESSION_TYPES.rugby.icon}</span>${SESSION_TYPES.rugby.label}</button>
+        <button type="button" class="action-button" data-sec-type="autre"><span class="action-icon">${SESSION_TYPES.autre.icon}</span>${SESSION_TYPES.autre.label}</button>
+      </div>`);
+    sheet.el.querySelectorAll("[data-sec-type]").forEach((b) => b.addEventListener("click", async () => {
+      sheet.close();
+      const t = b.dataset.secType;
+      const base = t === "rugby" ? { ...blankSecondarySession(date, "rugby"), name: (await clubSecondarySession(date)).name } : blankSecondarySession(date, t);
+      try {
+        const r = await promptSecondaryLoad({ date, session, weekLabel: day.weekLabel, secondaryBase: base }, "aujourd'hui");
+        if (r) refreshAll();
+      } catch (err) { window.alert(`Échec : ${err.message}`); }
+    }));
+  });
   const openBtn = box.querySelector(".today-session-open");
   if (openBtn) openBtn.addEventListener("click", open);
   const formBtn = box.querySelector(".today-session-form");

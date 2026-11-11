@@ -3154,3 +3154,13 @@ body.live-open { overflow: hidden; }
 .fv-warnings { margin: 0; padding: 10px 12px 10px 28px; border-radius: 12px; background: var(--status-warn-pale); color: var(--status-warn-text); font-size: 0.9rem; line-height: 1.4; }
 .fv-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; font-variant-numeric: tabular-nums; }
 .fv-table th, .fv-table td { padding: 6px 4px; text-align: left; border-bottom: 1px solid var(--border); }
+
+/* 2e séance du jour (ADR-0113) */
+.today-secondary { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.today-secondary-ico { font-size: 1.3rem; }
+.today-secondary-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.today-secondary-text small { color: var(--muted); font-size: .75rem; }
+.today-secondary-log { min-height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--green-light); background: var(--card-bg); color: var(--green-light); font-weight: 700; cursor: pointer; }
+.today-secondary-add { margin-top: 10px; }
+.secondary-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.secondary-club-cta { border: 1px dashed var(--green-light); }
