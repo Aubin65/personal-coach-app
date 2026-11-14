@@ -211,6 +211,33 @@ function lastTimeText(name) {
   return `Dernière fois (${last.date.slice(8, 10)}/${last.date.slice(5, 7)}) : ${parts.join(" · ")}`;
 }
 
+/** Charge conseillée (docs/adr/0115) : calculée par `coach.progression_hint`
+ * d'après la dernière séance, affichée sous « Dernière fois ». Un tap
+ * l'applique à la série en cours quand elle diffère de ce qui est affiché. */
+function hintFor(ex) {
+  if (!live || !live.hints) return null;
+  const key = Object.keys(live.hints).find((k) => normalizeName(k) === normalizeName(ex.name));
+  const hint = key ? live.hints[key] : null;
+  if (!hint || !(hint.date < sessionRuntime.working.date)) return null;
+  return hint;
+}
+
+function hintHTML(ex) {
+  const hint = hintFor(ex);
+  if (!hint) return "";
+  const fmt = (v) => String(v).replace(".", ",");
+  const target = [hint.load != null ? `${fmt(hint.load)} kg${hint.per_hand ? " / main" : ""}` : "", hint.reps ? `${hint.reps} reps` : ""].filter(Boolean).join(" × ");
+  const plannedLoad = parseFloat(String((ex.planned || {}).load ?? "").replace(",", "."));
+  const aligned = hint.load != null && Number.isFinite(plannedLoad) && Math.abs(plannedLoad - hint.load) < 0.01;
+  const draftLoad = parseFloat(String((live.draft || {}).load ?? "").replace(",", "."));
+  const canApply = hint.load != null && !(Number.isFinite(draftLoad) && Math.abs(draftLoad - hint.load) < 0.01) && doneRows(ex).length === 0;
+  const icon = { up: "↗", down: "↘", reps: "＋", hold: "＝" }[hint.action] || "";
+  return `<div class="live-hint ${hint.action}">
+      <span class="live-hint-text"><strong>${icon} ${aligned ? "Prévu = ta progression" : `Conseil : ${escapeHtmlText(target)}`}</strong><small>${escapeHtmlText(hint.why)}</small></span>
+      ${canApply ? `<button type="button" data-live="hint-apply">Utiliser</button>` : ""}
+    </div>`;
+}
+
 function step(value, delta) {
   const s = String(value || "").trim().replace(",", ".");
   if (s === "" || !/^-?\d+(\.\d+)?$/.test(s)) return value;
@@ -522,6 +549,7 @@ function render() {
         <h2 class="live-ex-name">${escapeHtmlText(ex.name)}</h2>
         ${supersetNote}
         ${lastTime ? `<p class="live-last">${escapeHtmlText(lastTime)}</p>` : ""}
+        ${hintHTML(ex)}
         ${ex.notes ? `<p class="live-notes">${escapeHtmlText(ex.notes)}</p>` : ""}
       </div>
       ${doneList}
@@ -1012,6 +1040,15 @@ function action(name) {
   const rows = doneRows(ex);
   switch (name) {
     case "close": closeLiveMode(); break;
+    case "hint-apply": {
+      const hint = hintFor(sessionRuntime.working.session.exercises[live.indices[live.pos]]);
+      if (hint && hint.load != null) {
+        live.draft.load = String(hint.load).replace(".", ",");
+        if (/^\d+$/.test(String(hint.reps || ""))) live.draft.reps = String(hint.reps);
+        render();
+      }
+      break;
+    }
     case "exit-open": live.exit = true; live.picker = false; render(); break;
     case "exit-close": live.exit = false; render(); break;
     case "finish": {
@@ -1149,6 +1186,7 @@ export async function openLiveMode() {
       const summary = JSON.parse(file.content);
       live.history = summary.exercise_history || {};
       live.cardioHistory = summary.cardio_history || {};
+      live.hints = summary.exercise_hints || {};
       live.zones = (summary.pain_recent || {}).zones || null;
       render();
     }

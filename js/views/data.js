@@ -219,6 +219,30 @@ function formeTabBodyHTML(s) {
     }).join("")}${formeHelp("Cardio", "Rameur et SkiErg : allure moyenne aux 500 m (plus bas = mieux) ; Assault Bike et vélo : calories par minute ou vitesse. À intensité comparable (même fréquence cardiaque visée), une meilleure valeur = un meilleur cardio.")}</section>`;
   }
 
+  // Souffle en match (ADR-0116) : la note 1-5 de chaque match joué, pour voir
+  // si le bloc conditionnement (début 2/11) se traduit sur le terrain.
+  const breath = (s.season_matches || [])
+    .filter((m) => m.performance && m.performance.feel && m.performance.feel.souffle != null)
+    .sort((x, y) => x.date.localeCompare(y.date));
+  if (breath.length) {
+    const BLOCK_START = "2026-11-02";
+    const bars = breath.map((m) => {
+      const v = Number(m.performance.feel.souffle);
+      return `<div class="breath-bar${m.date >= BLOCK_START ? " after" : ""}" title="${escapeHtmlText(`${shortDateFr(m.date)} vs ${m.opponent || "?"} : ${v}/5`)}">
+        <span class="breath-val">${v}</span>
+        <span class="breath-col"><i style="height:${Math.max(8, v * 20)}%"></i></span>
+        <span class="breath-date">${shortDateFr(m.date)}</span>
+      </div>`;
+    }).join("");
+    const before = breath.filter((m) => m.date < BLOCK_START).map((m) => Number(m.performance.feel.souffle));
+    const afterV = breath.filter((m) => m.date >= BLOCK_START).map((m) => Number(m.performance.feel.souffle));
+    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    const cmp = before.length && afterV.length
+      ? `<p class="small"><strong>${avg(before).toFixed(1).replace(".", ",")}</strong> avant le bloc cardio → <strong>${avg(afterV).toFixed(1).replace(".", ",")}</strong> depuis (${afterV.length} match${afterV.length > 1 ? "s" : ""}).</p>`
+      : `<p class="muted small">Barres vertes : matchs depuis le début du bloc conditionnement (2/11).</p>`;
+    html += `<section class="card"><h2>Souffle en match</h2><div class="breath-bars">${bars}</div>${cmp}${formeHelp("Souffle en match", "Note 1-5 donnée dans la fiche de ressenti après chaque match (5 = facile). C'est le vrai test du conditionnement : à lire sur plusieurs matchs, pas un seul.")}</section>`;
+  }
+
   const well = (s.wellness_recent && s.wellness_recent.history) || [];
   if (well.length) {
     const last = well[well.length - 1];

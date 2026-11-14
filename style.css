@@ -3208,3 +3208,21 @@ body.live-open { overflow: hidden; }
 .cardio-live-rows.with-time.with-hr .cardio-live-row { grid-template-columns: 26px repeat(3, minmax(0, 1fr)); }
 .cardio-live-actions { gap: 10px; flex-wrap: wrap; }
 .live-picker-name small.wrap { white-space: normal; line-height: 1.3; }
+
+/* Charge conseillée en séance guidée (docs/adr/0115) */
+.live-hint { display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 12px; border-radius: 12px; background: var(--status-ok-pale); color: var(--status-ok-text); }
+.live-hint.hold, .live-hint.reps { background: var(--surface-2); color: var(--text); }
+.live-hint.down { background: var(--gold-pale); color: var(--status-warn-text); }
+.live-hint-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.live-hint-text strong { font-size: 0.92rem; }
+.live-hint-text small { font-size: 0.78rem; opacity: 0.85; }
+.live-hint button { min-height: 40px; padding: 0 14px; border: 1.5px solid currentColor; border-radius: 20px; background: transparent; color: inherit; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+
+/* Progrès › Forme : souffle en match (docs/adr/0116) */
+.breath-bars { display: flex; align-items: flex-end; gap: 10px; height: 120px; margin: 6px 0 10px; overflow-x: auto; }
+.breath-bar { flex: 1 0 44px; max-width: 70px; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.breath-val { font-weight: 800; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+.breath-col { flex: 1; width: 100%; display: flex; align-items: flex-end; border-radius: 8px; background: var(--surface-2); overflow: hidden; }
+.breath-col i { display: block; width: 100%; background: var(--gold); border-radius: 8px 8px 0 0; }
+.breath-bar.after .breath-col i { background: var(--green-light); }
+.breath-date { font-size: 0.68rem; color: var(--muted); white-space: nowrap; }

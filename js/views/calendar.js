@@ -3,7 +3,7 @@ import { checkinPath } from "../data-paths.js";
 import { stale, showView } from "../nav.js";
 import { todayISO, localISOWithOffset, addDaysISO } from "../date-utils.js";
 import { addPrimer } from "../primer.js";
-import { mentalRoutineHTML, wireMentalRoutine, preloadMentalPlans, cachedMentalPlan, mentalScalesHTML, goalsCheckHTML, wireMentalPost, readMental, mentalSummaryText } from "../mental.js";
+import { mentalSummaryText } from "../mental.js";
 import { skeletonHTML, escapeHtmlText, escapeAttr } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
 import { dayInitial, shortDateFr } from "./data-viz.js";
@@ -74,7 +74,6 @@ function nextMatchHeroHTML(g, today, nextPlayed) {
       </div>
       <p class="next-match-note">${escapeHtmlText(g.phase ? `Phase ${g.phase.toLowerCase()}` : "")}${playing ? " · tu es dans le groupe" : " · tu ne joues pas encore en Première"}</p>
       ${playsAny && days >= 0 && days <= 7 ? primerChoiceHTML(g.date, days) : ""}
-      ${playsAny && days >= 0 && days <= 7 ? mentalRoutineHTML(g.date, cachedMentalPlan(g.date)) : ""}
     </section>`;
 }
 
@@ -99,7 +98,6 @@ export async function renderCalendar(token) {
   // Réglage « je joue en … » appliqué tout de suite (summary.json n'est
   // régénéré qu'au digest) : ADR-0095.
   const teams = await loadPlayingTeams();
-  await preloadMentalPlans().catch(() => {});
   if (stale(token)) return;
   const matches = (s.season_matches || []).map((m) => ({ ...m, user_is_playing: playsIn(m, teams) }));
   if (!matches.length) { el.innerHTML = "<p class='muted'>Aucun match dans le calendrier de la saison.</p>"; return; }
@@ -223,7 +221,6 @@ export async function renderCalendar(token) {
   }
   html += "</div>";
   el.innerHTML = html;
-  wireMentalRoutine(el);
   el.querySelector("#open-touches")?.addEventListener("click", () => showView("touches"));
   el.querySelectorAll("[data-primer-date]").forEach((btn) => btn.addEventListener("click", async () => {
     const status = el.querySelector(".primer-status");
@@ -292,10 +289,6 @@ function matchPerformanceHTML(m, alreadyPlayed) {
         <div class="suggestion-chips mp-intensity">${intensityChips}</div>
         <p class="small muted" style="margin-top:10px">Ressenti (1 = mauvais, 5 = très bien)</p>
         <div class="feel-scales">${feelScalesHTML(perf && perf.feel)}</div>
-        <details class="mental-post"${perf && perf.mental ? " open" : ""}><summary class="small muted">🧠 Mental (optionnel)</summary>
-          <div class="feel-scales">${mentalScalesHTML(perf && perf.mental)}</div>
-          ${goalsCheckHTML(cachedMentalPlan(m.date), perf && perf.mental)}
-        </details>
         <div class="compose-row" style="margin-top:10px">
           <textarea class="mp-notes" rows="3" placeholder="Ressenti physique, poste joué si différent du sien habituel, fait marquant, gêne apparue…">${perf ? escapeHtmlText(perf.notes || "") : ""}</textarea>
           <button type="button" class="mic-button mp-mic" title="Dicter" aria-label="Dicter"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
@@ -395,7 +388,6 @@ function wireMatchPerformanceForms(el) {
 
     wireMatchPerformanceEditButton(card);
     wireFeelScales(card);
-    wireMentalPost(card);
 
     card.querySelector(".mp-save").addEventListener("click", async (e) => {
       const btn = e.currentTarget;
@@ -419,8 +411,6 @@ function wireMatchPerformanceForms(el) {
       };
       const feel = readFeel(card);
       if (feel) performance.feel = feel;
-      const mental = readMental(card);
-      if (mental) performance.mental = mental;
       btn.disabled = true;
       statusEl.textContent = "Enregistrement…";
       try {
