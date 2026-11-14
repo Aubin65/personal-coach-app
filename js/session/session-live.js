@@ -1,3 +1,4 @@
+import { publishStatus, clearStatus } from "../lockscreen.js";
 import { sessionRuntime } from "./session-state.js";
 import { renderSessionContent } from "./session-render.js";
 import { groupExercisesIntoBlocks } from "./session-model.js";
@@ -288,6 +289,22 @@ function ensureAudio() {
   } catch (_) { /* son facultatif */ }
 }
 
+/** Pousse l'état courant sur l'écran verrouillé (ADR-0121). */
+function syncLockscreen(restDone = false) {
+  try {
+    const { session } = sessionRuntime.working;
+    const idx = live.indices[live.pos];
+    const ex = session.exercises[idx];
+    const rows = doneRows(ex);
+    const target = targetCount(ex, idx);
+    publishStatus({
+      position: live.pos + 1, total: live.indices.length, name: ex.name || "Exercice",
+      setNo: rows.length + 1, target, plan: stepPlanText(ex, idx),
+      restEnd: live.restEnd, now: Date.now(), restDone,
+    });
+  } catch (_) { /* l'écran verrouillé ne doit jamais gêner la saisie */ }
+}
+
 function tick() {
   if (!live) return;
   cardioTick();
@@ -305,7 +322,7 @@ function tick() {
     label.textContent = "Repos terminé";
     rest.classList.add("done");
     if (fill) fill.style.width = "100%";
-    if (!live.beeped) { live.beeped = true; beep(); }
+    if (!live.beeped) { live.beeped = true; beep(); syncLockscreen(true); }
     return;
   }
   rest.classList.remove("done");
@@ -465,6 +482,7 @@ function eventSheetHTML(ex) {
 }
 
 function render() {
+  syncLockscreen();
   const { session } = sessionRuntime.working;
   const indices = live.indices;
   const pos = live.pos;
@@ -1145,6 +1163,7 @@ function action(name) {
 export function closeLiveMode() {
   if (!live) return;
   clearInterval(live.interval);
+  clearStatus();
   if (live.wakeLock) { try { live.wakeLock.release(); } catch (_) {} }
   if (live.audio) { try { live.audio.close(); } catch (_) {} }
   live.el.remove();

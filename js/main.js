@@ -8,6 +8,7 @@ import { startSummaryWatch } from "./summary-watch.js";
 import { sessionRuntime } from "./session/session-state.js";
 import { applyTheme } from "./theme.js";
 import { applyDeepLink } from "./deeplink.js";
+import { clearStatus } from "./lockscreen.js";
 
 applyTheme();
 
@@ -64,6 +65,7 @@ async function init() {
     // Keeps the relative "il y a X min" text honest as time passes, and
     // picks up a newer sync without needing a manual refresh.
     setInterval(loadSyncStatus, 5 * 60 * 1000);
+    clearStatus(); // reste d'une séance guidée interrompue (app fermée en cours de route)
     initPushButton().catch(() => {});
     startQueueWatcher();
     startSummaryWatch();
