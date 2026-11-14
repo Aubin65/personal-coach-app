@@ -3226,3 +3226,19 @@ body.live-open { overflow: hidden; }
 .breath-col i { display: block; width: 100%; background: var(--gold); border-radius: 8px 8px 0 0; }
 .breath-bar.after .breath-col i { background: var(--green-light); }
 .breath-date { font-size: 0.68rem; color: var(--muted); white-space: nowrap; }
+
+/* Jour à deux séances (docs/adr/0117) */
+.po-day-group { display: flex; flex-direction: column; gap: 4px; }
+.po-day-second { margin-left: 14px; border-left: 3px solid var(--gold); }
+.week-list .week-day-second { margin-top: -4px; }
+.week-day-second .week-day-label small { font-size: 1.1rem; color: var(--muted); }
+.week-day-second .week-day-card { min-height: 52px; margin-left: 12px; border-left: 3px solid var(--gold); border-radius: 6px 18px 18px 6px; }
+.week-day-second.is-today .week-day-card { border-color: var(--text); border-left-color: var(--gold); }
+.week-day-second.is-selected .week-day-card { border-color: var(--gold); }
+.day-overview-second { margin-top: 8px; border-left: 3px solid var(--gold); }
+.day-overview-second h2 { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.day-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 12px; position: sticky; top: 0; z-index: 5; }
+.day-parts button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-height: 56px; padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--card-bg); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.day-parts button b { font-size: 0.84rem; line-height: 1.2; }
+.day-parts button small { font-size: 0.74rem; color: var(--muted); }
+.day-parts button span { font-size: 1rem; }

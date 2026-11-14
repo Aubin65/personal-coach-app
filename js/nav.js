@@ -30,6 +30,7 @@ export const state = {
   planningMonday: null,
   sessionReturnTo: null,
   settingsReturnTo: null,
+  focusSecondary: false, // ouvrir la séance sur sa 2e séance (Semaine › « Noter la 2e séance », ADR-0117)
   openLiveOnLoad: false, // « Démarrer » d'Aujourd'hui : ouvrir la séance guidée dès le rendu (ADR-0076)
   adjustPrefill: null, // « Adapter » d'Aujourd'hui : texte de départ d'« Ajuster ma semaine » (ADR-0076)
   // Bumped on every navigation; each async render function captures it and
@@ -107,6 +108,7 @@ export function showView(name, params = {}) {
   if (name === "settings" && state.view !== "settings") state.settingsReturnTo = state.view;
   state.view = name;
   if (params.date) state.sessionDate = params.date;
+  if (name === "session") state.focusSecondary = !!params.focusSecondary;
   document.getElementById("topbar-title").textContent = views[name].title;
   const backBtn = document.getElementById("topbar-back");
   if (backBtn) backBtn.hidden = !((name === "session" && state.sessionReturnTo) || (name === "settings" && state.settingsReturnTo));

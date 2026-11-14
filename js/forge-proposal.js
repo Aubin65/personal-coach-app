@@ -3,7 +3,8 @@ import { state, stale, showView } from "./nav.js";
 import { addDaysISO, formatFrDate, sessionIsBlankSkeleton } from "./date-utils.js";
 import { escapeHtmlText } from "./markdown.js";
 import { findSessionForDate } from "./training-index.js";
-import { defaultSessionName, defaultBlockMeta } from "./session/session-model.js";
+import { defaultSessionName, defaultBlockMeta, blankSecondarySession } from "./session/session-model.js";
+import { SECONDARY_SESSION_TYPES } from "./session-types.js";
 import { saveSession } from "./session/session-form.js";
 import { refineBoxHTML, wireRefineBox } from "./proposal-refine.js";
 import { proposedDayHTML, bindProposedDayEdits } from "./proposal-overview.js";
@@ -47,6 +48,17 @@ export function forgeProposalDayToSession(date, d) {
     }
     return out;
   });
+  // 2e séance du jour (docs/adr/0117) : jamais d'exercices, RPE/durée vides
+  // (saisis après coup) — seulement sur une séance qui peut en avoir une.
+  const sec = d.secondary;
+  const secondary = sec && SECONDARY_SESSION_TYPES.includes(sec.type) && !["repos", "rugby"].includes(d.type)
+    ? {
+        ...blankSecondarySession(date, sec.type),
+        name: sec.name || defaultSessionName(date, sec.type),
+        notes: sec.notes || "",
+        ...(sec.type === "autre" ? { distance_km: sec.distance_km != null ? sec.distance_km : null } : {}),
+      }
+    : null;
   return {
     name: d.name || defaultSessionName(date, d.type),
     date,
@@ -57,6 +69,7 @@ export function forgeProposalDayToSession(date, d) {
     session_rpe: null,
     session_duration_min: null,
     distance_km: d.type === "autre" ? (d.distance_km != null ? d.distance_km : null) : undefined,
+    ...(secondary ? { secondary } : {}),
   };
 }
 

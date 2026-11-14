@@ -15,6 +15,7 @@ import { getSessionTimerStart, setBlockTimerState, getBlockTimerState, formatDur
 import { ghPutJSON, ghGetFile, ghPutFile, ghDeleteFile } from "../github-api.js";
 import { openExerciseSheet } from "../exercise-sheet.js";
 import { openRpeSheet } from "../rpe-sheet.js";
+import { chainSecondaryLoad } from "../second-session.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
 
 /** Repères concrets pour bien choisir le RPE de séance (échelle 0-10,
@@ -100,12 +101,44 @@ async function promptRpeAndSave(title) {
     if (statusEl) statusEl.textContent = outcome && outcome.queued ? "RPE gardé sur le téléphone — envoi dès que le réseau revient." : "RPE et durée enregistrés ✓";
   } catch (err) {
     if (statusEl) statusEl.textContent = `Échec : ${err.message}`;
+    return;
   }
+  // Jour à deux séances (docs/adr/0117) : on enchaîne sur la 2e, déjà passée.
+  try {
+    const updated = await chainSecondaryLoad({
+      date: working.date, session, clubExpected: !!working.clubSecondaryExpected,
+      save: (s) => saveSession(working.weekLabel, working.date, s),
+    });
+    if (updated && sessionRuntime.working === working) {
+      working.session = updated;
+      working.clubSecondaryExpected = false;
+      renderSessionContent();
+      if (statusEl) statusEl.textContent = "Les deux séances sont enregistrées ✓";
+    }
+  } catch (err) {
+    if (statusEl) statusEl.textContent = `2e séance : échec (${err.message})`;
+  }
+}
+
+/** Bandeau « 2 séances » en tête du formulaire (docs/adr/0117) : un tap
+ * pour passer de l'une à l'autre au lieu de chercher la 2e tout en bas. */
+export function dayPartsBarHTML(session, clubExpected) {
+  const type = session.type || "musculation";
+  if (["repos", "rugby"].includes(type)) return "";
+  const sec = session.secondary || (clubExpected ? { type: "rugby", name: "Entraînement club", expected: true } : null);
+  if (!sec) return "";
+  const logged = (s) => s.session_rpe != null && s.session_duration_min != null;
+  const icon = (t) => (SESSION_TYPES[t] ? SESSION_TYPES[t].icon : "➕");
+  return `
+    <nav class="day-parts" aria-label="Les deux séances du jour">
+      <button type="button" data-part="main"><span>${icon(type)}</span><b>1 · ${escapeHtmlText((session.name || "Séance").slice(0, 28))}</b><small>${logged(session) ? "✓ noté" : "à noter"}</small></button>
+      <button type="button" data-part="second"><span>${icon(sec.type)}</span><b>2 · ${escapeHtmlText((sec.name || "2e séance").slice(0, 28))}</b><small>${!sec.expected && logged(sec) ? "✓ noté" : sec.expected ? "attendue" : "à noter"}</small></button>
+    </nav>`;
 }
 
 export function workloadSectionHTML(session) {
   return `
-    <section class="card">
+    <section class="card" id="workload-card">
       <h2>⚙️ Charge de la séance (optionnel)</h2>
       <button type="button" id="quick-rpe-button" class="primary-button ghost small">⚡ Saisie rapide RPE + durée</button>
       <p class="muted small">Alimente le calcul de charge aiguë:chronique (RPE × durée, méthode de Foster) — voir l'onglet Data.</p>
@@ -725,6 +758,13 @@ export function bindSessionContentEvents() {
       sessionRuntime.saveInFlight = false;
     }
   });
+
+  document.querySelectorAll(".day-parts [data-part]").forEach((btn) => btn.addEventListener("click", () => {
+    const target = btn.dataset.part === "second"
+      ? (document.getElementById("secondary-session-card") || document.querySelector(".secondary-club-cta"))
+      : document.getElementById("workload-card") || document.getElementById("session-name-input");
+    if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+  }));
 
   const addSecondaryBtn = document.getElementById("add-secondary-session");
   if (addSecondaryBtn) addSecondaryBtn.addEventListener("click", () => {

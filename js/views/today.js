@@ -16,6 +16,7 @@ import { renderDigestSections } from "../plan-overview.js";
 import { setupMicButton } from "../voice-input.js";
 import { renderSystemStatus, latestDigestDate } from "../system-status.js";
 import { openRpeSheet } from "../rpe-sheet.js";
+import { chainSecondaryLoad } from "../second-session.js";
 import { saveSession } from "../session/session-form.js";
 import { blankSession, blankSecondarySession } from "../session/session-model.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
@@ -538,7 +539,7 @@ export async function pendingLoadSessions() {
       && QUICK_LOAD_TYPES.includes(session.type || "musculation")
       && session.session_rpe == null && session.session_duration_min == null
       && !((session.type || "musculation") === "musculation" && !hasLoggedExerciseValues(session));
-    if (primaryPending) found.push({ date, session, weekLabel: day.weekLabel });
+    if (primaryPending) found.push({ date, session, weekLabel: day.weekLabel, clubExpected: !!day.clubSecondaryExpected });
     // 2e séance du jour (docs/adr/0113) : déjà créée sans charge, ou club
     // attendu un jour déjà occupé — hier toujours, aujourd'hui à partir de 19 h
     // (le club est le soir).
@@ -586,7 +587,12 @@ export async function promptSessionLoad(item) {
   if (!result) return null;
   const updated = { ...item.session, session_rpe: result.rpe, session_duration_min: result.duration };
   const outcome = await saveSession(item.weekLabel || "app", item.date, updated);
-  return { ...result, queued: !!(outcome && outcome.queued) };
+  // Jour à deux séances (docs/adr/0117) : on enchaîne sur la 2e si elle est passée.
+  let both = false;
+  try {
+    both = !!(await chainSecondaryLoad({ date: item.date, session: updated, clubExpected: !!item.clubExpected, save: (s) => saveSession(item.weekLabel || "app", item.date, s) }));
+  } catch (_) { /* la 2e reste proposée dans « À faire » */ }
+  return { ...result, queued: !!(outcome && outcome.queued), both };
 }
 
 /** RPE + durée d'une 2e séance (club du soir…) : écrite dans
@@ -609,7 +615,12 @@ export async function loadTargetsForQuickLoad() {
   const date = todayISO();
   const day = await findSessionForDate(date);
   const session = day && day.session;
-  if (session && (session.type || "musculation") !== "repos") return [{ date, session, weekLabel: day.weekLabel }];
+  if (session && (session.type || "musculation") !== "repos") {
+    const items = [{ date, session, weekLabel: day.weekLabel, clubExpected: !!day.clubSecondaryExpected }];
+    // Jour à deux séances : la 2e est aussi proposée (docs/adr/0117).
+    if (session.secondary || day.clubSecondaryExpected) items.push({ date, session, weekLabel: day.weekLabel, secondary: true, title: session.secondary ? session.secondary.name || "2e séance" : (await clubSecondarySession(date)).name });
+    return items;
+  }
   return [];
 }
 
@@ -723,7 +734,7 @@ async function loadTodo(token) {
         try {
           const r = await promptSessionLoad(loads[i]);
           if (!r) return;
-          status.textContent = `RPE ${r.rpe} · ${r.duration} min ${r.queued ? "gardés sur le téléphone" : "enregistrés"}`;
+          status.textContent = `RPE ${r.rpe} · ${r.duration} min ${r.queued ? "gardés sur le téléphone" : "enregistrés"}${r.both ? " · 2e séance notée aussi" : ""}`;
           setTimeout(() => loadTodo(state.renderToken).catch(() => {}), 1200);
         } catch (err) {
           status.textContent = `Échec : ${err.message}`;

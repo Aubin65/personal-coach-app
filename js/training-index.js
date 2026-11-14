@@ -114,7 +114,8 @@ export async function lookupDaySummary(date) {
   if (real.hasSession && date >= addDaysISO(todayISO(), -1) && clubCanBeSecondary(real.type, real.secondaryType) && (await isClubDay(date))) {
     // Jour de club déjà occupé par une autre séance (salle, primer…) : le
     // club reste attendu en 2e séance (docs/adr/0113).
-    return { ...real, secondaryType: "rugby", virtualSecondary: true };
+    const cfg = await loadClubConfig();
+    return { ...real, secondaryType: "rugby", secondaryName: cfg.name, secondaryLogged: false, virtualSecondary: true };
   }
   if (real.hasSession || !(await isClubDay(date))) return real;
   const cfg = await loadClubConfig();
@@ -129,7 +130,7 @@ async function lookupRealDaySummary(date) {
     // secondaryType only ever comes from the live app-log scan — a
     // secondary session is an app-only concept (see blankSecondarySession,
     // docs/adr/0050), never present in the Sheets-sourced summary index.
-    return { date, name: s.name, type: s.type, hasSession: true, hasExecuted: sessionHasExecuted(s), secondaryType: s.secondary ? s.secondary.type : null, isPrimer: !!s.primer };
+    return { date, name: s.name, type: s.type, hasSession: true, hasExecuted: sessionHasExecuted(s), secondaryType: s.secondary ? s.secondary.type : null, secondaryName: s.secondary ? s.secondary.name : null, secondaryLogged: !!(s.secondary && (s.secondary.session_rpe != null || s.secondary.session_duration_min != null)), isPrimer: !!s.primer };
   }
   const summaryIndex = await loadSummaryIndex();
   const hit = summaryIndex.get(date);

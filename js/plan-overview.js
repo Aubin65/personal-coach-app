@@ -1,7 +1,7 @@
 import { skeletonHTML, escapeAttr, escapeHtmlText, renderMarkdown } from "./markdown.js";
 import { kindIconHTML } from "./session-icons.js";
 import { state, stale, showView } from "./nav.js";
-import { lookupDaySummary, findSessionForDate, currentBlockLabel } from "./training-index.js";
+import { lookupDaySummary, findSessionForDate, currentBlockLabel, clubSecondarySession } from "./training-index.js";
 import { addDaysISO, formatFrDate, todayISO } from "./date-utils.js";
 import { SESSION_TYPES, EXERCISE_FORMATS } from "./session-types.js";
 import { ghGetFile } from "./github-api.js";
@@ -183,9 +183,6 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
       else if (iso && iso > todayISOStr) status = summary && summary.hasSession ? "Prévu" : "À venir";
       else status = summary && summary.hasSession ? "Prévu" : "Non loggé";
       const typeLabel = isPrimer ? "Primer" : type === "rugby" ? "Rugby" : SESSION_TYPES[type] && type !== "repos" ? SESSION_TYPES[type].label.replace(/\s*\(.*\)$/, "") : "";
-      const secondary = summary && summary.secondaryType && SESSION_TYPES[summary.secondaryType]
-        ? ` · + ${summary.secondaryType === "rugby" ? "club" : SESSION_TYPES[summary.secondaryType].label.replace(/\s*\(.*\)$/, "").toLowerCase()}`
-        : "";
       // Passé / réalisé lisible d'un coup d'œil (ADR-0092) : jour passé
       // atténué, ✓ quand c'est logué, « À loguer » quand une séance passée ne
       // l'est pas (repos exclus).
@@ -195,7 +192,7 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
         ? '<span class="week-day-pill today">Aujourd\'hui</span>'
         : status === "Fait" ? '<span class="week-day-pill done">✓ Fait</span>'
         : toLog ? '<span class="week-day-pill to-log">À loguer</span>' : "";
-      const sub = type === "repos" ? "" : `${status}${typeLabel && !isMatch ? ` · ${typeLabel}` : ""}${secondary}`;
+      const sub = type === "repos" ? "" : `${status}${typeLabel && !isMatch ? ` · ${typeLabel}` : ""}`;
       const iconKind = type === "repos" ? "repos" : isPrimer ? "primer" : isMatch ? "match" : type;
       // Repos (docs/adr/0082) : une ligne basse et calme plutôt qu'une carte
       // vide en pointillés — lune, « Repos », et le détail du plan s'il en
@@ -208,7 +205,25 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
           ? (summary.name && !/^repos$/i.test(summary.name.trim()) ? summary.name : "Récupération")
           : (!/^repos$/i.test(d.title.trim()) ? d.title : "Récupération"))
         : "";
-      const secondaryIcon = summary && summary.secondaryType ? kindIconHTML(summary.secondaryType, "mini") : "";
+      // Jour à deux séances (docs/adr/0117) : deux cartes distinctes, la 2e
+      // avec son propre nom et son propre statut (noté / prévu / à noter).
+      const hasSecond = !!(summary && summary.secondaryType && type !== "repos");
+      const secStatus = !hasSecond ? ""
+        : summary.secondaryLogged ? "Fait"
+        : iso && iso > todayISOStr ? "Prévu"
+        : iso && iso < todayISOStr ? "À loguer" : "À noter";
+      const secLabel = hasSecond
+        ? (summary.secondaryName || (summary.secondaryType === "rugby" ? "Entraînement club" : "2e séance"))
+        : "";
+      const secondCardHTML = hasSecond ? `
+        <button type="button" class="week-day week-day-second kind-${summary.secondaryType}${isToday ? " is-today" : ""}${isPast ? " is-past" : ""}"${iso ? ` data-date="${iso}"` : ""} aria-label="2e séance du ${escapeHtmlText(d.day)}">
+          <span class="week-day-label" aria-hidden="true"><small>+</small></span>
+          <span class="week-day-card">
+            <span class="week-day-icons">${kindIconHTML(summary.secondaryType)}</span>
+            <span class="week-day-text"><strong>${escapeHtmlText(secLabel)}</strong><small>2e séance${secStatus === "Fait" || secStatus === "À loguer" ? "" : ` · ${secStatus}`}</small></span>
+            ${secStatus === "Fait" ? '<span class="week-day-pill done">✓ Fait</span>' : secStatus === "À loguer" ? '<span class="week-day-pill to-log">À loguer</span>' : ""}
+          </span>
+        </button>` : "";
       stripHTML += type === "repos" ? `
         <button type="button" class="week-day kind-rest${isToday ? " is-today" : ""}${isPast ? " is-past" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <span class="week-day-label"><small>${d.day.slice(0, 3)}</small><b>${parseInt(d.date.split("/")[0], 10)}</b></span>
@@ -221,11 +236,11 @@ export async function renderWeekOverview(dayStripEl, highlightsEl, markdown, tod
         <button type="button" class="week-day kind-${kind}${isToday ? " is-today" : ""}${isPast ? " is-past" : ""}${toLog ? " to-log" : ""}"${iso ? ` data-date="${iso}"` : ""}>
           <span class="week-day-label"><small>${d.day.slice(0, 3)}</small><b>${parseInt(d.date.split("/")[0], 10)}</b></span>
           <span class="week-day-card">
-            <span class="week-day-icons">${kindIconHTML(iconKind)}${secondaryIcon}</span>
+            <span class="week-day-icons">${kindIconHTML(iconKind)}</span>
             <span class="week-day-text"><strong>${escapeHtmlText(title)}</strong>${sub ? `<small>${escapeHtmlText(sub)}</small>` : ""}</span>
             ${pill}
           </span>
-        </button>`;
+        </button>${secondCardHTML}`;
     }
     stripHTML += "</div>";
   }
@@ -480,26 +495,37 @@ export async function showDayOverviewPanel(token, date) {
     const workload = !isFuture && (session.session_rpe != null || session.session_duration_min != null)
       ? `<p class="muted small">${session.session_rpe != null ? `RPE ${session.session_rpe}` : ""}${session.session_rpe != null && session.session_duration_min != null ? " · " : ""}${session.session_duration_min != null ? `${session.session_duration_min} min` : ""}</p>`
       : "";
-    const secondary = session.secondary;
-    const secondaryHTML = secondary
-      ? `<div class="day-overview-secondary">
-          <p class="small"><strong>${SESSION_TYPES[secondary.type] ? SESSION_TYPES[secondary.type].icon : ""} ${escapeHtmlText(secondary.name || "")}</strong>${secondary.notes ? " — " + escapeHtmlText(secondary.notes) : ""}</p>
-          ${!isFuture && (secondary.session_rpe != null || secondary.session_duration_min != null)
-            ? `<p class="muted small">${secondary.session_rpe != null ? `RPE ${secondary.session_rpe}` : ""}${secondary.session_rpe != null && secondary.session_duration_min != null ? " · " : ""}${secondary.session_duration_min != null ? `${secondary.session_duration_min} min` : ""}</p>`
-            : ""}
-        </div>`
+    // 2e séance (docs/adr/0117) : une carte à part, pas un paragraphe sous la
+    // 1re — avec son statut (noté / prévu) ; le club attendu un jour déjà
+    // occupé est montré « à noter » même s'il n'est pas encore écrit.
+    const secondary = session.secondary || (found.clubSecondaryExpected ? await clubSecondarySession(date) : null);
+    if (stale(token)) return;
+    const secLogged = !!(secondary && (secondary.session_rpe != null || secondary.session_duration_min != null));
+    const secStatus = !secondary ? "" : secLogged
+      ? [secondary.session_rpe != null ? `RPE ${secondary.session_rpe}` : "", secondary.session_duration_min != null ? `${secondary.session_duration_min} min` : ""].filter(Boolean).join(" · ")
+      : isFuture ? "Prévue" : session.secondary ? "RPE et durée à noter" : "Attendue · à noter après l'entraînement";
+    const secondaryCardHTML = secondary
+      ? `<section class="card day-overview-card day-overview-second">
+          <h2>${SESSION_TYPES[secondary.type] ? SESSION_TYPES[secondary.type].icon : "➕"} ${escapeHtmlText(secondary.name || "2e séance")} <span class="muted small">2e séance</span></h2>
+          ${secondary.notes ? `<p class="small">${escapeHtmlText(secondary.notes)}</p>` : ""}
+          ${secondary.distance_km != null && secondary.distance_km !== "" ? `<p class="small">${escapeHtmlText(String(secondary.distance_km))} km</p>` : ""}
+          <p class="muted small">${escapeHtmlText(secStatus)}</p>
+          ${canAdjust || !isFuture ? `<button type="button" id="day-overview-edit-second" class="primary-button ghost small" data-date="${date}">${secLogged ? "✏️ Modifier la 2e séance" : "✏️ Noter la 2e séance"}</button>` : ""}
+        </section>`
       : "";
     el.innerHTML = `
       <section class="card day-overview-card">
         <h2>${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : ""} ${escapeHtmlText(session.name || "Séance")} — ${formatFrDate(date)}</h2>
         ${body}
         ${workload}
-        ${secondaryHTML}
         ${editButtonHTML}
         ${canAdjust ? dayAdjustComposerHTML(date) : ""}
-      </section>`;
+      </section>
+      ${secondaryCardHTML}`;
   }
   document.getElementById("day-overview-edit").addEventListener("click", () => showView("session", { date }));
+  const editSecond = document.getElementById("day-overview-edit-second");
+  if (editSecond) editSecond.addEventListener("click", () => showView("session", { date, focusSecondary: true }));
   if (canAdjust) wireDayAdjustComposer(date);
 }
 

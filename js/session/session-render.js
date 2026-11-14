@@ -2,14 +2,14 @@ import { sessionRuntime } from "./session-state.js";
 import { state, stale } from "../nav.js";
 import { todayISO, formatFrDate, sessionIsBlankSkeleton } from "../date-utils.js";
 import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
-import { findSessionForDate } from "../training-index.js";
+import { findSessionForDate, clubSecondarySession } from "../training-index.js";
 import { queuedEntryByKey } from "../offline-queue.js";
 import { ghPutJSON } from "../github-api.js";
 import { checkinPath } from "../data-paths.js";
 import { SESSION_TYPES, EXERCISE_FORMATS, BLOCK_TIMING_FIELDS, BLOCK_RESULT_LABELS } from "../session-types.js";
 import { blankSession, groupExercisesIntoBlocks } from "./session-model.js";
 import { splitTimerHTML, timerBarHTML, startTimerDisplayInterval, startSessionAutoSave, startBlockTimerIntervals, clearSessionRun } from "./session-timer.js";
-import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEvents, saveSession, deleteSession } from "./session-form.js";
+import { workloadSectionHTML, secondarySessionSectionHTML, dayPartsBarHTML, bindSessionContentEvents, saveSession, deleteSession } from "./session-form.js";
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 import { setEventsListHTML } from "./set-events.js";
@@ -87,7 +87,21 @@ export async function renderSession(token) {
       touchSession();
     }));
   }
+  // « Noter la 2e séance » (Semaine, Aujourd'hui) : le club attendu est créé
+  // tout de suite et la vue se pose dessus (docs/adr/0117).
+  const focusSecond = state.focusSecondary;
+  state.focusSecondary = false;
+  const w = sessionRuntime.working;
+  if (focusSecond && w.session && !w.session.secondary && w.clubSecondaryExpected) {
+    w.session.secondary = { ...(await clubSecondarySession(date)) };
+    w.clubSecondaryExpected = false;
+    w.touched = true;
+  }
   renderSessionContent();
+  if (focusSecond) {
+    const card = document.getElementById("secondary-session-card");
+    if (card) { card.scrollIntoView({ block: "start" }); const rpe = document.getElementById("secondary-rpe"); if (rpe) rpe.focus({ preventScroll: true }); }
+  }
   if (state.openLiveOnLoad) {
     state.openLiveOnLoad = false;
     const session = sessionRuntime.working.session;
@@ -128,6 +142,7 @@ export function renderSessionContent() {
       <label>Nom de la séance</label>
       <input id="session-name-input" value="${escapeAttr(session.name || "Séance")}">
     </section>
+    ${dayPartsBarHTML(session, sessionRuntime.working.clubSecondaryExpected)}
     ${timerBarHTML(date)}
     ${type === "musculation" && liveExerciseIndices(session).length ? liveModeCtaHTML(session) : ""}
     ${type === "musculation" ? musculationBodyHTML(session) : ""}
