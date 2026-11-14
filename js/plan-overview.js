@@ -292,8 +292,17 @@ export function blockMetaSummaryFr(format, meta) {
  * editor's toggle) and showing it unlabelled made it impossible to tell
  * which from the day overview alone. `null` when there's nothing to show
  * (caller falls back to "—"). */
+/** Texte de résultat d'un bloc. Circuit : `block_result` (docs/adr/0114 — les
+ * stations portent désormais leur propre réalisé), avec repli sur l'ancien
+ * emplacement (`executed.reps` du meneur) tant qu'aucun tour n'est validé. */
+export function blockResultText(format, leader) {
+  const ex = leader.executed || {};
+  if (format !== "circuit") return ex.reps || null;
+  return leader.block_result ?? (ex.sets == null ? ex.reps || null : null);
+}
+
 export function blockResultDisplay(format, leader) {
-  const raw = leader.executed && leader.executed.reps;
+  const raw = blockResultText(format, leader);
   if (!raw) return null;
   if (format === "for_time") {
     return leader.capped ? `🚩 Cap atteint — ${raw}` : `⏱️ Terminé en ${raw}`;
@@ -442,7 +451,9 @@ export async function showDayOverviewPanel(token, date) {
             const plannedCell = [ex.planned && ex.planned.reps, stationLoad, summary].filter(Boolean).join(" — ") || "—";
             const durationSuffix = isLeader && ex.executed_duration_min != null ? ` (${ex.executed_duration_min}min réalisées)` : "";
             const resultText = isLeader ? blockResultDisplay(format, ex) : null;
-            const doneCell = (resultText || "—") + durationSuffix;
+            // Circuit validé tour par tour : chaque station a son réalisé.
+            const stationDone = format === "circuit" && ex.executed && ex.executed.sets != null ? formatSetsRepsLoad(ex.executed) : "";
+            const doneCell = ([stationDone, stationDone && resultText === `${ex.executed.sets} tour${ex.executed.sets > 1 ? "s" : ""}` ? "" : resultText].filter(Boolean).join(" — ") || "—") + durationSuffix;
             return `
               <tr>
                 <td>${nameCell} <span class="format-tag">${escapeHtmlText(EXERCISE_FORMATS[format] || format)}</span></td>

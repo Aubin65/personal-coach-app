@@ -4,7 +4,7 @@ import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
 import { notesLabelFor, notesPlaceholderFor, renderSessionContent, plannedSummary } from "./session-render.js";
 import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName, moveBlock, moveWithinBlock } from "./session-model.js";
 import { removeSetEvent } from "./set-events.js";
-import { makeCardio, writeCardioExecuted, parseDuration, fmtShortDuration, cardioStats, totalsLine, headlineMetric, filledIntervals, num as cardioNum } from "../cardio.js";
+import { makeCardio, writeCardioExecuted, writeCardioTotal, cardioDone, parseDuration, fmtShortDuration, cardioStats, totalsLine, headlineMetric, filledIntervals, num as cardioNum } from "../cardio.js";
 import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows, hydrateExecRows } from "./session-exec.js";
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
@@ -60,7 +60,7 @@ function rpeHelpDetailsHTML() {
  * écrit en plus. */
 function sessionRecapHTML(session) {
   const exercises = (session.exercises || []).filter((ex) => (ex.name || "").trim());
-  const done = exercises.filter((ex) => ex.executed && (ex.executed.reps || ex.executed.load || (ex.format === "cardio" && filledIntervals(ex.executed).length))).length;
+  const done = exercises.filter((ex) => ex.executed && (ex.executed.reps || ex.executed.load || ex.executed.sets || (ex.format === "cardio" && cardioDone(ex)))).length;
   let tonnage = 0;
   for (const ex of exercises) {
     if ((ex.format || "standard") !== "standard") continue;
@@ -229,6 +229,14 @@ export function syncFormIntoSession() {
       const blockRest = parseDuration(row.querySelector(".f-cardio-block-rest").value);
       if (Number.isFinite(block) && block > 0) ex.planned.block_size = block;
       if (blockRest != null) ex.planned.block_rest_s = blockRest;
+      const totalRounds = row.querySelector(".f-ct-rounds");
+      if (totalRounds) {
+        const cal = row.querySelector(".f-ct-cal").value, dist = row.querySelector(".f-ct-dist").value;
+        // Un total sans nombre de rounds = tous les rounds prévus.
+        const done = totalRounds.value.trim() ? totalRounds.value : ((cal.trim() || dist.trim()) ? ex.planned.sets : 0);
+        writeCardioTotal(ex, { rounds_done: done, total_cal: cal, total_distance_m: dist });
+        return;
+      }
       const before = (ex.executed || {}).intervals || [];
       const rows = Array.from(row.querySelectorAll(".cardio-row:not(.cardio-row-head)")).map((r, i) => {
         const hrInput = r.querySelector(".f-cr-hr");
@@ -303,7 +311,29 @@ export function syncFormIntoSession() {
     if (cappedInput) leader.capped = cappedInput.checked;
 
     const resultInput = card.querySelector(".f-block-result");
-    if (resultInput) {
+    const isCircuit = (leader.format || "standard") === "circuit";
+    const roundsInput = card.querySelector(".f-block-rounds-done");
+    if (roundsInput && isCircuit) {
+      // Tours faits → réalisé de chaque station (docs/adr/0114). Une charge
+      // déjà corrigée en séance guidée est conservée.
+      const n = parseInt(roundsInput.value, 10);
+      const had = parseInt((leader.executed || {}).sets, 10) || 0;
+      if ((Number.isFinite(n) ? n : 0) !== had || (n > 0)) {
+        for (let k = leaderIdx; k < session.exercises.length && (k === leaderIdx || session.exercises[k].superset_with_previous); k++) {
+          const st = session.exercises[k];
+          const p = st.planned || {};
+          const prev = st.executed || {};
+          st.executed = n > 0
+            ? { sets: String(n), reps: p.reps != null ? String(p.reps) : null, load: prev.sets != null && prev.load != null ? prev.load : (p.load ?? null), load_per_hand: !!p.load_per_hand }
+            : { sets: null, reps: null, load: null };
+        }
+      }
+    }
+    if (resultInput && isCircuit) {
+      leader.block_result = resultInput.value.trim() || null;
+      // Ancien emplacement du résultat (texte libre dans executed.reps).
+      if (leader.executed && leader.executed.sets == null) leader.executed.reps = null;
+    } else if (resultInput) {
       leader.executed = leader.executed || { sets: null, reps: null, load: null };
       leader.executed.reps = resultInput.value.trim() || null;
     }
@@ -490,6 +520,14 @@ export function bindSessionContentEvents() {
   }));
   document.querySelectorAll(".f-cardio-rounds, .f-cardio-work").forEach((inp) => inp.addEventListener("change", () => {
     syncFormIntoSession();
+    renderSessionContent();
+  }));
+  document.querySelectorAll(".cardio-entry-switch").forEach((btn) => btn.addEventListener("click", () => {
+    syncFormIntoSession();
+    const ex = cardioEx(btn);
+    if (btn.dataset.entry === "total") writeCardioTotal(ex, { rounds_done: 0, total_cal: null, total_distance_m: null });
+    else writeCardioExecuted(ex, []);
+    ex.entry_mode = btn.dataset.entry;
     renderSessionContent();
   }));
   document.querySelectorAll(".f-cardio-hr").forEach((cb) => cb.addEventListener("change", () => {

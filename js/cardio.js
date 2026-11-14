@@ -14,6 +14,13 @@
 //               intervals: [{ time_s, distance_m, cal, hr_avg? }],
 //               total_time_s, total_distance_m, total_cal }
 // La FC est facultative (elle est sur la montre) : jamais requise.
+//
+// Intervalles courts (docs/adr/0114) : personne ne note 12 fois 20 s. Quand
+// l'effort prescrit dure ≤ 60 s, on saisit le TOTAL affiché par la machine en
+// fin d'exercice : executed: { entry: "total", rounds_done, total_cal,
+// total_distance_m, total_time_s (= rounds × effort), intervals: [] }.
+// `unit` (sur l'exercice) : la mesure suivie round par round sur les formats
+// longs — "distance_m" ou "cal" — pour n'afficher qu'un champ en séance.
 // ============================================================================
 
 export const MACHINES = {
@@ -116,6 +123,55 @@ export function restAfter(planned, round) {
   return num((planned || {}).rest_s) || 0;
 }
 
+/** Effort court (≤ 60 s, au moins 3 rounds) : saisie du total machine. */
+export function isShortIntervals(planned) {
+  const w = num((planned || {}).work_s);
+  return w != null && w > 0 && w <= 60 && (num((planned || {}).sets) || 0) >= 3;
+}
+
+/** Mesure suivie round par round : distance au rameur, calories ailleurs,
+ * sauf choix explicite (`ex.unit`). */
+export function primaryUnit(ex) {
+  if (ex && (ex.unit === "cal" || ex.unit === "distance_m")) return ex.unit;
+  return ex && ex.machine === "rameur" ? "distance_m" : "cal";
+}
+
+const isTotalEntry = (executed) => !!executed && executed.entry === "total";
+
+/** L'exercice a-t-il quelque chose de saisi (rounds ou total) ? */
+export function cardioDone(ex) {
+  const e = (ex && ex.executed) || {};
+  if (isTotalEntry(e)) return num(e.rounds_done) > 0 || num(e.total_cal) != null || num(e.total_distance_m) != null;
+  return filledIntervals(e).length > 0;
+}
+
+/** Rounds faits : lignes renseignées, ou compteur du mode « total ». */
+export function cardioRoundsDone(ex) {
+  const e = (ex && ex.executed) || {};
+  if (isTotalEntry(e)) return Math.max(0, Math.round(num(e.rounds_done) || 0));
+  return filledIntervals(e).length;
+}
+
+/** Écrit `executed` en mode total (intervalles courts). */
+export function writeCardioTotal(ex, { rounds_done, total_cal, total_distance_m }) {
+  const work = num((ex.planned || {}).work_s) || 0;
+  const rounds = Math.max(0, Math.round(num(rounds_done) || 0));
+  const cal = num(total_cal), dist = num(total_distance_m);
+  ex.executed = {
+    sets: rounds ? String(rounds) : null,
+    reps: null,
+    load: null,
+    entry: "total",
+    intervals: [],
+    rounds_done: rounds || null,
+    total_time_s: rounds ? rounds * work : null,
+    total_distance_m: dist,
+    total_cal: cal,
+  };
+  ex.rir = null;
+  return ex.executed;
+}
+
 /** Intervalles réellement renseignés (au moins un chiffre). */
 export function filledIntervals(executed) {
   return ((executed && executed.intervals) || []).filter((r) => r && ["time_s", "distance_m", "cal", "hr_avg"].some((k) => num(r[k]) != null));
@@ -128,6 +184,22 @@ export function cardioStats(ex) {
   const planned = (ex && ex.planned) || {};
   const rows = filledIntervals(ex && ex.executed);
   const work = num(planned.work_s);
+  const exd = (ex && ex.executed) || {};
+  if (isTotalEntry(exd)) {
+    const rounds = cardioRoundsDone(ex);
+    const t = rounds * (work || 0);
+    const d = num(exd.total_distance_m), c = num(exd.total_cal);
+    return {
+      rounds,
+      time_s: rounds ? t : null,
+      distance_m: d,
+      cal: c,
+      pace_500_s: d && t ? (t / d) * 500 : null,
+      cal_per_min: c != null && t ? c / (t / 60) : null,
+      speed_kmh: d && t ? (d / 1000) / (t / 3600) : null,
+      hr_avg: null,
+    };
+  }
   let time = 0, dist = 0, cal = 0, distTime = 0, calTime = 0;
   const hrs = [];
   let hasDist = false, hasCal = false;

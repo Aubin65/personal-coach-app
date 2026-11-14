@@ -3164,3 +3164,47 @@ body.live-open { overflow: hidden; }
 .today-secondary-add { margin-top: 10px; }
 .secondary-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
 .secondary-club-cta { border: 1px dashed var(--green-light); }
+
+/* Séance guidée : en-tête, aperçu, « Ensuite », feuille Quitter, blocs (docs/adr/0114) */
+.live-head-btn { min-height: 40px; padding: 0 12px; flex-shrink: 0; border: 1.5px solid rgba(255,255,255,0.35); border-radius: 20px; background: rgba(255,255,255,0.12); color: white; font-size: 0.86rem; font-weight: 700; font-variant-numeric: tabular-nums; cursor: pointer; }
+.live-kicker { margin: 0; }
+.live-picker-name { display: flex; flex-direction: column; white-space: normal; }
+.live-picker-name small { font-size: 0.76rem; font-weight: 500; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-picker-list button { min-height: 56px; padding: 6px 14px; }
+.live-peek { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; width: 100%; min-height: 48px; margin-top: 6px; padding: 6px 14px; border: 1px dashed var(--border); border-radius: 14px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.live-peek small { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.live-peek span { font-size: 0.88rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-exit { display: flex; flex-direction: column; gap: 10px; }
+.live-exit-choice { display: flex; flex-direction: column; gap: 3px; width: 100%; min-height: 60px; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 14px; background: var(--card-bg); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.live-exit-choice strong { font-size: 1rem; }
+.live-exit-choice small { font-size: 0.8rem; color: var(--muted); line-height: 1.3; }
+.live-exit-choice.danger strong { color: var(--danger); }
+.live-rounds { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.live-rounds span { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface-2); font-weight: 800; font-size: 0.9rem; color: var(--muted); }
+.live-rounds span.done { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.live-rounds span.current { background: var(--gold); color: #111814; }
+.live-rounds strong { margin-left: 4px; font-size: 1rem; }
+.live-stations { display: flex; flex-direction: column; gap: 6px; }
+.live-station { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 58px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--card-bg); }
+.live-station-num { font-weight: 800; text-align: center; color: var(--muted); }
+.live-station-text { display: flex; flex-direction: column; min-width: 0; }
+.live-station-text strong { font-size: 0.98rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.live-station-text small { font-size: 0.82rem; color: var(--muted); }
+.live-station-load { display: flex; align-items: center; gap: 4px; }
+.live-station-load input { width: 68px; min-height: 44px; padding: 4px; text-align: center; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.live-station-load small, .live-station-fixed { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+.live-block-help { margin: 2px 0; }
+.live-block-result { display: flex; flex-direction: column; gap: 4px; font-size: 0.82rem; color: var(--muted); }
+.live-block-result input { min-height: 48px; font-size: 1rem; }
+.cardio-total { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.cardio-total label { display: flex; flex-direction: column; gap: 3px; font-size: 0.7rem; color: var(--muted); min-width: 0; }
+.cardio-total input { width: 100%; min-width: 0; min-height: 48px; padding: 4px; font-size: 1.15rem; text-align: center; font-variant-numeric: tabular-nums; }
+.cardio-total-help { margin: 6px 0; }
+.cardio-unit { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 0.82rem; color: var(--muted); }
+.cardio-unit button { min-height: 36px; padding: 0 12px; border: 1.5px solid var(--border); border-radius: 18px; background: transparent; color: var(--text); font-size: 0.82rem; font-weight: 700; cursor: pointer; }
+.cardio-unit button.on { background: var(--green); border-color: var(--green); color: white; }
+.cardio-live-row { grid-template-columns: 26px minmax(0, 1fr); }
+.cardio-live-rows.with-time .cardio-live-row, .cardio-live-rows.with-hr .cardio-live-row { grid-template-columns: 26px repeat(2, minmax(0, 1fr)); }
+.cardio-live-rows.with-time.with-hr .cardio-live-row { grid-template-columns: 26px repeat(3, minmax(0, 1fr)); }
+.cardio-live-actions { gap: 10px; flex-wrap: wrap; }
+.live-picker-name small.wrap { white-space: normal; line-height: 1.3; }

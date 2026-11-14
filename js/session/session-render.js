@@ -13,7 +13,8 @@ import { workloadSectionHTML, secondarySessionSectionHTML, bindSessionContentEve
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 import { setEventsListHTML } from "./set-events.js";
-import { MACHINES, cardioPrescription, cardioStats, headlineMetric, totalsLine, fmtDuration, num } from "../cardio.js";
+import { MACHINES, cardioPrescription, cardioStats, headlineMetric, totalsLine, fmtDuration, num, isShortIntervals, cardioDone, cardioRoundsDone } from "../cardio.js";
+import { blockResultText } from "../plan-overview.js";
 import { sessionSig, loadDraft, clearDraft, pruneDrafts, touchSession, draftNoticeHTML } from "./session-draft.js";
 
 // ---------- Session detail : voir/loguer/planifier n'importe quelle date ----------
@@ -183,7 +184,7 @@ function liveModeCtaHTML(session) {
   const indices = liveExerciseIndices(session);
   const started = indices.some((i) => {
     const ex = session.exercises[i];
-    return ex.executed && (ex.executed.reps || ex.executed.load);
+    return ex.executed && (ex.executed.reps || ex.executed.load || ex.executed.sets || cardioDone(ex));
   });
   return `
     <button type="button" id="open-live-mode" class="live-mode-cta">
@@ -389,13 +390,19 @@ function blockCardHTML(indices, exercises, blockPos = { first: false, last: fals
     ? "Tours/reps atteints au cap (ex. 3 tours + 8 reps)"
     : (BLOCK_RESULT_LABELS[format] || "Résultat");
   const resultHTML = format !== "standard"
-    ? `<div class="exercise-block-result"><label>${resultLabel}</label><input type="text" class="f-block-result" value="${escapeAttr((leader.executed && leader.executed.reps) ?? "")}"></div>`
+    ? `<div class="exercise-block-result"><label>${resultLabel}</label><input type="text" class="f-block-result" value="${escapeAttr(blockResultText(format, leader) ?? "")}"></div>`
     : "";
 
   // Circuit only, and separate from the free-text result above — a real
   // number (minutes) rather than something embedded in prose, so it can
   // actually be compared session to session to see whether it's getting
   // faster (see docs/adr/0036's amendement, "durée réalisée").
+  // Circuit : « tours faits » écrit le réalisé de chaque station (prévu ×
+  // tours), comme le bouton « Tour terminé » de la séance guidée (ADR-0114).
+  const roundsDone = format === "circuit" ? parseInt((leader.executed || {}).sets, 10) || "" : "";
+  const roundsHTML = format === "circuit"
+    ? `<div class="exercise-block-result"><label>Tours faits — reps et charges prévues comptées pour chaque station</label><input type="number" min="0" step="1" inputmode="numeric" class="f-block-rounds-done" value="${roundsDone}" placeholder="${escapeAttr((leader.block_meta || {}).rounds ?? "")}"></div>`
+    : "";
   const durationHTML = format === "circuit"
     ? `<div class="exercise-block-result"><label>Durée réalisée (min) — pour suivre la progression</label><input type="number" min="0" step="0.5" class="f-block-duration" value="${leader.executed_duration_min ?? ""}"></div>`
     : "";
@@ -424,6 +431,7 @@ function blockCardHTML(indices, exercises, blockPos = { first: false, last: fals
       <div class="exercise-block-stations">${stationsHTML}</div>
       <button type="button" class="primary-button ghost small add-station-button" data-leader-idx="${leaderIdx}">+ Ajouter ${format === "standard" ? "au superset" : "une station"}</button>
       ${cappedToggleHTML}
+      ${roundsHTML}
       ${resultHTML}
       ${durationHTML}
       <details class="exercise-block-notes"${leader.notes ? " open" : ""}><summary>${leader.notes ? "Notes" : "+ Ajouter une note"}</summary><textarea class="f-block-notes" rows="2" placeholder="Détail libre si besoin">${escapeHtmlText(leader.notes || "")}</textarea></details>
@@ -549,6 +557,9 @@ function cardioCardHTML(ex, idx, limits) {
   const stats = cardioStats(ex);
   const headline = headlineMetric(machine, stats);
   const empty = !num(planned.work_s);
+  const exd = ex.executed || {};
+  // Intervalles courts : on note le total de la machine, pas chaque round.
+  const totalMode = ex.entry_mode !== "rounds" && (exd.entry === "total" || isShortIntervals(planned) && !intervals.some((r) => num(r.distance_m) != null || num(r.cal) != null));
   const machineChips = Object.entries(MACHINES).map(([key, m]) =>
     `<button type="button" class="cardio-machine${key === machine ? " active" : ""}" data-machine="${key}" aria-pressed="${key === machine}"><span aria-hidden="true">${m.icon}</span>${m.label}</button>`).join("");
   const head = `<span>#</span><span>Temps</span><span>Distance (m)</span><span>Cal</span>${showHr ? "<span>FC</span>" : ""}<span></span>`;
@@ -592,14 +603,24 @@ function cardioCardHTML(ex, idx, limits) {
         </div>
       </details>
       <div class="field-row-label">Fait</div>
+      ${totalMode ? `
+      <div class="cardio-total">
+        <label><span>Rounds faits</span><input type="text" inputmode="numeric" class="f-ct-rounds" value="${escapeAttr(cardioRoundsDone(ex) || "")}" placeholder="${escapeAttr(planned.sets ?? "")}"></label>
+        <label><span>Total calories</span><input type="text" inputmode="numeric" class="f-ct-cal" value="${escapeAttr(exd.entry === "total" ? exd.total_cal ?? "" : "")}" placeholder="—"></label>
+        <label><span>Total distance (m)</span><input type="text" inputmode="numeric" class="f-ct-dist" value="${escapeAttr(exd.entry === "total" ? exd.total_distance_m ?? "" : "")}" placeholder="—"></label>
+      </div>
+      <div class="cardio-row-actions">
+        <button type="button" class="live-link cardio-entry-switch" data-entry="rounds">Noter round par round</button>
+      </div>` : `
       <div class="cardio-rows${showHr ? " with-hr" : ""}">
         <div class="cardio-row cardio-row-head">${head}</div>
         ${rowsHTML}
       </div>
       <div class="cardio-row-actions">
         <button type="button" class="primary-button ghost small add-cardio-round">+ Round</button>
+        ${isShortIntervals(planned) ? `<button type="button" class="live-link cardio-entry-switch" data-entry="total">Noter seulement le total</button>` : ""}
         <label class="cardio-hr-toggle"><input type="checkbox" class="f-cardio-hr"${showHr ? " checked" : ""}> FC (facultatif)</label>
-      </div>
-      <p class="cardio-summary">${escapeHtmlText([totalsLine(stats), headline].filter(Boolean).join(" · ") || "Temps vide = durée prévue. Distance et calories : ce qu'affiche la machine en fin de round.")}</p>
+      </div>`}
+      <p class="cardio-summary">${escapeHtmlText([totalsLine(stats), headline].filter(Boolean).join(" · ") || (totalMode ? "Le total affiché par la machine à la fin suffit : calories ou distance." : "Temps vide = durée prévue. Distance et calories : ce qu'affiche la machine en fin de round."))}</p>
     </div>`;
 }

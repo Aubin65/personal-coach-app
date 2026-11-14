@@ -9,7 +9,8 @@ import { hydrateExecRows, hydrateSetRows, serializeExecRows } from "./session-ex
 import { ghGetFile } from "../github-api.js";
 import { normalizeName } from "../exercise-stats.js";
 import { escapeHtmlText, escapeAttr } from "../markdown.js";
-import { MACHINES, filledIntervals, cardioStats, headlineMetric, totalsLine, cardioPrescription, fmtDuration, writeCardioExecuted, num, restAfter, blockSize } from "../cardio.js";
+import { MACHINES, filledIntervals, cardioStats, headlineMetric, totalsLine, cardioPrescription, fmtDuration, writeCardioExecuted, num, restAfter, blockSize, isShortIntervals, primaryUnit, writeCardioTotal, cardioRoundsDone } from "../cardio.js";
+import { EXERCISE_FORMATS } from "../session-types.js";
 
 // ============================================================================
 // Mode séance guidée (docs/adr/0074) — une surcouche plein écran qui fait
@@ -69,8 +70,31 @@ function setRestSeconds(v) {
 export function liveExerciseIndices(session) {
   return (session.exercises || [])
     .map((ex, i) => ({ ex, i }))
-    .filter(({ ex }) => ["standard", "cardio"].includes(ex.format || "standard") && (ex.name || "").trim())
+    .filter(({ ex }) => {
+      if (!(ex.name || "").trim()) return false;
+      // Un bloc (circuit, AMRAP, EMOM, for time…) est une seule étape, portée
+      // par son premier exercice ; ses stations suivantes ne sont pas des étapes.
+      return isBlock(ex) ? !ex.superset_with_previous : true;
+    })
     .map(({ i }) => i);
+}
+
+/** Exercice d'un bloc non standard (circuit, AMRAP, EMOM, for time, autre). */
+function isBlock(ex) {
+  return !["standard", "cardio"].includes(ex.format || "standard");
+}
+
+/** Indices (dans la séance) des stations du bloc mené par `idx`. */
+function blockStations(idx) {
+  const { exercises } = sessionRuntime.working.session;
+  const out = [idx];
+  for (let k = idx + 1; k < exercises.length && exercises[k].superset_with_previous; k++) out.push(k);
+  return out;
+}
+
+function blockRoundsPlanned(ex) {
+  const n = parseInt((ex.block_meta || {}).rounds, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** Positions (dans `live.indices`) des membres du superset qui contient la
@@ -116,11 +140,17 @@ function nextMember(pos, strict = false) {
 function doneRows(ex) {
   // Cardio : un round compte comme « fait » dès qu'un chiffre y est saisi
   // (lignes factices, seulement pour les compteurs et la progression).
-  if (ex.format === "cardio") return filledIntervals(ex.executed).map(() => ({ load: "", reps: "1", rir: "" }));
+  if (ex.format === "cardio") return Array.from({ length: cardioRoundsDone(ex) }, () => ({ load: "", reps: "1", rir: "" }));
+  // Bloc : un tour validé (circuit) ou un résultat saisi (autres formats).
+  if (isBlock(ex)) {
+    const n = ex.format === "circuit" ? (parseInt((ex.executed || {}).sets, 10) || 0) : ((ex.executed || {}).reps ? 1 : 0);
+    return Array.from({ length: n }, () => ({ load: "", reps: "1", rir: "" }));
+  }
   return hydrateExecRows(ex.executed || {}, ex.rir).filter((r) => (r.reps || "").trim() || (r.load || "").trim());
 }
 
 function plannedCount(ex) {
+  if (isBlock(ex)) return ex.format === "circuit" ? (blockRoundsPlanned(ex) || 1) : 1;
   const n = parseInt((ex.planned || {}).sets, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -253,7 +283,7 @@ function tick() {
   }
   rest.classList.remove("done");
   label.textContent = `Repos ${formatDurationMs(left)}`;
-  if (fill) fill.style.width = `${Math.min(100, 100 - (left / (live.restTotal * 1000)) * 100)}%`;
+  if (fill) fill.style.width = `${Math.min(100, 100 - (left / ((live.restSpan || live.restTotal) * 1000)) * 100)}%`;
 }
 
 function fmtLoad(load) {
@@ -261,21 +291,101 @@ function fmtLoad(load) {
   return `${load}${/^[\d.,]+$/.test(load) ? " kg" : ""}`;
 }
 
+/** État d'une étape : faite, entamée ou à faire. */
+function stepState(session, k) {
+  const e = session.exercises[live.indices[k]];
+  const n = doneRows(e).length;
+  const t = targetCount(e, live.indices[k]);
+  return t != null ? (n >= t ? "done" : n > 0 ? "partial" : "") : (n > 0 ? "done" : "");
+}
+
+/** Ce qui est prévu pour une étape, en une ligne. */
+function stepPlanText(e, idx) {
+  if (e.format === "cardio") return cardioPrescription(e);
+  if (isBlock(e)) {
+    const stations = blockStations(idx).length;
+    const rounds = blockRoundsPlanned(e);
+    return `${EXERCISE_FORMATS[e.format] || "Bloc"} · ${stations} station${stations > 1 ? "s" : ""}${rounds ? ` · ${rounds} tour${rounds > 1 ? "s" : ""}` : ""}`;
+  }
+  return plannedLine(e);
+}
+
+function stepTitle(e, idx) {
+  if (isBlock(e)) {
+    const rounds = blockRoundsPlanned(e);
+    return `${EXERCISE_FORMATS[e.format] || "Bloc"}${rounds ? ` · ${rounds} tour${rounds > 1 ? "s" : ""}` : ""}`;
+  }
+  return e.name;
+}
+
+/** Aperçu de toute la séance (docs/adr/0114) : chaque étape avec ce qui est
+ * prévu et son état ; un tap y va. Remplace l'ancien sélecteur caché. */
 function pickerHTML(session) {
+  const total = live.indices.length;
+  const done = live.indices.filter((_, k) => stepState(session, k) === "done").length;
   return `
     <div class="live-picker">
-      <div class="live-picker-head"><strong>Aller à l'exercice</strong><button type="button" class="live-link" data-live="picker-close">Fermer</button></div>
+      <div class="live-picker-head"><strong>La séance · ${done} / ${total} fait${done > 1 ? "s" : ""}</strong><button type="button" class="live-link" data-live="picker-close">Fermer</button></div>
       <ol class="live-picker-list">${live.indices.map((i, k) => {
         const e = session.exercises[i];
         const n = doneRows(e).length;
         const t = targetCount(e, i);
-        const state = t != null ? (n >= t ? "done" : n > 0 ? "partial" : "") : (n > 0 ? "done" : "");
+        const state = stepState(session, k);
+        const block = isBlock(e);
+        const plan = block ? blockStations(i).map((s) => session.exercises[s].name).join(" · ") : stepPlanText(e, i);
         return `<li><button type="button" class="${k === live.pos ? "current" : ""} ${state}" data-goto="${k}">
-          <span class="live-picker-num">${k + 1}</span>
-          <span class="live-picker-name">${escapeHtmlText(e.name)}</span>
-          <span class="live-picker-count">${n}${t != null ? ` / ${t}` : ""}</span></button></li>`;
+          <span class="live-picker-num">${state === "done" ? "✓" : k + 1}</span>
+          <span class="live-picker-name">${escapeHtmlText(stepTitle(e, i))}${plan ? `<small${block ? ' class="wrap"' : ""}>${escapeHtmlText(plan)}</small>` : ""}</span>
+          <span class="live-picker-count">${state === "done" ? "fait" : k === live.pos ? "en cours" : `${n}${t != null ? ` / ${t}` : ""}`}</span></button></li>`;
       }).join("")}</ol>
     </div>`;
+}
+
+/** En-tête commun : « Quitter » explicite, chrono, accès à l'aperçu. */
+function headHTML(session) {
+  const total = live.indices.length;
+  const done = live.indices.filter((_, k) => stepState(session, k) === "done").length;
+  return `
+    <header class="live-head">
+      <button type="button" class="live-head-btn" data-live="exit-open">Quitter</button>
+      <div class="live-head-text">
+        <span class="live-head-name">${escapeHtmlText(session.name || "Séance")}</span>
+        <span class="live-head-chrono" id="live-chrono">--:--</span>
+      </div>
+      <button type="button" class="live-head-btn" data-live="picker" aria-label="Voir toute la séance">☰ ${done}/${total}</button>
+    </header>`;
+}
+
+/** « Ensuite : … » — ce qui vient après l'étape courante. */
+function nextPeekHTML(session, pos) {
+  const next = blockEndPos(pos) + 1;
+  if (next >= live.indices.length) return "";
+  const i = live.indices[next];
+  const e = session.exercises[i];
+  const plan = stepPlanText(e, i);
+  return `<button type="button" class="live-peek" data-goto="${next}"><small>Ensuite</small><span>${escapeHtmlText(isBlock(e) ? (EXERCISE_FORMATS[e.format] || "Bloc") : e.name)}${plan && !isBlock(e) ? ` · ${escapeHtmlText(plan)}` : isBlock(e) ? ` · ${escapeHtmlText(plan.split(" · ").slice(1).join(" · "))}` : ""}</span><span aria-hidden="true">›</span></button>`;
+}
+
+/** Feuille « Quitter » : trois issues nommées, plus d'icône ambiguë. */
+function exitSheetHTML() {
+  return `
+    <div class="live-sheet-backdrop" data-live="exit-close"></div>
+    <section class="live-sheet live-exit" role="dialog" aria-label="Quitter la séance guidée">
+      <div class="live-sheet-head"><strong>Quitter la séance guidée ?</strong><button type="button" class="live-link" data-live="exit-close">Fermer</button></div>
+      <button type="button" class="live-exit-choice" data-live="close"><strong>⏸ Mettre en pause</strong><small>Tout est gardé et le chrono continue. Tu reprends avec « Reprendre la séance guidée ».</small></button>
+      <button type="button" class="live-exit-choice" data-live="finish"><strong>✓ Terminer la séance</strong><small>Arrête le chrono, puis RPE et durée.</small></button>
+      <button type="button" class="live-exit-choice danger" data-live="cancel-run"><strong>✕ Annuler la séance</strong><small>Arrête le chrono et efface ce qui a été saisi depuis le lancement.</small></button>
+      <button type="button" class="live-validate" data-live="exit-close">Continuer la séance</button>
+    </section>`;
+}
+
+/** Branche les contrôles communs (navigation, aperçu, feuille Quitter). */
+function wireCommon() {
+  live.el.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => {
+    live.picker = false;
+    goTo(parseInt(b.dataset.goto, 10));
+  }));
+  live.el.querySelectorAll("[data-live]").forEach((b) => b.addEventListener("click", () => action(b.dataset.live)));
 }
 
 function supersetStripHTML(members, pos, session) {
@@ -333,7 +443,8 @@ function render() {
   const pos = live.pos;
   const idx = indices[pos];
   const ex = session.exercises[idx];
-  if (ex.format === "cardio" && !live.picker) { renderCardio(session, ex, idx, pos); return; }
+  if (!live.picker && ex.format === "cardio") { renderCardio(session, ex, idx, pos); return; }
+  if (!live.picker && isBlock(ex)) { renderBlock(session, ex, idx, pos); return; }
   const rows = doneRows(ex);
   const target = targetCount(ex, idx);
   if (live.cursor > rows.length) live.cursor = rows.length;
@@ -402,19 +513,12 @@ function render() {
   else primary = `<button type="button" class="live-validate" data-live="validate"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Valider la série ${setNo}${ofTarget}</button>`;
 
   live.el.innerHTML = `
-    <header class="live-head">
-      <button type="button" class="live-icon-btn" data-live="close" aria-label="Revenir au formulaire"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
-      <div class="live-head-text">
-        <span class="live-head-name">${escapeHtmlText(session.name || "Séance")}</span>
-        <span class="live-head-chrono" id="live-chrono">--:--</span>
-      </div>
-      <button type="button" class="live-finish" data-live="finish">Terminer</button>
-    </header>
+    ${headHTML(session)}
     <div class="live-segs" aria-hidden="true">${segs}</div>
     <main class="live-body">
       ${live.picker ? pickerHTML(session) : `
       <div class="live-ex-head">
-        <button type="button" class="live-kicker" data-live="picker">Exercice ${pos + 1} / ${indices.length}${plannedLine(ex) ? ` · objectif ${escapeHtmlText(plannedLine(ex))}` : ""} <span aria-hidden="true">▾</span></button>
+        <p class="live-kicker">Exercice ${pos + 1} / ${indices.length}${plannedLine(ex) ? ` · objectif ${escapeHtmlText(plannedLine(ex))}` : ""}</p>
         <h2 class="live-ex-name">${escapeHtmlText(ex.name)}</h2>
         ${supersetNote}
         ${lastTime ? `<p class="live-last">${escapeHtmlText(lastTime)}</p>` : ""}
@@ -426,7 +530,7 @@ function render() {
         ${prevLabel ? `<button type="button" data-live="prev">${prevLabel}</button>` : "<span></span>"}
         ${nextLabel ? `<button type="button" data-live="next">${nextLabel}</button>` : "<span></span>"}
       </div>
-      <button type="button" class="live-cancel-run" data-live="cancel-run">Annuler la séance</button>`}
+      ${nextPeekHTML(session, pos)}`}
     </main>
     <footer class="live-foot">
       <div class="live-rest" id="live-rest" hidden>
@@ -436,7 +540,8 @@ function render() {
       </div>
       ${live.picker ? "" : primary}
     </footer>
-    ${live.sheet ? eventSheetHTML(ex) : ""}`;
+    ${live.sheet ? eventSheetHTML(ex) : ""}
+    ${live.exit ? exitSheetHTML() : ""}`;
 
   const loadInput = live.el.querySelector("#live-load");
   const repsInput = live.el.querySelector("#live-reps");
@@ -457,11 +562,7 @@ function render() {
     const i = parseInt(b.dataset.set, 10);
     setCursor(live.cursor === i ? doneRows(ex).length : i);
   }));
-  live.el.querySelectorAll("[data-goto]").forEach((b) => b.addEventListener("click", () => {
-    live.picker = false;
-    goTo(parseInt(b.dataset.goto, 10));
-  }));
-  live.el.querySelectorAll("[data-live]").forEach((b) => b.addEventListener("click", () => action(b.dataset.live)));
+  wireCommon();
   wireEventSheet(ex);
   tick();
 }
@@ -508,6 +609,11 @@ function cardioAdvance(ex) {
   const rounds = cardioRounds(ex);
   const restMs = phaseDuration(ex, "rest");
   if (run.phase === "work") {
+    run.completed = run.round;
+    if (isShortIntervals(ex.planned) && ex.entry_mode !== "rounds") {
+      const e = ex.executed || {};
+      writeCardioTotal(ex, { rounds_done: run.completed, total_cal: e.entry === "total" ? e.total_cal : null, total_distance_m: e.entry === "total" ? e.total_distance_m : null });
+    }
     if (run.round >= rounds) { run.phase = "done"; run.end = null; keepAwake(false); }
     else if (restMs > 0) { run.phase = "rest"; run.end = Date.now() + restMs; }
     else { run.round += 1; run.phase = "work"; run.end = Date.now() + phaseDuration(ex, "work"); }
@@ -547,6 +653,7 @@ function cardioLastText(name) {
 function renderCardio(session, ex, idx, pos) {
   const run = cardioRunFor(idx);
   const machine = MACHINES[ex.machine] || { label: "Cardio", icon: "🫀", pace: false };
+  const short = isShortIntervals(ex.planned) && ex.entry_mode !== "rounds";          // total machine en fin d'exercice
   const rounds = cardioRounds(ex);
   const intervals = ((ex.executed || {}).intervals || []).slice();
   while (intervals.length < rounds) intervals.push({});
@@ -554,15 +661,21 @@ function renderCardio(session, ex, idx, pos) {
   const stats = cardioStats(ex);
   const headline = headlineMetric(ex.machine, stats);
   const isLast = pos === live.indices.length - 1;
-  const showHr = !!ex.track_hr || intervals.some((r) => num(r.hr_avg) != null);
+  const showHr = !short && (!!ex.track_hr || intervals.some((r) => num(r.hr_avg) != null));
+  const showTime = !short && (!!live.cardioShowTime || intervals.some((r) => num(r.time_s) != null && num(r.time_s) !== workS));
+  const unit = primaryUnit(ex);
+  const unitLabel = unit === "cal" ? "Calories" : "Distance (m)";
   const target = (ex.planned || {}).target;
+  const exd = ex.executed || {};
 
   const block = blockSize(ex.planned);
   const seriesRest = run.phase === "rest" && block && run.round % block === 0;
   const phaseLabel = { ready: "Prêt", work: "Effort", rest: seriesRest ? "Repos entre séries" : "Repos", done: "Terminé" }[run.phase];
   const remaining = run.end ? Math.max(0, run.end - Date.now()) / 1000 : run.phase === "ready" ? (workS || 0) : 0;
   const entryRound = run.phase === "rest" ? run.round : run.phase === "done" ? rounds : null;
-  const hint = run.phase === "rest" ? `Note le round ${run.round} pendant le repos.`
+  const hint = short
+    ? (run.phase === "done" ? "Note le total affiché par la machine." : run.phase === "ready" ? "Lance le chrono ; tu noteras seulement le total à la fin." : target ? `Cible : ${target}` : "Tiens l'intensité.")
+    : run.phase === "rest" ? `Note le round ${run.round} pendant le repos.`
     : run.phase === "work" ? (target ? `Cible : ${target}` : "Tiens l'allure.")
     : run.phase === "done" ? "Complète les rounds manquants puis passe à la suite."
     : "Lance le chrono quand tu es installé.";
@@ -575,29 +688,40 @@ function renderCardio(session, ex, idx, pos) {
          <button type="button" class="cardio-ctl" data-cardio="skip">Passer ⏭</button>
          <button type="button" class="cardio-ctl ghost" data-cardio="reset">Arrêter</button>`;
 
-  const rowsHTML = intervals.map((r, i) => `
+  // Intervalles courts : un seul bloc « total » ; sinon une ligne par round
+  // avec la seule mesure suivie (distance ou calories).
+  const entryHTML = short ? `
+      <section class="cardio-total" aria-label="Total de l'exercice">
+        <label><span>Rounds faits</span><input type="text" inputmode="numeric" data-total="rounds_done" value="${escapeAttr(cardioRoundsDone(ex) || "")}" placeholder="${rounds}"></label>
+        <label><span>Total calories</span><input type="text" inputmode="numeric" data-total="total_cal" value="${escapeAttr(exd.entry === "total" && exd.total_cal != null ? exd.total_cal : "")}" placeholder="—"></label>
+        <label><span>Total distance (m)</span><input type="text" inputmode="numeric" data-total="total_distance_m" value="${escapeAttr(exd.entry === "total" && exd.total_distance_m != null ? exd.total_distance_m : "")}" placeholder="—"></label>
+      </section>
+      <p class="muted small cardio-total-help">Lis le total sur l'écran de la machine à la fin : pas besoin de noter chaque round. Un seul des deux suffit.</p>` : `
+      <div class="cardio-unit" role="group" aria-label="Mesure notée à chaque round">
+        <span>Je note</span>
+        <button type="button" class="${unit === "distance_m" ? "on" : ""}" data-cardio="unit-distance_m">la distance</button>
+        <button type="button" class="${unit === "cal" ? "on" : ""}" data-cardio="unit-cal">les calories</button>
+      </div>
+      <section class="cardio-live-rows${showTime ? " with-time" : ""}${showHr ? " with-hr" : ""}" aria-label="Rounds">${intervals.map((r, i) => `
       <div class="cardio-live-row${entryRound === i + 1 || (run.phase === "work" && run.round === i + 1) ? " current" : ""}${filledIntervals({ intervals: [r] }).length ? " filled" : ""}">
         <span class="cardio-live-num">${i + 1}</span>
-        <label><span>Temps</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="time_s" value="${escapeAttr(num(r.time_s) != null ? fmtDuration(num(r.time_s)) : "")}" placeholder="${escapeAttr(workS ? fmtDuration(workS) : "m:ss")}"></label>
-        <label><span>Distance (m)</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="distance_m" value="${escapeAttr(r.distance_m ?? "")}" placeholder="—"></label>
-        <label><span>Cal</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="cal" value="${escapeAttr(r.cal ?? "")}" placeholder="—"></label>
+        <label><span>${unitLabel}</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="${unit}" value="${escapeAttr(r[unit] ?? "")}" placeholder="—"></label>
+        ${showTime ? `<label><span>Temps</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="time_s" value="${escapeAttr(num(r.time_s) != null ? fmtDuration(num(r.time_s)) : "")}" placeholder="${escapeAttr(workS ? fmtDuration(workS) : "m:ss")}"></label>` : ""}
         ${showHr ? `<label><span>FC moy.</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="hr_avg" value="${escapeAttr(r.hr_avg ?? "")}" placeholder="—"></label>` : ""}
-      </div>`).join("");
+      </div>`).join("")}</section>
+      <div class="cardio-live-actions">
+        <button type="button" class="live-link" data-cardio="add-round">+ Round</button>
+        <button type="button" class="live-link" data-cardio="time">${showTime ? "Masquer les temps" : "Round écourté ?"}</button>
+        <label class="cardio-hr-toggle"><input type="checkbox" data-cardio="hr"${showHr ? " checked" : ""}> FC</label>
+      </div>`;
 
   const last = cardioLastText(ex.name);
   live.el.innerHTML = `
-    <header class="live-head">
-      <button type="button" class="live-icon-btn" data-live="close" aria-label="Revenir au formulaire"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
-      <div class="live-head-text">
-        <span class="live-head-name">${escapeHtmlText(session.name || "Séance")}</span>
-        <span class="live-head-chrono" id="live-chrono">--:--</span>
-      </div>
-      <button type="button" class="live-finish" data-live="finish">Terminer</button>
-    </header>
+    ${headHTML(session)}
     <div class="live-segs" aria-hidden="true">${segsHTML(session)}</div>
     <main class="live-body">
       <div class="live-ex-head">
-        <button type="button" class="live-kicker" data-live="picker">Exercice ${pos + 1} / ${live.indices.length} · ${escapeHtmlText(machine.icon + " " + machine.label)} <span aria-hidden="true">▾</span></button>
+        <p class="live-kicker">Exercice ${pos + 1} / ${live.indices.length} · ${escapeHtmlText(machine.icon + " " + machine.label)}</p>
         <h2 class="live-ex-name">${escapeHtmlText(ex.name)}</h2>
         <p class="live-last">${escapeHtmlText(cardioPrescription(ex))}</p>
         ${last ? `<p class="live-last">${escapeHtmlText(last)}</p>` : ""}
@@ -610,52 +734,200 @@ function renderCardio(session, ex, idx, pos) {
         <p class="cardio-hint">${escapeHtmlText(hint)}</p>
         <div class="cardio-controls">${controls}</div>
       </section>
-      <section class="cardio-live-rows" aria-label="Rounds">${rowsHTML}</section>
-      <div class="cardio-live-actions">
-        <button type="button" class="live-link" data-cardio="add-round">+ Round</button>
-        <label class="cardio-hr-toggle"><input type="checkbox" data-cardio="hr"${showHr ? " checked" : ""}> FC (facultatif)</label>
-      </div>
+      ${entryHTML}
       <p class="cardio-live-summary" id="cardio-summary">${escapeHtmlText([totalsLine(stats), headline].filter(Boolean).join(" · ")) || "Rien de saisi pour l'instant."}</p>
       <div class="live-nav">
         ${pos > 0 ? `<button type="button" data-live="prev-ex">← Exercice précédent</button>` : "<span></span>"}
         ${!isLast ? `<button type="button" data-live="next-ex">Exercice suivant →</button>` : "<span></span>"}
       </div>
-      <button type="button" class="live-cancel-run" data-live="cancel-run">Annuler la séance</button>
+      ${nextPeekHTML(session, pos)}
     </main>
     <footer class="live-foot">
       ${!isLast ? `<button type="button" class="live-validate" data-live="next-ex">Exercice suivant →</button>` : `<button type="button" class="live-validate" data-live="finish">Terminer la séance</button>`}
-    </footer>`;
+    </footer>
+    ${live.exit ? exitSheetHTML() : ""}`;
 
-  const commit = () => {
-    const rows = [];
-    live.el.querySelectorAll(".cardio-live-row").forEach((rowEl, i) => {
-      const val = (f) => { const inp = rowEl.querySelector(`[data-field="${f}"]`); return inp ? inp.value : (intervals[i] || {})[f]; };
-      const t = val("time_s");
-      rows.push({ time_s: typeof t === "string" ? (t.trim() ? parseClock(t) : null) : t, distance_m: val("distance_m"), cal: val("cal"), hr_avg: val("hr_avg") });
-    });
-    writeCardioExecuted(ex, rows);
+  const refreshSummary = () => {
     const sum = live.el.querySelector("#cardio-summary");
     const st = cardioStats(ex);
     if (sum) sum.textContent = [totalsLine(st), headlineMetric(ex.machine, st)].filter(Boolean).join(" · ") || "Rien de saisi pour l'instant.";
   };
-  live.el.querySelectorAll(".cardio-live-row input").forEach((inp) => {
+  const commit = () => {
+    if (short) {
+      const val = (k) => { const inp = live.el.querySelector(`[data-total="${k}"]`); return inp ? inp.value : null; };
+      const typed = val("rounds_done");
+      const hasTotal = (val("total_cal") || "").trim() || (val("total_distance_m") || "").trim();
+      // Rounds faits : la saisie, sinon ce que le chrono a compté, sinon le
+      // prévu dès qu'un total est noté.
+      const counted = live.cardio && live.cardio.idx === idx ? live.cardio.completed || 0 : 0;
+      const roundsDone = (typed || "").trim() ? typed : (counted || (hasTotal ? rounds : (exd.entry === "total" ? exd.rounds_done : 0)));
+      writeCardioTotal(ex, { rounds_done: roundsDone, total_cal: val("total_cal"), total_distance_m: val("total_distance_m") });
+    } else {
+      const rows = intervals.map((r, i) => {
+        const rowEl = live.el.querySelectorAll(".cardio-live-row")[i];
+        const val = (f) => { const inp = rowEl && rowEl.querySelector(`[data-field="${f}"]`); return inp ? inp.value : r[f]; };
+        const t = val("time_s");
+        return { time_s: typeof t === "string" ? (t.trim() ? parseClock(t) : null) : t, distance_m: val("distance_m"), cal: val("cal"), hr_avg: val("hr_avg") };
+      });
+      writeCardioExecuted(ex, rows);
+    }
+    refreshSummary();
+  };
+  live.el.querySelectorAll(".cardio-live-row input, .cardio-total input").forEach((inp) => {
     inp.addEventListener("input", commit);
     inp.addEventListener("change", () => { commit(); renderSessionContent(); });
   });
   live.el.querySelectorAll("[data-cardio]").forEach((b) => b.addEventListener(b.type === "checkbox" ? "change" : "click", () => {
     const what = b.dataset.cardio;
     commit();
-    if (what === "start") { ensureAudio(); keepAwake(true); run.phase = "work"; run.round = 1; run.paused = false; run.end = Date.now() + phaseDuration(ex, "work"); }
+    if (what === "start") { ensureAudio(); keepAwake(true); run.phase = "work"; run.round = 1; run.completed = 0; run.paused = false; run.end = Date.now() + phaseDuration(ex, "work"); }
     else if (what === "pause") { run.paused = true; run.left = run.end - Date.now(); }
     else if (what === "resume") { run.paused = false; run.end = Date.now() + (run.left || 0); }
     else if (what === "skip") { run.paused = false; cardioAdvance(ex); }
     else if (what === "reset") { keepAwake(false); live.cardio = null; }
     else if (what === "add-round") { const list = ((ex.executed || {}).intervals || []).slice(); while (list.length < cardioRounds(ex)) list.push({}); list.push({}); writeCardioExecuted(ex, list); }
     else if (what === "hr") { ex.track_hr = b.checked; }
+    else if (what === "time") { live.cardioShowTime = !showTime; }
+    else if (what.startsWith("unit-")) { ex.unit = what.slice(5); }
     renderSessionContent();
     render();
   }));
-  live.el.querySelectorAll("[data-live]").forEach((b) => b.addEventListener("click", () => action(b.dataset.live)));
+  wireCommon();
+  tick();
+}
+
+// ---------------------------------------------------------------- Blocs (circuit, AMRAP, EMOM…)
+
+function fmtRest(seconds) {
+  if (seconds < 60) return `${seconds} s`;
+  const s = seconds % 60;
+  return `${Math.floor(seconds / 60)} min${s ? ` ${String(s).padStart(2, "0")}` : ""}`;
+}
+
+/** Un bloc dans la séance guidée (docs/adr/0114). Circuit : les stations avec
+ * leur charge pré-remplie, un tap valide un tour entier (écrit séries, reps et
+ * charge sur chaque station, comme un exercice classique, donc compté dans le
+ * tonnage et l'historique) ; le repos entre tours démarre seul. Autres
+ * formats : les stations, puis le résultat du bloc. */
+function renderBlock(session, ex, idx, pos) {
+  const stationIdx = blockStations(idx);
+  const stations = stationIdx.map((i) => session.exercises[i]);
+  const isCircuit = ex.format === "circuit";
+  const meta = ex.block_meta || {};
+  const done = doneRows(ex).length;
+  const target = targetCount(ex, idx) || 1;
+  const reached = done >= target;
+  const isLast = pos === live.indices.length - 1;
+  if (!live.blockStart[idx]) live.blockStart[idx] = Date.now();
+  if (!live.blockLoads[idx]) {
+    live.blockLoads[idx] = stations.map((st) => {
+      const l = (st.executed || {}).load ?? (st.planned || {}).load;
+      return l != null ? String(l) : "";
+    });
+  }
+  const loads = live.blockLoads[idx];
+  const label = EXERCISE_FORMATS[ex.format] || "Bloc";
+  const metaLine = isCircuit
+    ? [`${target} tour${target > 1 ? "s" : ""}`, meta.rest_seconds ? `repos ${fmtRest(meta.rest_seconds)} entre les tours` : ""].filter(Boolean).join(" · ")
+    : [meta.duration_min ? `${meta.duration_min} min` : "", meta.round_seconds ? `tours de ${meta.round_seconds} s` : "", meta.rounds ? `${meta.rounds} tours` : ""].filter(Boolean).join(" · ");
+
+  const stationsHTML = stations.map((st, k) => {
+    const p = st.planned || {};
+    return `
+      <div class="live-station">
+        <span class="live-station-num">${k + 1}</span>
+        <span class="live-station-text"><strong>${escapeHtmlText(st.name)}</strong>${p.reps ? `<small>× ${escapeHtmlText(String(p.reps))}</small>` : ""}${st.notes && k > 0 ? `<small class="live-station-note">${escapeHtmlText(st.notes)}</small>` : ""}</span>
+        ${isCircuit
+          ? `<label class="live-station-load"><input type="text" inputmode="decimal" data-station="${k}" value="${escapeAttr(loads[k])}" placeholder="PDC" aria-label="Charge de ${escapeAttr(st.name)}"><small>kg${p.load_per_hand ? " / main" : ""}</small></label>`
+          : (p.load != null && p.load !== "" ? `<span class="live-station-fixed">${escapeHtmlText(String(p.load))} kg${p.load_per_hand ? " / main" : ""}</span>` : "")}
+      </div>`;
+  }).join("");
+
+  const roundsHTML = isCircuit
+    ? `<div class="live-rounds" aria-label="Tours">${Array.from({ length: target }, (_, r) => `<span class="${r < done ? "done" : r === done ? "current" : ""}">${r < done ? "✓" : r + 1}</span>`).join("")}<strong>${reached ? "Circuit terminé" : `Tour ${done + 1} / ${target}`}</strong></div>`
+    : "";
+
+  let primary;
+  if (isCircuit && !reached) primary = `<button type="button" class="live-validate" data-block="round"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Tour ${done + 1} / ${target} terminé</button>`;
+  else if (!isCircuit && !reached) primary = `<button type="button" class="live-validate" data-block="result"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12l5 5 9-10"/></svg>Bloc terminé</button>`;
+  else if (!isLast) primary = `<button type="button" class="live-validate" data-live="next-ex">Exercice suivant →</button>`;
+  else primary = `<button type="button" class="live-validate" data-live="finish">Terminer la séance</button>`;
+
+  live.el.innerHTML = `
+    ${headHTML(session)}
+    <div class="live-segs" aria-hidden="true">${segsHTML(session)}</div>
+    <main class="live-body">
+      <div class="live-ex-head">
+        <p class="live-kicker">Exercice ${pos + 1} / ${live.indices.length} · ${escapeHtmlText(label)}</p>
+        <h2 class="live-ex-name">${escapeHtmlText(label)} · ${stations.length} station${stations.length > 1 ? "s" : ""}</h2>
+        ${metaLine ? `<p class="live-last">${escapeHtmlText(metaLine)}</p>` : ""}
+        ${ex.notes ? `<p class="live-notes">${escapeHtmlText(ex.notes)}</p>` : ""}
+      </div>
+      ${roundsHTML}
+      <section class="live-stations">${stationsHTML}</section>
+      ${isCircuit
+        ? `<p class="muted small live-block-help">Enchaîne les stations ; les charges sont pré-remplies avec le prévu, corrige seulement ce qui a changé. Un tap valide tout le tour.</p>
+           <div class="live-set-actions">${done > 0 ? `<button type="button" class="live-link danger" data-block="undo">Annuler le dernier tour</button>` : "<span></span>"}${reached ? `<button type="button" class="live-link" data-block="more">+ Tour supplémentaire</button>` : ""}</div>`
+        : `<label class="live-block-result"><span>Résultat du bloc (facultatif)</span><input type="text" id="live-block-result" value="${escapeAttr((ex.executed || {}).reps && (ex.executed || {}).reps !== "fait" ? (ex.executed || {}).reps : "")}" placeholder="ex. 5 tours + 8 reps, 12:30…"></label>
+           ${reached ? `<div class="live-set-actions"><button type="button" class="live-link danger" data-block="undo">Marquer comme non fait</button></div>` : ""}`}
+      <div class="live-nav">
+        ${pos > 0 ? `<button type="button" data-live="prev-ex">← Exercice précédent</button>` : "<span></span>"}
+        ${!isLast ? `<button type="button" data-live="next-ex">Exercice suivant →</button>` : "<span></span>"}
+      </div>
+      ${nextPeekHTML(session, pos)}
+    </main>
+    <footer class="live-foot">
+      <div class="live-rest" id="live-rest" hidden>
+        <div class="live-rest-bar"><div class="live-rest-fill"></div></div>
+        <span class="live-rest-time">Repos</span>
+        <div class="live-rest-choices"><button type="button" data-live="skip-rest">Passer</button></div>
+      </div>
+      ${primary}
+    </footer>
+    ${live.exit ? exitSheetHTML() : ""}`;
+
+  live.el.querySelectorAll("[data-station]").forEach((inp) => inp.addEventListener("input", () => { loads[+inp.dataset.station] = inp.value; }));
+  const writeRounds = (n) => {
+    stations.forEach((st, k) => {
+      const p = st.planned || {};
+      const load = (loads[k] || "").trim().replace(",", ".");
+      st.executed = n > 0
+        ? { sets: String(n), reps: p.reps != null ? String(p.reps) : null, load: load || null, load_per_hand: !!p.load_per_hand }
+        : { sets: null, reps: null, load: null };
+    });
+    ex.block_result = n > 0 ? `${n} tour${n > 1 ? "s" : ""}` : null;
+  };
+  live.el.querySelectorAll("[data-block]").forEach((b) => b.addEventListener("click", () => {
+    const what = b.dataset.block;
+    if (what === "round") {
+      ensureAudio();
+      writeRounds(done + 1);
+      if (done + 1 >= target) {
+        // Durée réalisée du circuit, mesurée de l'ouverture au dernier tour.
+        const minutes = Math.round(((Date.now() - live.blockStart[idx]) / 60000) * 2) / 2;
+        if (ex.executed_duration_min == null && minutes > 0) ex.executed_duration_min = minutes;
+        live.restEnd = null;
+      } else {
+        const restS = parseInt(meta.rest_seconds, 10) || live.restTotal;
+        live.restStart = Date.now();
+        live.restEnd = live.restStart + restS * 1000;
+        live.restSpan = restS;
+        live.beeped = false;
+      }
+    } else if (what === "undo") {
+      if (isCircuit) writeRounds(Math.max(0, done - 1));
+      else { ex.executed = { sets: null, reps: null, load: null }; }
+      if (live.targets[idx] != null) live.targets[idx] = Math.max(plannedCount(ex) || 1, live.targets[idx] - 1);
+    } else if (what === "more") {
+      live.targets[idx] = target + 1;
+    } else if (what === "result") {
+      const input = live.el.querySelector("#live-block-result");
+      ex.executed = { ...(ex.executed || { sets: null, load: null }), reps: (input && input.value.trim()) || "fait" };
+    }
+    renderSessionContent();
+    render();
+  }));
+  wireCommon();
   tick();
 }
 
@@ -718,6 +990,7 @@ function setCursor(cursor) {
 function goTo(pos, atEnd = false) {
   live.pos = pos;
   live.sheet = null;
+  live.exit = false;
   const ex = sessionRuntime.working.session.exercises[live.indices[pos]];
   const n = doneRows(ex).length;
   live.cursor = atEnd && n > 0 ? n - 1 : n;
@@ -727,6 +1000,7 @@ function goTo(pos, atEnd = false) {
 }
 
 function startRest() {
+  live.restSpan = null;
   live.restStart = Date.now();
   live.restEnd = live.restStart + live.restTotal * 1000;
   live.beeped = false;
@@ -738,6 +1012,8 @@ function action(name) {
   const rows = doneRows(ex);
   switch (name) {
     case "close": closeLiveMode(); break;
+    case "exit-open": live.exit = true; live.picker = false; render(); break;
+    case "exit-close": live.exit = false; render(); break;
     case "finish": {
       closeLiveMode();
       const stop = document.getElementById("stop-timer");
@@ -748,7 +1024,7 @@ function action(name) {
       cancelSessionRun().catch(() => {});
       break;
     }
-    case "picker": live.picker = true; render(); scrollTop(); break;
+    case "picker": live.picker = !live.picker; live.exit = false; render(); scrollTop(); break;
     case "picker-close": live.picker = false; render(); break;
     case "load-": live.draft.load = step(live.draft.load, -2.5); render(); break;
     case "load+": live.draft.load = step(live.draft.load, 2.5); render(); break;
@@ -862,7 +1138,7 @@ export async function openLiveMode() {
   el.setAttribute("aria-label", "Séance guidée");
   document.body.appendChild(el);
   document.body.classList.add("live-open");
-  live = { el, indices, sheet: null, zones: null, pos: 0, cursor: 0, targets: {}, picker: false, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, cardioHistory: null, cardio: null, wakeLock: null, audio: null };
+  live = { el, indices, sheet: null, zones: null, pos: 0, cursor: 0, targets: {}, picker: false, exit: false, blockLoads: {}, blockStart: {}, draft: null, restTotal: getRestSeconds(), restEnd: null, restStart: null, beeped: false, history: null, cardioHistory: null, cardio: null, wakeLock: null, audio: null };
   live.interval = setInterval(tick, 500);
   sessionRuntime.liveCleanup = closeLiveMode;
   goTo(firstOpen >= 0 ? firstOpen : 0);
