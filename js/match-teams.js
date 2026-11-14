@@ -11,8 +11,13 @@ import { ghGetFile, ghPutJSON } from "./github-api.js";
 
 export const MATCH_TEAMS_PATH = "data/config/match-teams.json";
 export const ALL_TEAMS = ["Première", "Réserve"];
+// Choix par week-end (docs/adr/0118) : `{overrides: {"2026-11-15": "Réserve" | "aucune"}}`,
+// prioritaire sur le réglage général ; lu aussi par coach.schedule.
+export const MATCH_WEEKS_PATH = "data/config/match-weeks.json";
+export const NO_TEAM = "aucune";
 
 let cached = null;
+let overridesCache = {};
 
 /** Équipes jouées ; sans fichier, les deux (comportement d'avant). */
 export async function loadPlayingTeams() {
@@ -24,7 +29,32 @@ export async function loadPlayingTeams() {
     if (cfg && Array.isArray(cfg.teams)) teams = cfg.teams.filter((t) => ALL_TEAMS.includes(t));
   } catch (_) { /* réglage illisible : défaut */ }
   cached = teams;
+  try {
+    const file = await ghGetFile(MATCH_WEEKS_PATH);
+    const cfg = file ? JSON.parse(file.content) : null;
+    overridesCache = cfg && cfg.overrides && typeof cfg.overrides === "object" ? cfg.overrides : {};
+  } catch (_) { overridesCache = {}; }
   return cached;
+}
+
+/** Choix du week-end (`{date: équipe | "aucune"}`), tel que chargé. */
+export function weekOverrides() {
+  return overridesCache;
+}
+
+/** Fixe (ou efface, `choice = null`) la équipe jouée à une date de match. */
+export async function saveWeekTeam(date, choice, today) {
+  const cutoff = new Date(`${today}T12:00:00`);
+  cutoff.setDate(cutoff.getDate() - 30);
+  const keep = cutoff.toISOString().slice(0, 10);
+  const next = await ghPutJSON(MATCH_WEEKS_PATH, { overrides: {} }, "App : équipe du week-end", (cur) => {
+    const overrides = { ...((cur && cur.overrides) || {}) };
+    if (choice) overrides[date] = choice; else delete overrides[date];
+    for (const d of Object.keys(overrides)) if (d < keep) delete overrides[d]; // purge > 30 j
+    return { ...(cur || {}), overrides };
+  });
+  overridesCache = next.overrides || {};
+  return overridesCache;
 }
 
 export async function savePlayingTeams(teams) {
@@ -34,6 +64,8 @@ export async function savePlayingTeams(teams) {
 }
 
 /** `user_is_playing` d'une fixture, réglage appliqué (pur). */
-export function playsIn(fixture, teams) {
+export function playsIn(fixture, teams, overrides = overridesCache) {
+  const choice = overrides && overrides[fixture.date];
+  if (choice) return choice !== NO_TEAM && (fixture.team || "Première") === choice;
   return !!fixture.user_is_playing && teams.includes(fixture.team || "Première");
 }

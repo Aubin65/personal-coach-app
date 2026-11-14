@@ -3,7 +3,8 @@
 // la 2e (club du soir, footing…) au lieu de les laisser dans « À faire ».
 import { openRpeSheet } from "./rpe-sheet.js";
 import { clubSecondarySession } from "./training-index.js";
-import { todayISO } from "./date-utils.js";
+import { todayISO, addDaysISO } from "./date-utils.js";
+import { ghPutJSON } from "./github-api.js";
 
 /** La 2e séance a-t-elle déjà pu avoir lieu ? Le club du soir n'est pas
  * proposé le midi du jour même : avant 19 h, on ne demande rien. */
@@ -39,4 +40,18 @@ export async function chainSecondaryLoad({ date, session, clubExpected = false, 
   const updated = { ...session, secondary: { ...base, session_rpe: result.rpe, session_duration_min: result.duration } };
   await save(updated);
   return updated;
+}
+
+/** « Ignorer » d'un élément d'« À faire » (docs/adr/0118) : aussi écrit côté
+ * dépôt (`data/config/log-dismissed.json`, `{date: ["main"|"second"|"match"]}`)
+ * pour que le rappel du soir ne le relance plus. Meilleur effort : l'ignorer
+ * local (localStorage) a déjà eu lieu. */
+export async function dismissOnServer(date, slot) {
+  const keep = addDaysISO(todayISO(), -14);
+  await ghPutJSON("data/config/log-dismissed.json", {}, "App : élément ignoré", (cur) => {
+    const next = { ...(cur || {}) };
+    next[date] = [...new Set([...(next[date] || []), slot])];
+    for (const d of Object.keys(next)) if (d < keep) delete next[d];
+    return next;
+  });
 }

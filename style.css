@@ -3242,3 +3242,11 @@ body.live-open { overflow: hidden; }
 .day-parts button b { font-size: 0.84rem; line-height: 1.2; }
 .day-parts button small { font-size: 0.74rem; color: var(--muted); }
 .day-parts button span { font-size: 1rem; }
+
+/* Équipe du week-end en un tap (docs/adr/0118) */
+.week-team { display: flex; flex-direction: column; gap: 8px; }
+.week-team-set { flex-direction: row; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; padding-bottom: 10px; }
+.week-team-title { margin: 0; }
+.week-team-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.week-team-chips .suggestion-chip { min-height: 44px; }
+.week-team-hero { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }

@@ -9,6 +9,7 @@ import { setupMicButton } from "../voice-input.js";
 import { dayInitial, shortDateFr } from "./data-viz.js";
 import { feelScalesHTML, wireFeelScales, readFeel, feelSummaryText } from "../match-feel.js";
 import { loadPlayingTeams, savePlayingTeams, playsIn, ALL_TEAMS } from "../match-teams.js";
+import { weekTeamChipsHTML, wireWeekTeamChips, currentChoice } from "../week-team.js";
 
 const MONTH_NAMES_FR = [
   "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
@@ -73,6 +74,7 @@ function nextMatchHeroHTML(g, today, nextPlayed) {
         <div><span>Lieu</span><b>${escapeHtmlText(g.home_away || "")}</b></div>
       </div>
       <p class="next-match-note">${escapeHtmlText(g.phase ? `Phase ${g.phase.toLowerCase()}` : "")}${playing ? " · tu es dans le groupe" : " · tu ne joues pas encore en Première"}</p>
+      ${days >= 0 && days <= 8 ? `<div class="week-team-hero"><span class="muted small">Ce match, je joue en</span>${weekTeamChipsHTML(g.date, currentChoice(g.date))}<p class="muted small week-team-status" aria-live="polite"></p></div>` : ""}
       ${playsAny && days >= 0 && days <= 7 ? primerChoiceHTML(g.date, days) : ""}
     </section>`;
 }
@@ -235,6 +237,7 @@ export async function renderCalendar(token) {
       el.querySelectorAll(".primer-add").forEach((b) => (b.disabled = false));
     }
   }));
+  wireWeekTeamChips(el, () => renderCalendar(token));
   wireMatchPerformanceForms(el);
   el.querySelectorAll("[data-team-toggle]").forEach((chip) => chip.addEventListener("click", async () => {
     const t = chip.dataset.teamToggle;

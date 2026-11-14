@@ -16,7 +16,8 @@ import { renderDigestSections } from "../plan-overview.js";
 import { setupMicButton } from "../voice-input.js";
 import { renderSystemStatus, latestDigestDate } from "../system-status.js";
 import { openRpeSheet } from "../rpe-sheet.js";
-import { chainSecondaryLoad } from "../second-session.js";
+import { chainSecondaryLoad, dismissOnServer } from "../second-session.js";
+import { renderWeekTeamCard } from "../week-team.js";
 import { saveSession } from "../session/session-form.js";
 import { blankSession, blankSecondarySession } from "../session/session-model.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
@@ -728,6 +729,7 @@ async function loadTodo(token) {
       else if (kind === "proposal") proposals[i].go();
       else if (kind === "dismiss") {
         try { localStorage.setItem(quickLoadDismissKey(loads[i].date) + (loads[i].secondary ? "_2" : ""), "1"); } catch (_) {}
+        dismissOnServer(loads[i].date, loads[i].secondary ? "second" : "main").catch(() => {});
         loadTodo(state.renderToken).catch(() => {});
       } else if (kind === "load") {
         const status = btn.querySelector(".todo-load-status");
@@ -1032,6 +1034,7 @@ export async function renderToday(token) {
   loadCheckin(token).catch(() => {});
   loadTodaySession(token).catch(() => {});
   loadMatchFeel(token).catch(() => {});
+  renderWeekTeamCard(token, stale).catch(() => {});
   loadTodo(token).catch(() => {});
   renderSystemStatus(token).catch(() => {});
 
