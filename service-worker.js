@@ -6,7 +6,7 @@
 // byte-comparing this file against the installed one, so if this file's
 // bytes don't change, no update is ever detected and clients stay on the
 // old cached shell indefinitely, however much app.js/style.css changed.
-const CACHE_NAME = "coach-shell-v118";
+const CACHE_NAME = "coach-shell-v119";
 const SHELL_FILES = [
   "./",
   "./index.html",
@@ -42,6 +42,7 @@ const SHELL_FILES = [
   "./js/second-session.js",
   "./js/week-team.js",
   "./js/weekly-review.js",
+  "./js/deeplink.js",
   "./js/sync-status.js",
   "./js/push-notifications.js",
   "./js/views/today.js",
@@ -112,8 +113,11 @@ self.addEventListener("fetch", (event) => {
   // data is never served stale from cache.
   if (url.origin !== self.location.origin) return;
 
+  // Une navigation avec query (?go=…, docs/adr/0120) doit retomber sur le
+  // shell en cache, y compris hors-ligne.
+  const options = event.request.mode === "navigate" ? { ignoreSearch: true } : undefined;
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    caches.match(event.request, options).then((cached) => cached || fetch(event.request))
   );
 });
 
@@ -143,7 +147,10 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
       const existing = clients.find((c) => c.url.startsWith(self.location.origin));
-      if (existing) return existing.focus();
+      if (existing) {
+        existing.postMessage({ type: "deeplink", url });
+        return existing.focus();
+      }
       return self.clients.openWindow(url);
     })
   );

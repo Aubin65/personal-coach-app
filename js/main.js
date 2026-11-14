@@ -7,6 +7,7 @@ import { startQueueWatcher } from "./offline-queue.js";
 import { startSummaryWatch } from "./summary-watch.js";
 import { sessionRuntime } from "./session/session-state.js";
 import { applyTheme } from "./theme.js";
+import { applyDeepLink } from "./deeplink.js";
 
 applyTheme();
 
@@ -31,6 +32,13 @@ async function init() {
     // clients.claim(); reload once when that happens so an app left open
     // in the background picks up the new shell itself, instead of the
     // person having to manually close/reopen it.
+    // Notification touchée alors que l'app est déjà ouverte : le service worker
+    // nous passe le lien. Jamais en pleine séance (saisie en mémoire).
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      const msg = event.data || {};
+      if (msg.type !== "deeplink" || sessionRuntime.working) return;
+      applyDeepLink(new URL(msg.url, window.location.href).search, showView);
+    });
     let reloadedForNewVersion = false;
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (reloadedForNewVersion) return;
@@ -48,7 +56,10 @@ async function init() {
   const enterApp = () => {
     loginScreen.hidden = true;
     app.hidden = false;
-    showView("today");
+    // Lien profond (notification, raccourci d'icône) : ouvre l'écran visé ; la
+    // query est ensuite retirée pour qu'un rechargement revienne à l'accueil.
+    if (!applyDeepLink(window.location.search, showView)) showView("today");
+    if (window.location.search) history.replaceState(null, "", window.location.pathname);
     loadSyncStatus();
     // Keeps the relative "il y a X min" text honest as time passes, and
     // picks up a newer sync without needing a manual refresh.
