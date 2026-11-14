@@ -3250,3 +3250,8 @@ body.live-open { overflow: hidden; }
 .week-team-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .week-team-chips .suggestion-chip { min-height: 44px; }
 .week-team-hero { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+
+/* Bilan de la semaine (ADR-0119) */
+.weekly-review { display: flex; flex-direction: column; gap: 8px; }
+.weekly-review-headline { margin: 0; font-weight: 600; }
+.review-list { padding-left: 18px; margin: 8px 0; }

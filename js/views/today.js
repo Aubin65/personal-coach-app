@@ -18,6 +18,7 @@ import { renderSystemStatus, latestDigestDate } from "../system-status.js";
 import { openRpeSheet } from "../rpe-sheet.js";
 import { chainSecondaryLoad, dismissOnServer } from "../second-session.js";
 import { renderWeekTeamCard } from "../week-team.js";
+import { renderWeeklyReviewCard } from "../weekly-review.js";
 import { saveSession } from "../session/session-form.js";
 import { blankSession, blankSecondarySession } from "../session/session-model.js";
 import { registerQueuedOp, runQueued } from "../offline-queue.js";
@@ -1035,6 +1036,7 @@ export async function renderToday(token) {
   loadTodaySession(token).catch(() => {});
   loadMatchFeel(token).catch(() => {});
   renderWeekTeamCard(token, stale).catch(() => {});
+  renderWeeklyReviewCard(token, stale).catch(() => {});
   loadTodo(token).catch(() => {});
   renderSystemStatus(token).catch(() => {});
 
