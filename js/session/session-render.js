@@ -15,6 +15,7 @@ import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 import { setEventsListHTML } from "./set-events.js";
 import { MACHINES, cardioPrescription, cardioStats, headlineMetric, totalsLine, fmtDuration, num, isShortIntervals, cardioDone, cardioRoundsDone } from "../cardio.js";
 import { blockResultText } from "../plan-overview.js";
+import { overviewHTML, wireOverview } from "./session-overview.js";
 import { sessionSig, loadDraft, clearDraft, pruneDrafts, touchSession, draftNoticeHTML } from "./session-draft.js";
 
 // ---------- Session detail : voir/loguer/planifier n'importe quelle date ----------
@@ -145,6 +146,7 @@ export function renderSessionContent() {
     ${dayPartsBarHTML(session, sessionRuntime.working.clubSecondaryExpected)}
     ${timerBarHTML(date)}
     ${type === "musculation" && liveExerciseIndices(session).length ? liveModeCtaHTML(session) : ""}
+    ${type === "musculation" ? overviewHTML(session) : ""}
     ${type === "musculation" ? musculationBodyHTML(session) : ""}
     <section class="card">
       <label>${notesLabelFor(type)}</label>
@@ -160,6 +162,7 @@ export function renderSessionContent() {
 
   bindDraftNotice();
   bindSessionContentEvents();
+  wireOverview(el, () => { sessionRuntime.syncForm(); return sessionRuntime.working.session; });
   bindCancelSession();
   bindDeleteSession();
   const liveBtn = document.getElementById("open-live-mode");

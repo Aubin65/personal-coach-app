@@ -3255,3 +3255,18 @@ body.live-open { overflow: hidden; }
 .weekly-review { display: flex; flex-direction: column; gap: 8px; }
 .weekly-review-headline { margin: 0; font-weight: 600; }
 .review-list { padding-left: 18px; margin: 8px 0; }
+
+/* Aperçu de la séance (ADR-0122) */
+.session-overview summary { cursor: pointer; display: flex; align-items: baseline; gap: 8px; }
+.ov-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 0.84rem; margin-top: 8px; }
+.ov-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: 0.74rem; padding: 2px 4px 4px; }
+.ov-table th:nth-child(1) { width: 40%; } .ov-table th:nth-child(2) { width: 36%; } .ov-table th:nth-child(3) { width: 24%; }
+.ov-table td { padding: 7px 4px; border-top: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.ov-row { cursor: pointer; }
+.ov-name { font-weight: 600; }
+.ov-sub .ov-name { font-weight: 500; padding-left: 10px; }
+.ov-head td { background: var(--surface-2); font-size: 0.76rem; font-weight: 700; padding: 5px 4px; }
+.ov-done { text-align: right; white-space: nowrap; color: var(--muted); }
+.ov-done.done { color: #1E7A46; font-weight: 600; }
+.ov-done.partial { color: var(--kind-muscu-ink); font-weight: 600; }
+.ov-flash { outline: 2px solid var(--gold); transition: outline-color 1s; }
