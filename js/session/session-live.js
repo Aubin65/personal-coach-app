@@ -10,7 +10,7 @@ import { hydrateExecRows, hydrateSetRows, serializeExecRows } from "./session-ex
 import { ghGetFile } from "../github-api.js";
 import { normalizeName } from "../exercise-stats.js";
 import { escapeHtmlText, escapeAttr } from "../markdown.js";
-import { MACHINES, filledIntervals, cardioStats, headlineMetric, totalsLine, cardioPrescription, fmtDuration, writeCardioExecuted, num, restAfter, blockSize, isShortIntervals, primaryUnit, writeCardioTotal, cardioRoundsDone } from "../cardio.js";
+import { MACHINES, filledIntervals, cardioStats, headlineMetric, totalsLine, cardioPrescription, fmtDuration, writeCardioExecuted, num, restAfter, blockSize, isShortIntervals, primaryUnit, writeCardioTotal, cardioRoundsDone, usesTotalEntry, setEntryPref } from "../cardio.js";
 import { EXERCISE_FORMATS } from "../session-types.js";
 
 // ============================================================================
@@ -656,7 +656,7 @@ function cardioAdvance(ex) {
   const restMs = phaseDuration(ex, "rest");
   if (run.phase === "work") {
     run.completed = run.round;
-    if (isShortIntervals(ex.planned) && ex.entry_mode !== "rounds") {
+    if (isShortIntervals(ex.planned) && usesTotalEntry(ex)) {
       const e = ex.executed || {};
       writeCardioTotal(ex, { rounds_done: run.completed, total_cal: e.entry === "total" ? e.total_cal : null, total_distance_m: e.entry === "total" ? e.total_distance_m : null });
     }
@@ -699,7 +699,7 @@ function cardioLastText(name) {
 function renderCardio(session, ex, idx, pos) {
   const run = cardioRunFor(idx);
   const machine = MACHINES[ex.machine] || { label: "Cardio", icon: "🫀", pace: false };
-  const short = isShortIntervals(ex.planned) && ex.entry_mode !== "rounds";          // total machine en fin d'exercice
+  const short = isShortIntervals(ex.planned) && usesTotalEntry(ex);          // total machine en fin d'exercice
   const rounds = cardioRounds(ex);
   const intervals = ((ex.executed || {}).intervals || []).slice();
   while (intervals.length < rounds) intervals.push({});
@@ -833,8 +833,8 @@ function renderCardio(session, ex, idx, pos) {
     else if (what === "add-round") { const list = ((ex.executed || {}).intervals || []).slice(); while (list.length < cardioRounds(ex)) list.push({}); list.push({}); writeCardioExecuted(ex, list); }
     else if (what === "hr") { ex.track_hr = b.checked; }
     else if (what === "time") { live.cardioShowTime = !showTime; }
-    else if (what === "entry-rounds") { ex.entry_mode = "rounds"; }
-    else if (what === "entry-total") { ex.entry_mode = "total"; }
+    else if (what === "entry-rounds") { ex.entry_mode = "rounds"; setEntryPref("rounds"); }
+    else if (what === "entry-total") { ex.entry_mode = "total"; setEntryPref("total"); }
     renderSessionContent();
     render();
   }));

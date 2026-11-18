@@ -136,6 +136,28 @@ export function primaryUnit(ex) {
   return ex && ex.machine === "rameur" ? "distance_m" : "cal";
 }
 
+const ENTRY_PREF_KEY = "coach.cardioEntry";
+
+/** Mode de saisie préféré des efforts courts (mémorisé sur l'appareil) :
+ * « total » par défaut, « rounds » une fois que l'utilisateur l'a choisi. */
+export function entryPref() {
+  try { return localStorage.getItem(ENTRY_PREF_KEY) === "rounds" ? "rounds" : "total"; } catch (_) { return "total"; }
+}
+export function setEntryPref(mode) {
+  try { localStorage.setItem(ENTRY_PREF_KEY, mode === "rounds" ? "rounds" : "total"); } catch (_) { /* stockage indisponible */ }
+}
+
+/** Cet exercice se note-t-il au total (vs round par round) ? Choix explicite de la
+ * séance d'abord, puis total déjà saisi, puis préférence mémorisée pour les efforts
+ * courts encore vides. */
+export function usesTotalEntry(ex) {
+  if (ex && ex.entry_mode === "rounds") return false;
+  if (ex && ex.entry_mode === "total") return true;
+  const e = (ex && ex.executed) || {};
+  if (e.entry === "total") return true;
+  return isShortIntervals(ex && ex.planned) && !filledIntervals(e).length && entryPref() !== "rounds";
+}
+
 const isTotalEntry = (executed) => !!executed && executed.entry === "total";
 
 /** L'exercice a-t-il quelque chose de saisi (rounds ou total) ? */

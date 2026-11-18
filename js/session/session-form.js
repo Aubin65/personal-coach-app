@@ -4,7 +4,7 @@ import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
 import { notesLabelFor, notesPlaceholderFor, renderSessionContent, plannedSummary } from "./session-render.js";
 import { blankBlockMeta, defaultBlockMeta, blankExercise, blankStationExercise, blankSecondarySession, defaultSessionName, moveBlock, moveWithinBlock } from "./session-model.js";
 import { removeSetEvent } from "./set-events.js";
-import { makeCardio, writeCardioExecuted, writeCardioTotal, cardioDone, parseDuration, fmtShortDuration, cardioStats, totalsLine, headlineMetric, filledIntervals, num as cardioNum } from "../cardio.js";
+import { makeCardio, writeCardioExecuted, writeCardioTotal, cardioDone, parseDuration, fmtShortDuration, cardioStats, totalsLine, headlineMetric, filledIntervals, setEntryPref, num as cardioNum } from "../cardio.js";
 import { bindRemoveExecSetRow, addExecSetRow, fillExecRowsAsPlanned, serializeExecRows, hydrateExecRows } from "./session-exec.js";
 import { bindBlockReferenceToggle } from "../plan-overview.js";
 import { listAllSessions, findSessionForDate, invalidateAppLogIndex } from "../training-index.js";
@@ -561,6 +561,7 @@ export function bindSessionContentEvents() {
     if (btn.dataset.entry === "total") writeCardioTotal(ex, { rounds_done: 0, total_cal: null, total_distance_m: null });
     else writeCardioExecuted(ex, []);
     ex.entry_mode = btn.dataset.entry;
+    setEntryPref(btn.dataset.entry); // le choix devient celui des prochains efforts courts
     renderSessionContent();
   }));
   document.querySelectorAll(".f-cardio-hr").forEach((cb) => cb.addEventListener("change", () => {

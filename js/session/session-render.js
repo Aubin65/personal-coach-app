@@ -13,7 +13,7 @@ import { workloadSectionHTML, secondarySessionSectionHTML, dayPartsBarHTML, bind
 import { execRowsHTML, hydrateExecRows } from "./session-exec.js";
 import { openLiveMode, liveExerciseIndices } from "./session-live.js";
 import { setEventsListHTML } from "./set-events.js";
-import { MACHINES, cardioPrescription, cardioStats, headlineMetric, totalsLine, fmtDuration, num, isShortIntervals, cardioDone, cardioRoundsDone } from "../cardio.js";
+import { MACHINES, cardioPrescription, cardioStats, headlineMetric, totalsLine, fmtDuration, num, isShortIntervals, cardioDone, cardioRoundsDone, usesTotalEntry } from "../cardio.js";
 import { blockResultText } from "../plan-overview.js";
 import { overviewHTML, wireOverview } from "./session-overview.js";
 import { sessionSig, loadDraft, clearDraft, pruneDrafts, touchSession, draftNoticeHTML } from "./session-draft.js";
@@ -577,7 +577,7 @@ function cardioCardHTML(ex, idx, limits) {
   const empty = !num(planned.work_s);
   const exd = ex.executed || {};
   // Intervalles courts : on note le total de la machine, pas chaque round.
-  const totalMode = ex.entry_mode !== "rounds" && (exd.entry === "total" || isShortIntervals(planned) && !intervals.some((r) => num(r.distance_m) != null || num(r.cal) != null));
+  const totalMode = usesTotalEntry(ex);
   const machineChips = Object.entries(MACHINES).map(([key, m]) =>
     `<button type="button" class="cardio-machine${key === machine ? " active" : ""}" data-machine="${key}" aria-pressed="${key === machine}"><span aria-hidden="true">${m.icon}</span>${m.label}</button>`).join("");
   const head = `<span>#</span><span>Temps</span><span>Distance (m)</span><span>Cal</span>${showHr ? "<span>FC</span>" : ""}<span></span>`;
