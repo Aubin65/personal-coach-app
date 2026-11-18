@@ -3203,7 +3203,9 @@ body.live-open { overflow: hidden; }
 .cardio-unit { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; font-size: 0.82rem; color: var(--muted); }
 .cardio-unit button { min-height: 36px; padding: 0 12px; border: 1.5px solid var(--border); border-radius: 18px; background: transparent; color: var(--text); font-size: 0.82rem; font-weight: 700; cursor: pointer; }
 .cardio-unit button.on { background: var(--green); border-color: var(--green); color: white; }
-.cardio-live-row { grid-template-columns: 26px minmax(0, 1fr); }
+.cardio-live-row { grid-template-columns: 26px repeat(2, minmax(0, 1fr)); }
+.cardio-live-row:has(label:nth-of-type(3)) { grid-template-columns: 26px repeat(3, minmax(0, 1fr)); }
+.cardio-live-row:has(label:nth-of-type(4)) { grid-template-columns: 26px repeat(4, minmax(0, 1fr)); }
 .cardio-live-rows.with-time .cardio-live-row, .cardio-live-rows.with-hr .cardio-live-row { grid-template-columns: 26px repeat(2, minmax(0, 1fr)); }
 .cardio-live-rows.with-time.with-hr .cardio-live-row { grid-template-columns: 26px repeat(3, minmax(0, 1fr)); }
 .cardio-live-actions { gap: 10px; flex-wrap: wrap; }

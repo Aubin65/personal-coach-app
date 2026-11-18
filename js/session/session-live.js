@@ -709,8 +709,10 @@ function renderCardio(session, ex, idx, pos) {
   const isLast = pos === live.indices.length - 1;
   const showHr = !short && (!!ex.track_hr || intervals.some((r) => num(r.hr_avg) != null));
   const showTime = !short && (!!live.cardioShowTime || intervals.some((r) => num(r.time_s) != null && num(r.time_s) !== workS));
-  const unit = primaryUnit(ex);
-  const unitLabel = unit === "cal" ? "Calories" : "Distance (m)";
+  // Les deux mesures à chaque round (distance et/ou calories, au choix), la
+  // principale de la machine en premier.
+  const measures = (primaryUnit(ex) === "cal" ? ["cal", "distance_m"] : ["distance_m", "cal"])
+    .map((field) => ({ field, label: field === "cal" ? "Calories" : "Distance (m)" }));
   const target = (ex.planned || {}).target;
   const exd = ex.executed || {};
 
@@ -742,21 +744,18 @@ function renderCardio(session, ex, idx, pos) {
         <label><span>Total calories</span><input type="text" inputmode="numeric" data-total="total_cal" value="${escapeAttr(exd.entry === "total" && exd.total_cal != null ? exd.total_cal : "")}" placeholder="—"></label>
         <label><span>Total distance (m)</span><input type="text" inputmode="numeric" data-total="total_distance_m" value="${escapeAttr(exd.entry === "total" && exd.total_distance_m != null ? exd.total_distance_m : "")}" placeholder="—"></label>
       </section>
-      <p class="muted small cardio-total-help">Lis le total sur l'écran de la machine à la fin : pas besoin de noter chaque round. Un seul des deux suffit.</p>` : `
-      <div class="cardio-unit" role="group" aria-label="Mesure notée à chaque round">
-        <span>Je note</span>
-        <button type="button" class="${unit === "distance_m" ? "on" : ""}" data-cardio="unit-distance_m">la distance</button>
-        <button type="button" class="${unit === "cal" ? "on" : ""}" data-cardio="unit-cal">les calories</button>
-      </div>
+      <p class="muted small cardio-total-help">Lis le total sur l'écran de la machine à la fin : pas besoin de noter chaque round. Un seul des deux suffit.</p>
+      <div class="cardio-live-actions"><button type="button" class="live-link" data-cardio="entry-rounds">Noter round par round</button></div>` : `
       <section class="cardio-live-rows${showTime ? " with-time" : ""}${showHr ? " with-hr" : ""}" aria-label="Rounds">${intervals.map((r, i) => `
       <div class="cardio-live-row${entryRound === i + 1 || (run.phase === "work" && run.round === i + 1) ? " current" : ""}${filledIntervals({ intervals: [r] }).length ? " filled" : ""}">
         <span class="cardio-live-num">${i + 1}</span>
-        <label><span>${unitLabel}</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="${unit}" value="${escapeAttr(r[unit] ?? "")}" placeholder="—"></label>
+        ${measures.map((m) => `<label><span>${m.label}</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="${m.field}" value="${escapeAttr(r[m.field] ?? "")}" placeholder="—"></label>`).join("")}
         ${showTime ? `<label><span>Temps</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="time_s" value="${escapeAttr(num(r.time_s) != null ? fmtDuration(num(r.time_s)) : "")}" placeholder="${escapeAttr(workS ? fmtDuration(workS) : "m:ss")}"></label>` : ""}
         ${showHr ? `<label><span>FC moy.</span><input type="text" inputmode="numeric" data-ci="${i}" data-field="hr_avg" value="${escapeAttr(r.hr_avg ?? "")}" placeholder="—"></label>` : ""}
       </div>`).join("")}</section>
       <div class="cardio-live-actions">
         <button type="button" class="live-link" data-cardio="add-round">+ Round</button>
+        ${isShortIntervals(ex.planned) ? `<button type="button" class="live-link" data-cardio="entry-total">Noter seulement le total</button>` : ""}
         <button type="button" class="live-link" data-cardio="time">${showTime ? "Masquer les temps" : "Round écourté ?"}</button>
         <label class="cardio-hr-toggle"><input type="checkbox" data-cardio="hr"${showHr ? " checked" : ""}> FC</label>
       </div>`;
@@ -834,7 +833,8 @@ function renderCardio(session, ex, idx, pos) {
     else if (what === "add-round") { const list = ((ex.executed || {}).intervals || []).slice(); while (list.length < cardioRounds(ex)) list.push({}); list.push({}); writeCardioExecuted(ex, list); }
     else if (what === "hr") { ex.track_hr = b.checked; }
     else if (what === "time") { live.cardioShowTime = !showTime; }
-    else if (what.startsWith("unit-")) { ex.unit = what.slice(5); }
+    else if (what === "entry-rounds") { ex.entry_mode = "rounds"; }
+    else if (what === "entry-total") { ex.entry_mode = "total"; }
     renderSessionContent();
     render();
   }));
