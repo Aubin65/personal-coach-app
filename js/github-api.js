@@ -83,6 +83,21 @@ async function readCacheGet(path) {
   }
 }
 
+/** Erreur lisible pour une réponse GitHub en échec : ajoute la cause (limite de
+ * requêtes avec l'heure de reprise, message de GitHub) au lieu du seul code HTTP. */
+async function httpError(res, doing, path) {
+  let detail = "";
+  try { detail = ((await res.clone().json()) || {}).message || ""; } catch (_) { /* corps non JSON */ }
+  const remaining = res.headers.get("x-ratelimit-remaining");
+  const reset = Number(res.headers.get("x-ratelimit-reset"));
+  const retryAfter = Number(res.headers.get("retry-after"));
+  let cause = detail;
+  if (remaining === "0" && reset) cause = `limite de requêtes GitHub atteinte, reprise à ${new Date(reset * 1000).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+  else if (/secondary rate limit|abuse/i.test(detail) || retryAfter) cause = `trop de requêtes d'affilée${retryAfter ? `, réessaie dans ${retryAfter} s` : ""}`;
+  else if (/not accessible by personal access token/i.test(detail)) cause = "le token n'a pas la permission sur ce chemin";
+  return new Error(`GitHub ${res.status} en ${doing} ${path}${cause ? ` — ${cause}` : ""}`);
+}
+
 /** {content, sha} for a file, or null if it doesn't exist (404). Throws on
  * any other error (bad token, rate limit, etc.) so callers can surface it.
  * Hors-ligne, resservi depuis la dernière lecture réussie s'il y en a une. */
@@ -98,7 +113,7 @@ export async function ghGetFile(path) {
     throw err;
   }
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`GitHub ${res.status} en lisant ${path}`);
+  if (!res.ok) throw await httpError(res, "lisant", path);
   const data = await res.json();
   const file = { content: b64DecodeUtf8(data.content), sha: data.sha };
   readCachePut(path, file);
@@ -119,7 +134,7 @@ export async function ghListDir(path) {
     throw err;
   }
   if (res.status === 404) return [];
-  if (!res.ok) throw new Error(`GitHub ${res.status} en listant ${path}`);
+  if (!res.ok) throw await httpError(res, "listant", path);
   const data = await res.json();
   const entries = Array.isArray(data) ? data : [];
   readCachePut(`${path}/`, entries);
