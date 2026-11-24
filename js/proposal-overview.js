@@ -59,21 +59,27 @@ export function proposedDayHTML(date, dayIndex, d, { editable = false } = {}) {
   const exercises = d.exercises || [];
   const head = `${icon} <strong>${DAY_SHORT[dayIndex]}</strong> ${date.slice(8, 10)}/${date.slice(5, 7)} — ${escapeHtmlText(d.name || "")}`;
   const edit = editable ? `<button type="button" class="icon-button small forge-proposal-edit" data-date="${date}" title="Modifier avant validation" aria-label="Modifier avant validation">✏️</button>` : "";
-  // 2e séance du jour (docs/adr/0117) : un bloc distinct sous la 1re.
+  // 2e séance du jour (docs/adr/0117, 0123) : dans la MÊME carte que la 1re,
+  // sous un séparateur « puis », au lieu d'une seconde boîte détachée.
   const sec = d.secondary;
   const secT = sec ? SESSION_TYPES[sec.type] : null;
   const secondary = sec
-    ? `<div class="po-day po-day-second"><div class="po-day-head"><span>${secT ? secT.icon : "➕"} <strong>2e séance</strong> — ${escapeHtmlText(sec.name || "")}</span></div>${sec.notes ? `<p class="muted small">${escapeHtmlText(sec.notes)}</p>` : ""}</div>`
+    ? `<div class="po-part po-part-second">
+        <div class="po-part-label"><span>puis</span> ${secT ? secT.icon : "➕"} <strong>${escapeHtmlText(sec.name || "2e séance")}</strong>${secT ? `<span class="po-part-type">${escapeHtmlText(sec.type === "rugby" ? "Club / rugby" : secT.label)}${sec.type === "autre" && sec.distance_km != null ? ` · ${escapeHtmlText(String(sec.distance_km))} km` : ""}</span>` : ""}</div>
+        ${sec.notes ? `<p class="muted small po-part-notes">${escapeHtmlText(sec.notes)}</p>` : ""}
+      </div>`
     : "";
+  const badge = sec ? `<span class="po-badge">2 séances</span>` : "";
   if (!exercises.length) {
-    return `<div class="po-day-group"><div class="po-day po-day-flat"><div class="po-day-head"><span>${head}</span>${edit}</div>${d.notes ? `<p class="muted small">${escapeHtmlText(d.notes)}</p>` : ""}</div>${secondary}</div>`;
+    return `<div class="po-day-group"><div class="po-day po-day-flat${sec ? " po-day-two" : ""}"><div class="po-day-head"><span>${head}</span>${badge}${edit}</div>${d.notes ? `<p class="muted small">${escapeHtmlText(d.notes)}</p>` : ""}${secondary}</div></div>`;
   }
   return `<div class="po-day-group">
-    <details class="po-day" open>
-      <summary><span>${head}</span><span class="muted small po-count">${exercises.length} exo</span>${edit}</summary>
+    <details class="po-day${sec ? " po-day-two" : ""}" open>
+      <summary><span>${head}</span>${badge}<span class="muted small po-count">${exercises.length} exo</span>${edit}</summary>
       ${exercisesOverviewHTML(exercises)}
       ${d.notes ? `<p class="muted small po-day-notes">${escapeHtmlText(d.notes)}</p>` : ""}
-    </details>${secondary}</div>`;
+      ${secondary}
+    </details></div>`;
 }
 
 /** Les boutons ✏️ vivent dans <summary> : ne pas replier/déplier au clic. */

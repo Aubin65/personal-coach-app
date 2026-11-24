@@ -1498,6 +1498,19 @@ label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 
 .forge-quick-type-button:active { transform: scale(0.92); }
 .forge-quick-type-button:disabled { opacity: 0.4; }
 
+/* 2e séance dans le planificateur de la Forge (ADR-0123) */
+.forge-second { display: flex; align-items: center; gap: 6px; margin: 6px 0 0 14px; padding-left: 10px; border-left: 3px solid var(--gold); }
+.forge-second-label { font-size: 0.74rem; font-weight: 600; text-transform: uppercase; color: var(--muted); font-family: var(--font-display); margin-right: auto; }
+.forge-second-add-button { background: var(--card-bg); border: 1px dashed var(--border); border-radius: 999px; padding: 6px 12px; font-size: 0.8rem; color: var(--text); cursor: pointer; }
+.forge-second-add-button:active { transform: scale(0.95); }
+.forge-second-add-button:disabled { opacity: 0.4; }
+.forge-second-tile { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; text-align: left; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; color: var(--text); cursor: pointer; }
+.forge-second-tile:active { background: var(--bg); }
+.forge-second-ico { font-size: 1.2rem; }
+.forge-second-text { display: flex; flex-direction: column; min-width: 0; }
+.forge-second-text strong { font-size: 0.92rem; overflow-wrap: anywhere; }
+.forge-second-text small { font-size: 0.76rem; color: var(--muted); }
+
 /* ---------- Data : sparklines, tendances, charge ---------- */
 .sparkline { display: block; width: 100%; height: auto; margin: 6px 0; }
 .trend-line { font-size: 1.3rem; font-family: var(--font-display); font-weight: 600; margin: 4px 0 0; }
@@ -3231,7 +3244,13 @@ body.live-open { overflow: hidden; }
 
 /* Jour à deux séances (docs/adr/0117) */
 .po-day-group { display: flex; flex-direction: column; gap: 4px; }
-.po-day-second { margin-left: 14px; border-left: 3px solid var(--gold); }
+.po-day-two { border-left: 3px solid var(--gold); }
+.po-badge { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; color: var(--gold-ink, #8a6414); background: color-mix(in srgb, var(--gold) 22%, transparent); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.po-part-second { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.po-part-label { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; font-size: 0.88rem; }
+.po-part-label > span:first-child { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; color: var(--muted); }
+.po-part-type { font-size: 0.74rem; color: var(--muted); }
+.po-part-notes { margin: 4px 0 0; }
 .week-list .week-day-second { margin-top: -4px; }
 .week-day-second .week-day-label small { font-size: 1.1rem; color: var(--muted); }
 .week-day-second .week-day-card { min-height: 52px; margin-left: 12px; border-left: 3px solid var(--gold); border-radius: 6px 18px 18px 6px; }
@@ -3305,3 +3324,7 @@ body.live-open { overflow: hidden; }
 .bloc-next .primary-button { width: 100%; margin: 0; }
 .bloc-pick.status-draft { border-style: dashed; }
 .bloc-actions { display: flex; flex-direction: column; gap: 8px; }
+
+/* 2e séance dans les listes hebdo (ADR-0123) */
+.week-table-second td { padding-top: 0; font-size: 0.88rem; }
+.history-second { margin-left: 14px; }

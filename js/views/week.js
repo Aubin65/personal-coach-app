@@ -51,7 +51,7 @@ async function markdownFromSessions(monday) {
   const summaries = await Promise.all(dates.map((d) => lookupDaySummary(d)));
   if (!summaries.some((s) => s.hasSession)) return null;
   return dates
-    .map((d, i) => `## ${DAY_NAMES[i]} ${parseInt(d.slice(8, 10), 10)}/${parseInt(d.slice(5, 7), 10)} — ${summaries[i].hasSession ? summaries[i].name || "Séance" : "Repos"}`)
+    .map((d, i) => `## ${DAY_NAMES[i]} ${parseInt(d.slice(8, 10), 10)}/${parseInt(d.slice(5, 7), 10)} — ${summaries[i].hasSession ? (summaries[i].name || "Séance") + (summaries[i].secondaryType ? ` · puis ${summaries[i].secondaryName || "2e séance"}` : "") : "Repos"}`)
     .join("\n");
 }
 
@@ -183,12 +183,20 @@ async function renderWeekSessionsTable(token, mondayISO, planDays) {
       // Repos : posé comme séance de type « repos », ou prévu « Repos » au plan sans rien de logué.
       const restDay = s.type === "repos" || (!s.hasSession && /^\s*repos/i.test(plannedLabel));
       const status = sessionDayStatus(date, s.hasSession, s.hasExecuted, today, restDay ? "repos" : s.type);
+      // Jour à deux séances (ADR-0123) : la 2e sur sa propre ligne, avec son statut.
+      const secStatus = s.secondaryLogged ? "✅ Fait" : date < today ? "— À loguer" : "📝 Prévu";
+      const second = !restDay && s.secondaryType ? `
+        <tr class="week-table-row week-table-second" data-date="${date}">
+          <td class="muted">+</td>
+          <td>${escapeHtmlText(s.secondaryName || "2e séance")} <small class="muted">2e séance</small></td>
+          <td>${secStatus}</td>
+        </tr>` : "";
       return `
         <tr class="week-table-row" data-date="${date}">
           <td>${DAY_NAMES[i].slice(0, 3)} ${date.slice(8, 10)}/${date.slice(5, 7)}</td>
           <td>${escapeHtmlText(plannedLabel)}</td>
           <td>${status}</td>
-        </tr>`;
+        </tr>${second}`;
     })
     .join("");
 
@@ -541,11 +549,16 @@ async function renderSessionHistoryWeek(token) {
           <span class="history-dot" aria-hidden="true"></span>
           <span class="history-main"><span class="history-date">${DAY_NAMES[i]} ${date.slice(8, 10)}/${date.slice(5, 7)}</span><span class="history-sub">${escapeHtmlText(s.name || "Séance")}</span></span>
           ${statusLabel ? `<span class="pill ${pill}">${escapeHtmlText(statusLabel)}</span>` : ""}
-        </button>`;
+        </button>${s.secondaryType && s.type !== "repos" ? `
+        <button class="history-item history-session history-second type-${escapeAttr(s.secondaryType)}" data-date="${date}" data-second="1">
+          <span class="history-dot" aria-hidden="true"></span>
+          <span class="history-main"><span class="history-date">+ 2e séance</span><span class="history-sub">${escapeHtmlText(s.secondaryName || "2e séance")}</span></span>
+          <span class="pill ${s.secondaryLogged ? "pill-ok" : date < today ? "pill-alert" : "pill-gold"}">${s.secondaryLogged ? "Fait" : date < today ? "Non loggée" : "Prévue"}</span>
+        </button>` : ""}`;
     })
     .join("");
   container.innerHTML = rows || "<p class='muted small'>Pas de séance cette semaine-là.</p>";
   container.querySelectorAll(".history-item[data-date]").forEach((btn) => {
-    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date }));
+    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date, focusSecondary: !!btn.dataset.second }));
   });
 }

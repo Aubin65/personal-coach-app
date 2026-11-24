@@ -5,8 +5,8 @@ import { skeletonHTML, escapeAttr, escapeHtmlText } from "../markdown.js";
 export { forgeProposalDayToSession };
 import { bindBlockReferenceToggle, DAY_NAMES } from "../plan-overview.js";
 import { lookupDaySummary, findSessionForDate } from "../training-index.js";
-import { SESSION_TYPES } from "../session-types.js";
-import { blankSession, defaultSessionName } from "../session/session-model.js";
+import { SESSION_TYPES, SECONDARY_SESSION_TYPES } from "../session-types.js";
+import { blankSession, blankSecondarySession, defaultSessionName } from "../session/session-model.js";
 import { saveSession } from "../session/session-form.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { loadPendingSkeletonInto, forgeProposalDayToSession } from "../forge-proposal.js";
@@ -100,7 +100,40 @@ function primerButtonHTML(date, s) {
   return `<button type="button" class="forge-primer" data-date="${date}">⚡ Ajouter un primer ${kind === "veille" ? "(veille de match)" : "(jour de match)"}</button>`;
 }
 
+/** Dernier résumé connu de chaque jour affiché : les patchs d'une seule ligne
+ * (type rapide, 2e séance, primer) repartent de lui sans relire le dépôt. */
+const forgeSummaries = new Map();
+
+const SECOND_ADD_LABELS = { rugby: "🏉 Rugby / club", autre: "🏃 Autre" };
+
+/** Une 2e séance n'a de sens que sur une séance de salle ou « autre » (ADR-0117). */
+const canHaveSecond = (s) => s.hasSession && !["repos", "rugby"].includes(s.type || "musculation");
+
+/** Sous la tuile du jour : la 2e séance (tuile secondaire + retrait) ou les boutons
+ * pour en ajouter une (docs/adr/0123). */
+function forgeSecondHTML(date, s, today) {
+  if (!canHaveSecond(s)) return "";
+  if (!s.secondaryType) {
+    return `<div class="forge-second forge-second-add" role="group" aria-label="Ajouter une 2e séance">
+      <span class="forge-second-label">+ 2e séance</span>
+      ${SECONDARY_SESSION_TYPES.map((t) => `<button type="button" class="forge-second-add-button" data-date="${date}" data-type="${t}">${SECOND_ADD_LABELS[t] || escapeHtmlText(t)}</button>`).join("")}
+    </div>`;
+  }
+  const t = SESSION_TYPES[s.secondaryType];
+  const status = s.secondaryLogged ? "✅ Fait" : date < today ? "— À loguer" : date === today ? "📝 À noter" : "📝 Prévu";
+  const name = s.secondaryName || (s.secondaryType === "rugby" ? "Entraînement club" : "2e séance");
+  const note = s.virtualSecondary ? " · jour de club" : "";
+  return `<div class="forge-second forge-second-has">
+    <button type="button" class="forge-second-tile" data-date="${date}" aria-label="Ouvrir la 2e séance du ${date.slice(8, 10)}/${date.slice(5, 7)}">
+      <span class="forge-second-ico" aria-hidden="true">${t ? t.icon : "➕"}</span>
+      <span class="forge-second-text"><strong>${escapeHtmlText(name)}</strong><small>2e séance${note} · ${status}</small></span>
+    </button>
+    ${s.virtualSecondary ? "" : `<button type="button" class="forge-second-remove icon-button small" data-date="${date}" title="Retirer la 2e séance" aria-label="Retirer la 2e séance">✕</button>`}
+  </div>`;
+}
+
 function forgeDayRowHTML(date, dayIndex, s, today) {
+  forgeSummaries.set(date, s);
   const type = s.hasSession ? s.type || "musculation" : null;
   const label = s.hasSession ? `${SESSION_TYPES[type] ? SESSION_TYPES[type].icon : "🏋️"} ${escapeHtmlText(s.name || "Séance")}` : "Aucune séance planifiée";
   return `
@@ -111,6 +144,7 @@ function forgeDayRowHTML(date, dayIndex, s, today) {
         <div class="forge-day-status">${sessionDayStatus(date, s.hasSession, s.hasExecuted, today, s.type)}</div>
       </button>
       <div class="forge-quick-types">${quickTypeButtonsHTML(date, type)}</div>
+      ${forgeSecondHTML(date, s, today)}
       ${primerButtonHTML(date, s)}
     </div>`;
 }
@@ -125,6 +159,46 @@ function bindForgeDayRowEvents(scope) {
   scope.querySelectorAll("button.forge-primer").forEach((btn) => {
     btn.addEventListener("click", () => handleForgePrimer(btn));
   });
+  scope.querySelectorAll(".forge-second-tile").forEach((btn) => {
+    btn.addEventListener("click", () => showView("session", { date: btn.dataset.date, focusSecondary: true }));
+  });
+  scope.querySelectorAll(".forge-second-add-button").forEach((btn) => {
+    btn.addEventListener("click", () => handleForgeSecond(btn, btn.dataset.type));
+  });
+  scope.querySelectorAll(".forge-second-remove").forEach((btn) => {
+    btn.addEventListener("click", () => handleForgeSecond(btn, null));
+  });
+}
+
+/** Ajoute (type) ou retire (null) la 2e séance d'un jour depuis la Forge, en ne
+ * patchant que cette ligne. Écrit la séance complète : la 1re reste intacte. */
+async function handleForgeSecond(btn, type) {
+  const row = btn.closest(".forge-day-row");
+  const date = btn.dataset.date;
+  const dayIndex = +row.dataset.dayIndex;
+  const prev = forgeSummaries.get(date) || {};
+  row.querySelectorAll(".forge-second button").forEach((b) => (b.disabled = true));
+  try {
+    const found = await findSessionForDate(date);
+    const session = found.session;
+    if (!session) return;
+    if (type === null) {
+      const sec = session.secondary;
+      const logged = sec && (sec.session_rpe != null || sec.session_duration_min != null);
+      if (logged && !window.confirm(`Retirer la 2e séance déjà notée du ${formatFrDate(date)} (${sec.name || "2e séance"}) ?`)) return;
+      const { secondary, ...rest } = session;
+      await saveSession(found.weekLabel || "app", date, rest);
+      row.outerHTML = forgeDayRowHTML(date, dayIndex, { ...prev, secondaryType: null, secondaryName: null, secondaryLogged: false, virtualSecondary: false }, todayISO());
+    } else {
+      const secondary = blankSecondarySession(date, type);
+      await saveSession(found.weekLabel || "app", date, { ...session, secondary });
+      row.outerHTML = forgeDayRowHTML(date, dayIndex, { ...prev, secondaryType: type, secondaryName: secondary.name, secondaryLogged: false, virtualSecondary: false }, todayISO());
+    }
+    bindForgeDayRowEvents(document.querySelector(`.forge-day-row[data-date="${date}"]`));
+  } catch (err) {
+    row.querySelectorAll(".forge-second button").forEach((b) => (b.disabled = false));
+    window.alert(`Échec : ${err.message}`);
+  }
 }
 
 async function handleForgePrimer(btn) {
@@ -217,12 +291,21 @@ async function quickSetDayType(date, type) {
   const existing = found.session;
   if (existing && (existing.type || "musculation") === type) return null; // already this type
   if (sessionHasContent(existing)) {
-    const ok = window.confirm(`Remplacer la séance déjà renseignée du ${formatFrDate(date)} (${existing.name}) ?`);
+    const loses = existing.secondary && ["repos", "rugby"].includes(type) ? ` Sa 2e séance (${existing.secondary.name || "2e séance"}) sera retirée.` : "";
+    const ok = window.confirm(`Remplacer la séance déjà renseignée du ${formatFrDate(date)} (${existing.name}) ?${loses}`);
     if (!ok) return null;
   }
   const session = blankSession(date, type);
+  // La 2e séance survit au changement de type tant que le nouveau type en accepte une.
+  const keepSecond = existing && existing.secondary && !["repos", "rugby"].includes(type);
+  if (keepSecond) session.secondary = existing.secondary;
   await saveSession(found.weekLabel || "app", date, session);
-  return { hasSession: true, type: session.type, name: session.name, hasExecuted: false };
+  const sec = keepSecond ? existing.secondary : null;
+  return {
+    hasSession: true, type: session.type, name: session.name, hasExecuted: false,
+    secondaryType: sec ? sec.type : null, secondaryName: sec ? sec.name : null,
+    secondaryLogged: !!(sec && (sec.session_rpe != null || sec.session_duration_min != null)),
+  };
 }
 
 const WEEKDAY_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
