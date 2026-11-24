@@ -6,6 +6,7 @@ import { escapeAttr, escapeHtmlText, skeletonHTML } from "../markdown.js";
 import { setupMicButton } from "../voice-input.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { keepDraft, dropDraft } from "../text-drafts.js";
+import { GOAL_LIFTS, GOAL_PAIN_ZONES, goalsFromText, textFromGoals, parseGoalLine, isTracked, fmtKg } from "../block-goals.js";
 
 // ============================================================================
 // Forge de bloc (docs/adr/0085) — retour d'Aubin : « une forme de forge qui me
@@ -53,7 +54,8 @@ function parse(file, fallback) {
   try { return JSON.parse(file.content) || fallback; } catch (_) { return fallback; }
 }
 
-/** Libellés de blocs connus : B<n>.md existants, brouillons, et le suivant. */
+/** Libellés de blocs connus : B<n>.md existants, brouillons, et le suivant.
+ * `knownLabels.created` : ceux qui ont déjà un B<n>.md (ADR-0123). */
 async function knownLabels() {
   const [blocks, drafts] = await Promise.all([ghListDir("data/blocks").catch(() => []), ghListDir("data/blocks/drafts").catch(() => [])]);
   const nums = new Set();
@@ -62,6 +64,7 @@ async function knownLabels() {
   for (const e of drafts) { const m = /^B(\d+)\.json$/.exec(e.name || ""); if (m) draftNums.add(Number(m[1])); }
   const next = Math.max(0, ...nums) + 1; // le bloc qui suit le dernier créé
   const all = new Set([...draftNums, next]);
+  knownLabels.created = new Set([...nums].map((n) => `B${n}`));
   return [...all].sort((a, b) => a - b).map((n) => `B${n}`);
 }
 
@@ -197,7 +200,7 @@ function startingPoint(sum, matches) {
     const pct = t.progress_fraction != null ? Math.round(t.progress_fraction * 100) : null;
     const target = t.target.four_rm.toFixed(1).replace(".", ",");
     facts.push(`${label} : ${best != null ? `${best}` : "—"} → ${target} kg${pct != null ? ` (${pct} %)` : ""}`);
-    if (pct == null || pct < 100) quick.push(`${label} : ${best != null ? `${best} → ` : ""}${target} kg (4RM)`);
+    if (best != null && (pct == null || pct < 100)) quick.push(`${label} : ${fmtKg(best)} → ${fmtKg(t.target.four_rm)} kg (cible 4RM long terme)`);
   }
   const chin = (sum.strength_trajectory || {}).chin_up;
   if (chin && chin.target) {
@@ -216,6 +219,11 @@ function startingPoint(sum, matches) {
       if (o.kind === "frequency" && o.weeks_complete) return `muscu ${o.weeks_met}/${o.weeks_complete} semaines tenues${o.pain && o.pain.count ? `, ${o.pain.count} gêne(s) ${o.pain.zone}` : ""}`;
       return null;
     }).filter(Boolean);
+    for (const o of previous.objectives || []) {
+      if (o.kind === "lift" && o.pace !== "pas_de_donnee" && o.current != null && o.target - o.current >= 2.5) {
+        quick.unshift(`${o.exercise} : ${fmtKg(o.current)} → ${fmtKg(o.target)} kg (reconduit de ${previous.label})`);
+      }
+    }
     if (bits.length) facts.unshift(`Bilan ${previous.label}${previous.status === "en_cours" ? ` (semaine ${previous.week}/${previous.weeks})` : ""} : ${bits.join(" · ")}`);
   }
   const w = sum.workload;
@@ -260,6 +268,8 @@ async function drawBloc(root, token) {
   const label = state.forgeBlocLabel;
   const today = todayISO();
   const labels = await knownLabels();
+  const created = knownLabels.created || new Set();
+  const isNew = !created.has(label);
   const [draftFile, coachFile, summaryFile, matches, club] = await Promise.all([
     ghGetFile(draftPath(label)).catch(() => null),
     ghGetFile(coachPath(label)).catch(() => null),
@@ -294,7 +304,10 @@ async function drawBloc(root, token) {
   root.innerHTML = `
     <section class="card bloc-head">
       <div class="card-head"><h2>Forge de bloc</h2>
-        <select id="bloc-label" aria-label="Bloc">${labels.map((l) => `<option${l === label ? " selected" : ""}>${l}</option>`).join("")}</select></div>
+        <select id="bloc-label" aria-label="Bloc">${labels.map((l) => `<option value="${l}"${l === label ? " selected" : ""}>${l}${created.has(l) ? "" : " · nouveau"}</option>`).join("")}</select></div>
+      <p class="bloc-mode ${isNew ? "is-new" : ""}">${isNew
+        ? `<b>Nouveau bloc ${label}</b> — renseigne le cadre et les objectifs, puis valide en bas. Rien n'est publié avant.`
+        : `<b>Bloc ${label} déjà créé</b> — tes modifications sont gardées en brouillon ; « Mettre à jour » en bas les publie.`}</p>
       <div class="bloc-steps" id="bloc-steps">${stepNames.map((n, i) => `<span class="bloc-step${prog.done[i] ? " done" : ""}">${prog.done[i] ? "✓ " : ""}${n}</span>`).join("")}</div>
       <p id="bloc-save-status" class="muted small">Tout s'enregistre au fil de l'eau.</p>
     </section>
@@ -320,8 +333,12 @@ async function drawBloc(root, token) {
 
     <section class="card">
       <h2>Objectifs</h2>
-      <textarea data-field="objectif" rows="5" placeholder="Une ligne par objectif, mesurable">${escapeHtmlText(s.objectif || "")}</textarea>
-      ${sp.quick.length ? `<p class="muted small" style="margin-top:8px">Ajouter d'un tap :</p><div class="bloc-chips" id="bloc-quick">${sp.quick.map((q, i) => `<button type="button" class="suggestion-chip" data-quick="${i}">+ ${escapeHtmlText(q)}</button>`).join("")}</div>` : ""}
+      <p class="muted small">Par ordre de priorité (3 à 5 idéalement). Les objectifs de <b>charge</b> et de <b>régularité</b> sont suivis automatiquement dans Plan › Bloc.</p>
+      <ol class="bloc-goal-list" id="bloc-goal-list"></ol>
+      <div id="bloc-goal-editor"></div>
+      <button type="button" class="primary-button ghost" id="bloc-goal-add">＋ Ajouter un objectif</button>
+      <textarea data-field="objectif" hidden>${escapeHtmlText(s.objectif || "")}</textarea>
+      ${sp.quick.length ? `<p class="bloc-chat-label">Suggestions d'après tes données</p><div class="bloc-chips" id="bloc-quick">${sp.quick.map((q, i) => `<button type="button" class="suggestion-chip" data-quick="${i}">+ ${escapeHtmlText(q)}</button>`).join("")}</div>` : ""}
       <h3 class="bloc-sub">Qualités à développer</h3>
       <p class="muted small">Touche dans l'ordre de priorité (re-touche pour retirer).</p>
       <div class="bloc-chips">${chips}</div>
@@ -360,12 +377,127 @@ async function drawBloc(root, token) {
 
     <section class="card">
       <h2>Valider</h2>
-      <p class="muted small">Crée <code>${blockPath(label)}</code> : le bloc que le coach et Plan › Bloc liront.</p>
-      <button type="button" class="primary-button" id="bloc-create">✅ Créer le bloc ${label}</button>
+      <p class="muted small">${isNew ? "Publie le bloc" : "Met à jour le bloc"} : c'est ce que le coach et Plan › Bloc liront.</p>
+      <button type="button" class="primary-button" id="bloc-create">${isNew ? `✅ Créer le bloc ${label}` : `✅ Mettre à jour ${label}`}</button>
       <p id="bloc-create-status" class="muted small"></p>
     </section>`;
 
-  wireBloc(root, token, { label, s, feelings, coachMessagesCount: (coach.messages || []).length, suggestions, matches, quick: sp.quick });
+  const bests = {};
+  for (const l of GOAL_LIFTS) {
+    const rb = l.key && ((sum.strength_trajectory || {})[l.key] || {}).recent_best;
+    if (rb && rb.load != null) bests[l.name] = rb.load;
+  }
+  wireBloc(root, token, { label, s, feelings, coachMessagesCount: (coach.messages || []).length, suggestions, matches, quick: sp.quick, bests });
+}
+
+// ---------------------------------------------------------------- objectifs
+const KIND_META = {
+  lift: { icon: "🏋️", title: "Charge sur un exercice", desc: "Ex. Back Squat 108 → 112 kg. Jauge et rythme suivis automatiquement." },
+  frequency: { icon: "📅", title: "Régularité", desc: "Ex. 2 séances de muscu par semaine, sans douleur lombaire." },
+  other: { icon: "✍️", title: "Autre objectif", desc: "Technique, cardio, habitude… En texte libre, non chiffré." },
+};
+
+function goalItemHTML(g, i, n) {
+  let title;
+  let sub = "";
+  if (g.kind === "lift") {
+    title = escapeHtmlText(g.exercise);
+    sub = `${fmtKg(g.start)} → <b>${fmtKg(g.target)} kg</b>${g.note ? ` · ${escapeHtmlText(g.note)}` : ""}`;
+  } else if (g.kind === "frequency") {
+    title = `${g.perWeek} séance${g.perWeek > 1 ? "s" : ""} de muscu / semaine`;
+    sub = g.painZone ? `sans douleur ${escapeHtmlText(g.painZone)}` : "";
+  } else {
+    title = escapeHtmlText(g.text);
+  }
+  return `
+    <li class="bloc-goal-item kind-${g.kind}">
+      <span class="bloc-goal-rank">${i + 1}</span>
+      <div class="bloc-goal-main">
+        <div class="bloc-goal-title"><span aria-hidden="true">${KIND_META[g.kind].icon}</span> ${title}</div>
+        ${sub ? `<div class="bloc-goal-sub">${sub}</div>` : ""}
+        ${isTracked(g) ? `<span class="bloc-goal-tag">📈 Suivi auto</span>` : ""}
+      </div>
+      <div class="bloc-goal-actions">
+        ${i > 0 ? `<button type="button" class="icon-btn" data-goal-up="${i}" aria-label="Monter en priorité" title="Monter en priorité">↑</button>` : ""}
+        <button type="button" class="icon-btn" data-goal-edit="${i}" aria-label="Modifier" title="Modifier">✎</button>
+        <button type="button" class="icon-btn" data-goal-del="${i}" aria-label="Supprimer" title="Supprimer">✕</button>
+      </div>
+    </li>`;
+}
+
+function goalTypePickerHTML() {
+  return `
+    <div class="bloc-goal-form">
+      <p class="bloc-chat-label">Quel type d'objectif ?</p>
+      <div class="bloc-goal-kinds">${Object.entries(KIND_META).map(([k, m]) => `
+        <button type="button" class="bloc-goal-kind" data-goal-kind="${k}">
+          <span class="bloc-goal-kind-icon" aria-hidden="true">${m.icon}</span>
+          <span><b>${m.title}</b><small>${m.desc}</small></span>
+        </button>`).join("")}</div>
+      <button type="button" class="link-button" data-goal-cancel>Annuler</button>
+    </div>`;
+}
+
+function goalFormHTML(g, editing, bests) {
+  let fields;
+  if (g.kind === "lift") {
+    const known = GOAL_LIFTS.some((l) => l.name === g.exercise);
+    const opts = [...GOAL_LIFTS.map((l) => l.name), ...(known ? [] : [g.exercise])];
+    const best = bests[g.exercise];
+    fields = `
+      <label for="goal-exercise">Exercice</label>
+      <select id="goal-exercise">${opts.map((o) => `<option${o === g.exercise ? " selected" : ""}>${escapeHtmlText(o)}</option>`).join("")}</select>
+      <div class="bloc-grid-2">
+        <div><label for="goal-start">Départ (kg)</label><input id="goal-start" type="number" inputmode="decimal" step="0.5" min="0" value="${escapeAttr(String(g.start ?? ""))}"></div>
+        <div><label for="goal-target">Cible (kg)</label><input id="goal-target" type="number" inputmode="decimal" step="0.5" min="0" value="${escapeAttr(String(g.target ?? ""))}" placeholder="ex. ${best != null ? fmtKg(Math.round((best * 1.05) / 2.5) * 2.5) : "100"}"></div>
+      </div>
+      <p class="muted small" id="goal-start-hint">${best != null ? `Meilleure charge récente : ${fmtKg(best)} kg` : ""}</p>
+      <label for="goal-note">Précision <span class="muted">(facultatif)</span></label>
+      <input id="goal-note" type="text" value="${escapeAttr(g.note || "")}" placeholder="ex. 4RM, RIR 1-2">`;
+  } else if (g.kind === "frequency") {
+    fields = `
+      <div class="bloc-grid-2">
+        <div><label for="goal-per-week">Séances de muscu / semaine</label><input id="goal-per-week" type="number" inputmode="numeric" min="1" max="7" step="1" value="${escapeAttr(String(g.perWeek ?? 2))}"></div>
+        <div><label for="goal-pain">Sans douleur <span class="muted">(facultatif)</span></label>
+          <select id="goal-pain"><option value="">—</option>${GOAL_PAIN_ZONES.map((z) => `<option${z === g.painZone ? " selected" : ""}>${z}</option>`).join("")}${g.painZone && !GOAL_PAIN_ZONES.includes(g.painZone) ? `<option selected>${escapeHtmlText(g.painZone)}</option>` : ""}</select></div>
+      </div>`;
+  } else {
+    fields = `
+      <label for="goal-text">Objectif</label>
+      <textarea id="goal-text" rows="3" placeholder="ex. Clean : technique validée par les coachs de la salle">${escapeHtmlText(g.text || "")}</textarea>`;
+  }
+  return `
+    <div class="bloc-goal-form" data-kind="${g.kind}">
+      <p class="bloc-chat-label">${KIND_META[g.kind].icon} ${KIND_META[g.kind].title}</p>
+      ${fields}
+      <p class="small error-text" id="goal-error"></p>
+      <div class="bloc-goal-form-actions">
+        <button type="button" class="primary-button" data-goal-save>${editing ? "Enregistrer" : "Ajouter"}</button>
+        <button type="button" class="link-button" data-goal-cancel>Annuler</button>
+      </div>
+    </div>`;
+}
+
+/** Formulaire → objectif, ou message d'erreur. */
+function readGoalForm(editor, prev) {
+  const kind = editor.querySelector(".bloc-goal-form").dataset.kind;
+  if (kind === "lift") {
+    const start = Number(String(editor.querySelector("#goal-start").value).replace(",", "."));
+    const target = Number(String(editor.querySelector("#goal-target").value).replace(",", "."));
+    if (!(start > 0) || !(target > 0)) return "Indique la charge de départ et la cible.";
+    if (target <= start) return "La cible doit être au-dessus du départ.";
+    const note = editor.querySelector("#goal-note").value.trim().replace(/[()]/g, "");
+    return { kind, exercise: editor.querySelector("#goal-exercise").value, start, target, note };
+  }
+  if (kind === "frequency") {
+    const perWeek = Number(editor.querySelector("#goal-per-week").value);
+    if (!(perWeek >= 1)) return "Au moins une séance par semaine.";
+    return { kind, perWeek, painZone: editor.querySelector("#goal-pain").value, text: prev && prev.kind === "frequency" ? prev.text : "" };
+  }
+  const text = editor.querySelector("#goal-text").value.replace(/\s*\n\s*/g, " ").trim();
+  if (!text) return "Écris l'objectif.";
+  // Un texte libre qui a la forme d'un objectif chiffré est suivi quand même.
+  return parseGoalLine(text);
 }
 
 function readSections(root, s) {
@@ -423,6 +555,79 @@ function wireBloc(root, token, ctx) {
   };
   refreshDerived();
 
+  // Objectifs structurés (ADR-0123) : la liste est rendue depuis le textarea
+  // caché `objectif` (une ligne par objectif), qui reste la source de vérité.
+  const goalsTa = root.querySelector('[data-field="objectif"]');
+  const goalList = root.querySelector("#bloc-goal-list");
+  const editor = root.querySelector("#bloc-goal-editor");
+  const addBtn = root.querySelector("#bloc-goal-add");
+  const setGoals = (goals) => {
+    goalsTa.value = textFromGoals(goals);
+    renderGoals();
+    refreshDerived();
+    scheduleSave();
+  };
+  function renderGoals() {
+    const goals = goalsFromText(goalsTa.value);
+    goalList.innerHTML = goals.length ? goals.map((g, i) => goalItemHTML(g, i, goals.length)).join("")
+      : `<li class="bloc-goal-empty muted small">Aucun objectif pour l'instant. Ajoute-en un, ou touche une suggestion ci-dessous.</li>`;
+    goalList.querySelectorAll("[data-goal-del]").forEach((b) => b.addEventListener("click", () => {
+      const gs = goalsFromText(goalsTa.value);
+      gs.splice(Number(b.dataset.goalDel), 1);
+      closeEditor();
+      setGoals(gs);
+    }));
+    goalList.querySelectorAll("[data-goal-up]").forEach((b) => b.addEventListener("click", () => {
+      const i = Number(b.dataset.goalUp);
+      const gs = goalsFromText(goalsTa.value);
+      [gs[i - 1], gs[i]] = [gs[i], gs[i - 1]];
+      closeEditor();
+      setGoals(gs);
+    }));
+    goalList.querySelectorAll("[data-goal-edit]").forEach((b) => b.addEventListener("click", () => {
+      const i = Number(b.dataset.goalEdit);
+      openEditor(i, goalsFromText(goalsTa.value)[i]);
+    }));
+  }
+  function closeEditor() {
+    editor.innerHTML = "";
+    addBtn.hidden = false;
+  }
+  function openEditor(index, goal) {
+    addBtn.hidden = true;
+    editor.innerHTML = goal ? goalFormHTML(goal, index != null, ctx.bests) : goalTypePickerHTML();
+    editor.querySelectorAll("[data-goal-kind]").forEach((b) => b.addEventListener("click", () => {
+      const kind = b.dataset.goalKind;
+      const fresh = kind === "lift" ? { kind, exercise: GOAL_LIFTS[0].name, start: ctx.bests[GOAL_LIFTS[0].name] ?? "", target: "", note: "" }
+        : kind === "frequency" ? { kind, perWeek: 2, painZone: "" } : { kind, text: "" };
+      openEditor(index, fresh);
+    }));
+    const cancel = editor.querySelector("[data-goal-cancel]");
+    if (cancel) cancel.addEventListener("click", closeEditor);
+    const ex = editor.querySelector("#goal-exercise");
+    if (ex) ex.addEventListener("change", () => {
+      const st = editor.querySelector("#goal-start");
+      if (ctx.bests[ex.value] != null) st.value = ctx.bests[ex.value];
+      const hint = editor.querySelector("#goal-start-hint");
+      if (hint) hint.textContent = ctx.bests[ex.value] != null ? `Meilleure charge récente : ${fmtKg(ctx.bests[ex.value])} kg` : "";
+    });
+    const save = editor.querySelector("[data-goal-save]");
+    if (save) save.addEventListener("click", () => {
+      const err = editor.querySelector("#goal-error");
+      const g = readGoalForm(editor, goal);
+      if (typeof g === "string") { err.textContent = g; return; }
+      const gs = goalsFromText(goalsTa.value);
+      if (index != null) gs[index] = g; else gs.push(g);
+      closeEditor();
+      setGoals(gs);
+    });
+    const first = editor.querySelector("input, select, textarea, button");
+    if (first) first.focus();
+    editor.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  addBtn.addEventListener("click", () => openEditor(null, null));
+  renderGoals();
+
   // Événement visé (prochain match) : remplit « fin » et cale la durée.
   root.querySelectorAll("[data-event]").forEach((chip) => chip.addEventListener("click", () => {
     const m = ctx.matches[Number(chip.dataset.event)];
@@ -442,6 +647,7 @@ function wireBloc(root, token, ctx) {
     const ta = root.querySelector('[data-field="objectif"]');
     if (!ta.value.includes(text)) ta.value = (ta.value.trim() ? ta.value.trim() + "\n" : "") + text;
     chip.classList.add("active");
+    renderGoals();
     refreshDerived();
     scheduleSave();
   }));
@@ -475,6 +681,8 @@ function wireBloc(root, token, ctx) {
     const el = root.querySelector(`[data-field="${sug.section}"]`);
     if (!el) return;
     el.value = sug.text;
+    if (sug.section === "objectif") renderGoals();
+    refreshDerived();
     scheduleSave();
     btn.textContent = "Appliqué ✓";
     btn.disabled = true;

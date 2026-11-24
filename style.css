@@ -3272,3 +3272,36 @@ body.live-open { overflow: hidden; }
 .ov-done.done { color: #1E7A46; font-weight: 600; }
 .ov-done.partial { color: var(--kind-muscu-ink); font-weight: 600; }
 .ov-flash { outline: 2px solid var(--gold); transition: outline-color 1s; }
+
+/* Forge de bloc — objectifs structurés et point d'entrée « Préparer B<n> » (ADR-0123) */
+.bloc-mode { margin: 0 0 8px; padding: 8px 12px; border-radius: var(--radius-sm); background: var(--surface-2); font-size: 0.88rem; line-height: 1.4; }
+.bloc-mode.is-new { background: var(--status-ok-pale); color: var(--status-ok-text); }
+.bloc-goal-list { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.bloc-goal-empty { padding: 10px 0; }
+.bloc-goal-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 8px 10px 10px; border-radius: 14px; background: var(--surface-2); }
+.bloc-goal-rank { flex-shrink: 0; width: 24px; height: 24px; border-radius: 12px; display: flex; align-items: center; justify-content: center; background: var(--green); color: white; font-size: 0.78rem; font-weight: 700; }
+.bloc-goal-main { flex: 1; min-width: 0; }
+.bloc-goal-title { font-weight: 700; font-size: 0.95rem; line-height: 1.35; overflow-wrap: anywhere; }
+.bloc-goal-item.kind-other .bloc-goal-title { font-weight: 600; }
+.bloc-goal-sub { margin-top: 2px; font-size: 0.88rem; color: var(--muted); }
+.bloc-goal-tag { display: inline-block; margin-top: 6px; padding: 1px 8px; border-radius: 10px; background: var(--status-ok-pale); color: var(--status-ok-text); font-size: 0.72rem; font-weight: 700; }
+.bloc-goal-actions { flex-shrink: 0; display: flex; gap: 2px; }
+.bloc-goal-actions .icon-btn { width: 36px; height: 36px; border: none; border-radius: 18px; background: transparent; color: var(--muted); font-size: 1rem; cursor: pointer; }
+.bloc-goal-actions .icon-btn:active { background: var(--border); }
+#bloc-goal-add { width: 100%; }
+.bloc-goal-form { margin: 4px 0 10px; padding: 12px; border: 1.5px solid var(--green); border-radius: 14px; }
+.bloc-goal-form .bloc-chat-label { margin-top: 0; }
+.bloc-goal-kinds { display: flex; flex-direction: column; gap: 8px; }
+.bloc-goal-kind { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 12px; background: var(--card-bg); color: var(--text); text-align: left; cursor: pointer; }
+.bloc-goal-kind:active { background: var(--surface-2); }
+.bloc-goal-kind-icon { font-size: 1.4rem; }
+.bloc-goal-kind b { display: block; font-size: 0.95rem; }
+.bloc-goal-kind small { display: block; margin-top: 2px; color: var(--muted); font-size: 0.8rem; line-height: 1.3; }
+.bloc-goal-form-actions { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
+.bloc-goal-form-actions .primary-button { flex: 1; margin: 0; }
+.bloc-next { margin-bottom: 14px; padding: 16px 18px; border: 2px solid var(--gold); }
+.bloc-next h3 { margin: 0 0 4px; font-family: var(--font-display); font-size: 1.1rem; }
+.bloc-next p { margin: 0 0 12px; font-size: 0.9rem; line-height: 1.4; color: var(--muted); }
+.bloc-next .primary-button { width: 100%; margin: 0; }
+.bloc-pick.status-draft { border-style: dashed; }
+.bloc-actions { display: flex; flex-direction: column; gap: 8px; }

@@ -29,8 +29,9 @@ function daysBetween(a, b) {
  * il existe. Les anciens blocs (écrits à la main) n'en ont pas : leur statut
  * vient des étiquettes de séances (`currentBlockLabel`). */
 export async function loadBlocks(today = todayISO()) {
-  const [entries, labelFromSessions] = await Promise.all([
+  const [entries, draftEntries, labelFromSessions] = await Promise.all([
     ghListDir("data/blocks").catch(() => []),
+    ghListDir("data/blocks/drafts").catch(() => []),
     currentBlockLabel().catch(() => null),
   ]);
   const labels = entries
@@ -38,6 +39,13 @@ export async function loadBlocks(today = todayISO()) {
     .filter(Boolean)
     .sort((a, b) => Number(a[1]) - Number(b[1]))
     .map((m) => `B${m[1]}`);
+  // Brouillons de la Forge sans B<n>.md : bloc en préparation (ADR-0123).
+  const drafted = draftEntries
+    .map((e) => /^B(\d+)\.json$/.exec(e.name || ""))
+    .filter(Boolean)
+    .map((m) => `B${m[1]}`)
+    .filter((l) => !labels.includes(l))
+    .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
   const sessionNum = labelFromSessions ? Number(labelFromSessions.slice(1)) : null;
   const blocks = await Promise.all(labels.map(async (label) => {
     let start = null;
@@ -65,6 +73,7 @@ export async function loadBlocks(today = todayISO()) {
     }
     return { label, start, end, weeks, week, status, hasDraft: !!draft };
   }));
+  for (const label of drafted) blocks.push({ label, start: null, end: null, weeks: null, week: null, status: "draft", hasDraft: true });
   // Deux blocs « en cours » (un ancien bloc sans dates + un bloc daté qui a
   // démarré) : le bloc daté l'emporte, l'ancien est terminé.
   const datedCurrent = blocks.find((b) => b.status === "current" && b.start);
@@ -75,6 +84,8 @@ export async function loadBlocks(today = todayISO()) {
 /** Bloc affiché par défaut : celui demandé (Forge de bloc → « Voir »), sinon
  * le bloc en cours, sinon le prochain à venir, sinon le dernier. */
 export function defaultBlock(blocks, requested = null) {
+  const real = blocks.filter((b) => b.status !== "draft");
+  blocks = real.length ? real : blocks;
   return blocks.find((b) => b.label === requested)
     || blocks.find((b) => b.status === "current")
     || blocks.find((b) => b.status === "upcoming")
@@ -116,7 +127,35 @@ export function parseBlockMarkdown(md) {
 
 const STATUS_LABEL = { current: "En cours", upcoming: "À venir", done: "Terminé", unknown: "" };
 
+/** Bloc suivant à préparer (ADR-0123) : proposé quand le bloc en cours entre
+ * dans ses 2 dernières semaines, qu'il est terminé, ou qu'aucun bloc n'est en
+ * cours — sauf si un bloc à venir existe déjà. */
+export function nextBlockPrompt(blocks, today = todayISO()) {
+  if (blocks.some((b) => b.status === "upcoming")) return null;
+  const draft = blocks.find((b) => b.status === "draft");
+  const label = draft ? draft.label : nextLabelAfter(blocks);
+  const current = blocks.find((b) => b.status === "current");
+  if (current && current.end) {
+    const left = daysBetween(today, current.end);
+    if (left > 14 && !draft) return null;
+    return { label, hasDraft: !!draft, text: `${current.label} se termine le ${frShort(current.end)}${left >= 0 ? ` (${left <= 1 ? "demain" : `dans ${left} jours`})` : ""}. Fixe dès maintenant la durée, les objectifs et la semaine type de ${label}.` };
+  }
+  if (current && !draft) return null; // ancien bloc sans dates : pas de fin connue
+  return { label, hasDraft: !!draft, text: `Aucun bloc en cours. Fixe la durée, les objectifs et la semaine type de ${label}.` };
+}
+
+function nextBlockHTML(p) {
+  if (!p) return "";
+  return `
+    <section class="card bloc-next">
+      <h3>${p.hasDraft ? `${p.label} en préparation` : `Préparer le bloc ${p.label}`}</h3>
+      <p>${escapeHtmlText(p.text)}</p>
+      <button type="button" class="primary-button" data-forge-label="${escapeAttr(p.label)}">🎯 ${p.hasDraft ? `Reprendre ${p.label}` : `Préparer ${p.label}`}</button>
+    </section>`;
+}
+
 function chipLabel(b) {
+  if (b.status === "draft") return `${b.label} · brouillon`;
   if (b.status === "upcoming" && b.start) return `${b.label} · dès le ${frShort(b.start)}`;
   if (b.status === "current") return `${b.label} · en cours`;
   return b.label;
@@ -280,6 +319,10 @@ export function blockBodyHTML(parsed, tracks = []) {
   return html.join("");
 }
 
+function nextLabelAfter(blocks) {
+  return `B${Math.max(0, ...blocks.map((b) => Number(b.label.slice(1))).filter((n) => n > 0)) + 1}`;
+}
+
 export async function renderBlockTab(container, token) {
   container.innerHTML = skeletonHTML();
   const today = todayISO();
@@ -299,11 +342,21 @@ export async function renderBlockTab(container, token) {
   let tracks = [];
   try { tracks = ((JSON.parse(summaryFile.content).block_progress || {})[selected.label] || {}).objectives || []; } catch (_) { tracks = []; }
   const parsed = parseBlockMarkdown(file ? file.content : "");
+  const next = nextBlockPrompt(blocks, today);
+  const pickable = blocks.filter((b) => b.status !== "draft");
   container.innerHTML = `
-    ${blocks.length > 1 ? `<div class="bloc-picker" role="tablist">${blocks.map((b) => `<button type="button" role="tab" class="bloc-pick status-${b.status}${b === selected ? " active" : ""}" aria-selected="${b === selected}" data-block="${escapeAttr(b.label)}">${escapeHtmlText(chipLabel(b))}</button>`).join("")}</div>` : ""}
+    ${nextBlockHTML(next)}
+    ${pickable.length > 1 ? `<div class="bloc-picker" role="tablist">${pickable.map((b) => `<button type="button" role="tab" class="bloc-pick status-${b.status}${b === selected ? " active" : ""}" aria-selected="${b === selected}" data-block="${escapeAttr(b.label)}">${escapeHtmlText(chipLabel(b))}</button>`).join("")}</div>` : ""}
     ${heroHTML(selected, parsed, today)}
     ${file ? blockBodyHTML(parsed, tracks) : `<section class="card"><p class="muted">Fichier du bloc introuvable.</p></section>`}
-    <button type="button" class="week-adjust-button" data-open-forge-bloc>${selected.hasDraft ? `Modifier ${selected.label} dans la Forge de bloc` : "Ouvrir la Forge de bloc"}</button>`;
+    <div class="bloc-actions">
+      <button type="button" class="week-adjust-button" data-open-forge-bloc>${selected.hasDraft ? `Modifier ${selected.label}` : "Ouvrir la Forge de bloc"}</button>
+      ${next ? "" : `<button type="button" class="week-adjust-button" data-forge-label="${escapeAttr(nextLabelAfter(blocks))}">＋ Nouveau bloc ${escapeHtmlText(nextLabelAfter(blocks))}</button>`}
+    </div>`;
+  container.querySelectorAll("[data-forge-label]").forEach((btn) => btn.addEventListener("click", () => {
+    state.forgeBlocLabel = btn.dataset.forgeLabel;
+    showView("forge-bloc");
+  }));
   container.querySelectorAll("[data-block]").forEach((btn) => btn.addEventListener("click", () => {
     state.blockTabLabel = btn.dataset.block;
     renderBlockTab(container, token).catch(() => {});
