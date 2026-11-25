@@ -11,6 +11,7 @@ import { saveSession } from "../session/session-form.js";
 import { postUserMessage, dispatchStatusNote } from "./chat.js";
 import { loadPendingSkeletonInto, forgeProposalDayToSession } from "../forge-proposal.js";
 import { loadClubConfig, saveClubWeekdays } from "../club-training.js";
+import { mountWeekNote, noteForRequest } from "../forge-notes.js";
 import { loadPlayedMatchDates, primerKind, addPrimer } from "../primer.js";
 
 // ---- Forge : planifier une semaine (n'importe laquelle) séance par séance ----
@@ -22,6 +23,9 @@ import { loadPlayedMatchDates, primerKind, addPrimer } from "../primer.js";
 function forgeSkeletonRequestText(monday) {
   return `[Forge] Squelette IA pour la semaine du ${monday} : propose la meilleure structure (types de séance et exercices, jour par jour) en te basant sur l'historique d'entraînement, les objectifs de trajectoire et le bloc validé en cours — pas une copie de la semaine précédente.`;
 }
+
+/** Zone « Consignes pour le coach » de la semaine affichée (docs/adr/0124). */
+let weekNote = null;
 
 export async function renderForge(token) {
   if (!state.forgeMonday) state.forgeMonday = addDaysISO(mondayOfWeek(todayISO()), 7);
@@ -35,6 +39,7 @@ export async function renderForge(token) {
     renderForgeContent(state.renderToken).catch(() => {});
   });
   setupClubDays().catch(() => {});
+  weekNote = mountWeekNote(document.getElementById("forge-week-notes"), () => state.forgeMonday);
   document.getElementById("forge-bloc-button").addEventListener("click", () => showView("forge-bloc"));
   bindBlockReferenceToggle(document.getElementById("forge-block-toggle"), document.getElementById("forge-block-content"));
 
@@ -44,7 +49,8 @@ export async function renderForge(token) {
     btn.disabled = true;
     statusEl.textContent = "Envoi…";
     try {
-      const dispatch = await postUserMessage(forgeSkeletonRequestText(state.forgeMonday));
+      await weekNote.flush(); // la note saisie à l'instant part avec la demande
+      const dispatch = await postUserMessage(forgeSkeletonRequestText(state.forgeMonday) + noteForRequest(weekNote.value()));
       statusEl.textContent = dispatch.dispatched
         ? "Envoyé ✓ — le coach prépare une proposition, elle apparaît ici automatiquement (quelques minutes)."
         : `Envoyé ✓ — elle apparaîtra ici automatiquement.${dispatchStatusNote(dispatch)}`;
@@ -210,7 +216,7 @@ async function handleForgePrimer(btn) {
   try {
     const session = await addPrimer(date);
     if (!session) { btn.disabled = false; btn.textContent = "⚡ Ajouter un primer"; return; }
-    row.outerHTML = forgeDayRowHTML(date, dayIndex, { hasSession: true, type: "musculation", name: session.name, hasExecuted: false, isPrimer: true }, todayISO());
+    row.outerHTML = forgeDayRowHTML(date, dayIndex, { ...(forgeSummaries.get(date) || {}), hasSession: true, type: "musculation", name: session.name, hasExecuted: false, isPrimer: true }, todayISO());
     bindForgeDayRowEvents(document.querySelector(`.forge-day-row[data-date="${date}"]`));
   } catch (err) {
     btn.disabled = false;
@@ -221,6 +227,7 @@ async function handleForgePrimer(btn) {
 async function renderForgeContent(token) {
   const monday = state.forgeMonday;
   document.getElementById("forge-week-label").textContent = `Semaine du ${formatFrDate(monday)}`;
+  if (weekNote) weekNote.load(monday).catch(() => {});
   document.getElementById("forge-days").innerHTML = skeletonHTML();
 
   const dates = Array.from({ length: 7 }, (_, i) => addDaysISO(monday, i));

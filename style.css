@@ -3328,3 +3328,9 @@ body.live-open { overflow: hidden; }
 /* 2e séance dans les listes hebdo (ADR-0123) */
 .week-table-second td { padding-top: 0; font-size: 0.88rem; }
 .history-second { margin-left: 14px; }
+
+/* Consignes de la semaine pour le coach (ADR-0124) */
+.forge-notes { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; margin-bottom: 10px; }
+.forge-notes summary { cursor: pointer; }
+.forge-notes-input { width: 100%; box-sizing: border-box; margin-top: 8px; padding: 10px; font: inherit; font-size: 0.92rem; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; resize: vertical; }
+.forge-notes-status { margin: 6px 0 0; }
